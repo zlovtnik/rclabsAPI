@@ -38,5 +38,24 @@ set_target_properties(ETLPlusBackend PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 
+# Create necessary directories
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/bin/logs)
+
 # Copy config file to build directory
 configure_file(${CMAKE_SOURCE_DIR}/config/config.json ${CMAKE_BINARY_DIR}/bin/config.json COPYONLY)
+
+# Create a custom target to copy all config files
+add_custom_target(copy_configs ALL
+    COMMENT "Copying configuration files to build directory"
+)
+
+# Add commands to copy any additional config files if they exist
+file(GLOB CONFIG_FILES "${CMAKE_SOURCE_DIR}/config/*")
+foreach(CONFIG_FILE ${CONFIG_FILES})
+    get_filename_component(CONFIG_FILENAME ${CONFIG_FILE} NAME)
+    add_custom_command(TARGET copy_configs PRE_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CONFIG_FILE} ${CMAKE_BINARY_DIR}/bin/${CONFIG_FILENAME}
+        COMMENT "Copying ${CONFIG_FILENAME}"
+    )
+endforeach()
