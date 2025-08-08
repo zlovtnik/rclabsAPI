@@ -1,6 +1,7 @@
 #include "etl_job_manager.hpp"
 #include "data_transformer.hpp"
 #include "database_manager.hpp"
+#include "logger.hpp"
 #include <iostream>
 #include <random>
 #include <sstream>
@@ -35,7 +36,7 @@ std::string ETLJobManager::scheduleJob(const ETLJobConfig& config) {
     
     jobCondition_.notify_one();
     
-    std::cout << "Scheduled job: " << job->jobId << std::endl;
+    ETL_LOG_INFO("Scheduled job: " + job->jobId + " (type: " + std::to_string(static_cast<int>(job->type)) + ")");
     return job->jobId;
 }
 
@@ -97,12 +98,14 @@ std::vector<std::shared_ptr<ETLJob>> ETLJobManager::getJobsByStatus(JobStatus st
 
 void ETLJobManager::start() {
     if (running_) {
+        ETL_LOG_WARN("ETL Job Manager is already running");
         return;
     }
     
+    ETL_LOG_INFO("Starting ETL Job Manager");
     running_ = true;
     workerThread_ = std::thread(&ETLJobManager::workerLoop, this);
-    std::cout << "ETL Job Manager started" << std::endl;
+    ETL_LOG_INFO("ETL Job Manager started successfully");
 }
 
 void ETLJobManager::stop() {

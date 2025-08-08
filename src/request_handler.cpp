@@ -1,3 +1,4 @@
+#include "logger.hpp"
 #include "request_handler.hpp"
 #include "database_manager.hpp"
 #include "auth_manager.hpp"
@@ -11,44 +12,62 @@ RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
     : dbManager_(dbManager)
     , authManager_(authManager)
     , etlManager_(etlManager) {
+    REQ_LOG_INFO("RequestHandler created with components - DB: " + std::string(dbManager ? "valid" : "null") +
+                 ", Auth: " + std::string(authManager ? "valid" : "null") +
+                 ", ETL: " + std::string(etlManager ? "valid" : "null"));
 }
 
 template<class Body, class Allocator>
 http::response<http::string_body> 
 RequestHandler::handleRequest(http::request<Body, http::basic_fields<Allocator>>&& req) {
-    // Convert to string_body if needed
-    http::request<http::string_body> string_req;
-    string_req.method(req.method());
-    string_req.target(req.target());
-    string_req.version(req.version());
-    string_req.keep_alive(req.keep_alive());
+    REQ_LOG_DEBUG("RequestHandler::handleRequest() - Received request: " + std::string(req.method_string()) + " " + std::string(req.target()));
     
-    // Copy headers
-    for (auto const& field : req) {
-        string_req.set(field.name(), field.value());
-    }
-    
-    // Copy body if it exists
-    if constexpr (std::is_same_v<Body, http::string_body>) {
-        string_req.body() = req.body();
-    }
-    
-    string_req.prepare_payload();
-    
-    std::string target = std::string(string_req.target());
-    
-    // Route requests
-    if (target.starts_with("/api/auth")) {
-        return handleAuth(string_req);
-    } else if (target.starts_with("/api/jobs")) {
-        return handleETLJobs(string_req);
-    } else if (target.starts_with("/api/monitor")) {
-        return handleMonitoring(string_req);
-    } else if (target == "/api/health") {
-        return createSuccessResponse("{\"status\":\"healthy\",\"timestamp\":\"" + 
-                                   std::to_string(std::time(nullptr)) + "\"}");
-    } else {
-        return createErrorResponse(http::status::not_found, "Endpoint not found");
+    try {
+        // Convert to string_body if needed
+        http::request<http::string_body> string_req;
+        string_req.method(req.method());
+        string_req.target(req.target());
+        string_req.version(req.version());
+        string_req.keep_alive(req.keep_alive());
+        
+        REQ_LOG_DEBUG("RequestHandler::handleRequest() - Converting request headers");
+        // Copy headers
+        for (auto const& field : req) {
+            string_req.set(field.name(), field.value());
+        }
+        
+        REQ_LOG_DEBUG("RequestHandler::handleRequest() - Converting request body");
+        // Copy body if it exists
+        if constexpr (std::is_same_v<Body, http::string_body>) {
+            string_req.body() = req.body();
+        }
+        
+        string_req.prepare_payload();
+        
+        std::string target = std::string(string_req.target());
+        REQ_LOG_INFO("RequestHandler::handleRequest() - Routing request to: " + target);
+        
+        // Route requests
+        if (target.starts_with("/api/auth")) {
+            REQ_LOG_DEBUG("RequestHandler::handleRequest() - Routing to auth handler");
+            return handleAuth(string_req);
+        } else if (target.starts_with("/api/jobs")) {
+            REQ_LOG_DEBUG("RequestHandler::handleRequest() - Routing to ETL jobs handler");
+            return handleETLJobs(string_req);
+        } else if (target.starts_with("/api/monitor")) {
+            REQ_LOG_DEBUG("RequestHandler::handleRequest() - Routing to monitoring handler");
+            return handleMonitoring(string_req);
+        } else if (target == "/api/health" || target == "/api/status") {
+            REQ_LOG_DEBUG("RequestHandler::handleRequest() - Routing to health/status handler");
+            return createSuccessResponse("{\"status\":\"healthy\",\"timestamp\":\"" + 
+                                       std::to_string(std::time(nullptr)) + "\"}");
+        } else {
+            REQ_LOG_WARN("RequestHandler::handleRequest() - Unknown endpoint: " + target);
+            return createErrorResponse(http::status::not_found, "Not Found");
+        }
+    } catch (const std::exception& e) {
+        REQ_LOG_ERROR("RequestHandler::handleRequest() - Exception: " + std::string(e.what()));
+        return createErrorResponse(http::status::internal_server_error, "Internal Server Error");
     }
 }
 

@@ -81,6 +81,16 @@ private:
 #define ETL_LOG_WARN(message) LOG_WARN("ETLJobManager", message)
 #define ETL_LOG_ERROR(message) LOG_ERROR("ETLJobManager", message)
 
+#define REQ_LOG_DEBUG(message) LOG_DEBUG("RequestHandler", message)
+#define REQ_LOG_INFO(message) LOG_INFO("RequestHandler", message)
+#define REQ_LOG_WARN(message) LOG_WARN("RequestHandler", message)
+#define REQ_LOG_ERROR(message) LOG_ERROR("RequestHandler", message)
+
+#define TRANSFORM_LOG_DEBUG(message) LOG_DEBUG("DataTransformer", message)
+#define TRANSFORM_LOG_INFO(message) LOG_INFO("DataTransformer", message)
+#define TRANSFORM_LOG_WARN(message) LOG_WARN("DataTransformer", message)
+#define TRANSFORM_LOG_ERROR(message) LOG_ERROR("DataTransformer", message)
+
 #define TRANSFORM_LOG_DEBUG(message) LOG_DEBUG("DataTransformer", message)
 #define TRANSFORM_LOG_INFO(message) LOG_INFO("DataTransformer", message)
 #define TRANSFORM_LOG_WARN(message) LOG_WARN("DataTransformer", message)

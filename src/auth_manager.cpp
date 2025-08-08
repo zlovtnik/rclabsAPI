@@ -1,4 +1,5 @@
 #include "auth_manager.hpp"
+#include "logger.hpp"
 #include <iostream>
 #include <random>
 #include <sstream>
@@ -6,15 +7,19 @@
 #include <algorithm>
 
 AuthManager::AuthManager() {
+    AUTH_LOG_INFO("Initializing authentication manager");
     // Create a default admin user for testing
     createUser("admin", "admin@etlplus.com", "admin123");
+    AUTH_LOG_DEBUG("Authentication manager initialization completed");
 }
 
 bool AuthManager::createUser(const std::string& username, const std::string& email, const std::string& password) {
+    AUTH_LOG_DEBUG("Creating user: " + username + " with email: " + email);
+    
     // Check if user already exists
     for (const auto& [id, user] : users_) {
         if (user->username == username || user->email == email) {
-            std::cerr << "User already exists with username or email" << std::endl;
+            AUTH_LOG_ERROR("User creation failed: user already exists with username or email");
             return false;
         }
     }
@@ -29,7 +34,7 @@ bool AuthManager::createUser(const std::string& username, const std::string& ema
     user->isActive = true;
     
     users_[user->id] = user;
-    std::cout << "Created user: " << username << " with ID: " << user->id << std::endl;
+    AUTH_LOG_INFO("Created user: " + username + " with ID: " + user->id);
     return true;
 }
 
