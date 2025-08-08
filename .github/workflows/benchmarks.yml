@@ -1,0 +1,107 @@
+name: 🔥 Performance Benchmarks
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 2 * * 0'  # Weekly on Sunday at 2 AM
+
+jobs:
+  benchmark:
+    name: 🚀 Performance Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+
+    - name: 🔧 Setup Environment
+      uses: aminya/setup-cpp@v1
+      with:
+        compiler: gcc
+        cmake: true
+        ninja: true
+
+    - name: 📦 Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libboost-all-dev \
+          libnlohmann-json3-dev \
+          libspdlog-dev \
+          libpqxx-dev \
+          wrk \
+          hyperfine
+
+    - name: 🏗️ Build with optimizations
+      run: |
+        cmake -B build \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_CXX_FLAGS="-O3 -march=native -DNDEBUG" \
+          -GNinja
+        cmake --build build --parallel $(nproc)
+
+    - name: 🐳 Start test environment
+      run: |
+        docker-compose up -d oracle-db
+        sleep 60  # Wait for Oracle to start
+
+    - name: 🏃‍♂️ Run application in background
+      run: |
+        cd build/bin && ./ETLPlusBackend &
+        sleep 10  # Wait for startup
+
+    - name: 🔥 HTTP Load Testing with wrk
+      run: |
+        wrk -t12 -c400 -d30s --latency http://localhost:8080/health > wrk-results.txt
+        cat wrk-results.txt
+
+    - name: ⚡ Micro-benchmarks
+      run: |
+        echo "### CPU Benchmarks" > benchmark-results.md
+        hyperfine --warmup 3 'curl -s http://localhost:8080/health' >> benchmark-results.md
+        
+        echo "### Memory Usage" >> benchmark-results.md
+        ps aux | grep ETLPlusBackend | grep -v grep >> benchmark-results.md
+        
+        echo "### Response Times" >> benchmark-results.md
+        for i in {1..10}; do
+          curl -w "@curl-format.txt" -o /dev/null -s http://localhost:8080/health
+        done >> benchmark-results.md
+
+    - name: 📊 Performance Report
+      run: |
+        echo "## 🚀 Performance Benchmark Results" > performance-report.md
+        echo "**Date:** $(date)" >> performance-report.md
+        echo "**Commit:** ${{ github.sha }}" >> performance-report.md
+        echo "" >> performance-report.md
+        echo "### Load Testing Results" >> performance-report.md
+        echo '```' >> performance-report.md
+        cat wrk-results.txt >> performance-report.md
+        echo '```' >> performance-report.md
+        echo "" >> performance-report.md
+        cat benchmark-results.md >> performance-report.md
+
+    - name: 📈 Upload benchmark results
+      uses: actions/upload-artifact@v4
+      with:
+        name: benchmark-results
+        path: |
+          performance-report.md
+          wrk-results.txt
+          benchmark-results.md
+
+    - name: 💬 Comment PR with results
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const report = fs.readFileSync('performance-report.md', 'utf8');
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: report
+          });

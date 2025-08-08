@@ -1,0 +1,140 @@
+name: 🏷️ Automated Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  create-release:
+    name: 🏷️ Create Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: 📝 Generate changelog
+      id: changelog
+      run: |
+        # Get the previous tag
+        PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || git rev-list --max-parents=0 HEAD)
+        
+        # Generate changelog
+        echo "## 🚀 What's New" > CHANGELOG.md
+        echo "" >> CHANGELOG.md
+        
+        # Get commits since last tag
+        git log --pretty=format:"- %s (%h)" $PREV_TAG..HEAD >> CHANGELOG.md
+        
+        echo "" >> CHANGELOG.md
+        echo "## 🔧 Technical Details" >> CHANGELOG.md
+        echo "- **Full Changelog**: [\`$PREV_TAG...${GITHUB_REF#refs/tags/}\`](https://github.com/${{ github.repository }}/compare/$PREV_TAG...${GITHUB_REF#refs/tags/})" >> CHANGELOG.md
+        echo "- **Docker Image**: \`ghcr.io/${{ github.repository }}:${GITHUB_REF#refs/tags/}\`" >> CHANGELOG.md
+
+    - name: 🏷️ Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: ETL Plus ${{ github.ref }}
+        body_path: CHANGELOG.md
+        draft: false
+        prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+
+  build-and-upload:
+    name: 🏗️ Build & Upload Assets
+    needs: create-release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            asset_name: etlplus-linux-amd64
+          - os: macos-latest
+            asset_name: etlplus-macos-amd64
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+
+    - name: 🔧 Setup Environment
+      uses: aminya/setup-cpp@v1
+      with:
+        compiler: gcc
+        cmake: true
+        ninja: true
+
+    - name: 📦 Install dependencies (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libboost-all-dev libnlohmann-json3-dev libspdlog-dev libpqxx-dev
+
+    - name: 📦 Install dependencies (macOS)
+      if: matrix.os == 'macos-latest'
+      run: |
+        brew install boost nlohmann-json spdlog libpqxx
+
+    - name: 🏗️ Build Release
+      run: |
+        cmake -B build -DCMAKE_BUILD_TYPE=Release -GNinja
+        cmake --build build --parallel $(nproc || sysctl -n hw.ncpu)
+
+    - name: 📦 Package Release
+      run: |
+        mkdir -p release
+        cp build/bin/ETLPlusBackend release/
+        cp -r config release/
+        cp README.md release/
+        cp LICENSE release/ || echo "LICENSE file not found"
+        tar -czf ${{ matrix.asset_name }}.tar.gz -C release .
+
+    - name: 🚀 Upload Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ./${{ matrix.asset_name }}.tar.gz
+        asset_name: ${{ matrix.asset_name }}.tar.gz
+        asset_content_type: application/gzip
+
+  notify-release:
+    name: 🔔 Notify Release
+    needs: [create-release, build-and-upload]
+    runs-on: ubuntu-latest
+    steps:
+    - name: 💬 Slack Notification
+      uses: 8398a7/action-slack@v3
+      with:
+        status: custom
+        custom_payload: |
+          {
+            text: "🎉 New ETL Plus Release!",
+            attachments: [{
+              color: 'good',
+              fields: [{
+                title: 'Version',
+                value: '${{ github.ref }}',
+                short: true
+              }, {
+                title: 'Repository',
+                value: '${{ github.repository }}',
+                short: true
+              }, {
+                title: 'Release Notes',
+                value: 'https://github.com/${{ github.repository }}/releases/tag/${{ github.ref }}',
+                short: false
+              }]
+            }]
+          }
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
