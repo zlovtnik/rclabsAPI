@@ -18,8 +18,8 @@ ETL Plus is a comprehensive C++ backend application for Extract, Transform, Load
 - [x] Basic compilation and execution
 
 ### 🐛 Known Issues
-- [ ] **CRITICAL**: Segmentation fault in HTTP server when handling requests
-- [ ] Config file copying not automated in CMake
+- [x] **CRITICAL**: Segmentation fault in HTTP server when handling requests
+- [x] Config file copying not automated in CMake
 - [ ] Database connections are simulated (not real PostgreSQL)
 - [ ] No proper error handling for malformed JSON requests
 - [ ] Memory management needs review
