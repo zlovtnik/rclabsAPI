@@ -20,7 +20,7 @@ ETL Plus is a comprehensive C++ backend application for Extract, Transform, Load
 ### 🐛 Known Issues
 - [x] **CRITICAL**: Segmentation fault in HTTP server when handling requests
 - [x] Config file copying not automated in CMake
-- [ ] Database connections are simulated (not real PostgreSQL)
+- [x] Database connections are simulated (not real database) - **RESOLVED**: Oracle Free Docker setup completed
 - [ ] No proper error handling for malformed JSON requests
 - [ ] Memory management needs review
 
@@ -37,9 +37,11 @@ ETL Plus is a comprehensive C++ backend application for Extract, Transform, Load
 - [ ] Memory leak detection and fixes
 
 #### 2.2 Database Integration
-- [ ] Integrate real PostgreSQL with libpqxx
+- [x] **Oracle Free Docker Setup**: Docker Compose configuration with Oracle Free 23.5.0.0
+- [x] **Database Schema**: Initial ETL Plus schema with tables (etl_jobs, etl_job_logs, users)
+- [ ] Integrate Oracle C++ libraries (OCCI or SOCI)
 - [ ] Implement connection pooling
-- [ ] Add database schema creation scripts
+- [ ] Add database schema migration scripts
 - [ ] Transaction management improvements
 - [ ] Database health checks
 
