@@ -1,0 +1,282 @@
+# ETL Plus C++ Project - .gitignore
+
+# Build directories
+build/
+bin/
+lib/
+dist/
+out/
+target/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+install_manifest.txt
+*.cmake
+!CMakeLists.txt
+
+# C++ compiled objects and libraries
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+
+# Debug files
+*.dSYM/
+*.pdb
+*.ilk
+*.map
+*.exp
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# IDE and editor files
+.vscode/
+.vs/
+.idea/
+*.vcxproj*
+*.sln
+*.suo
+*.user
+*.ncb
+*.aps
+*.plg
+*.opt
+*.clw
+*.bsc
+*.sbr
+*.tlb
+*.tli
+*.tlh
+*.tmp
+*.rsp
+*.pgc
+*.pgd
+*.meta
+
+# Code::Blocks
+*.depend
+*.layout
+*.workspace
+
+# Dev-C++
+*.dev
+
+# KDevelop
+*.kdev4
+.kdev4/
+
+# Qt Creator
+*.pro.user
+*.pro.user.*
+*.qbs.user
+*.qbs.user.*
+*.moc
+*.moc.cpp
+*.qm
+*.prl
+
+# Xcode
+*.xcodeproj/
+*.xcworkspace/
+
+# Logs and runtime files
+*.log
+logs/
+*.pid
+*.seed
+*.pid.lock
+
+# Configuration files with secrets (keep template)
+config/local.json
+config/production.json
+config/development.json
+config/*_local.json
+*.env
+.env*
+!.env.example
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Coverage reports
+coverage/
+*.gcov
+*.gcno
+*.gcda
+lcov.info
+coverage.xml
+
+# Profiling data
+gmon.out
+callgrind.out.*
+*.prof
+
+# Memory check reports
+valgrind-*.log
+*.valgrind
+
+# Static analysis reports
+cppcheck-results.xml
+clang-tidy-results.txt
+
+# Package managers
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Conan (C++ package manager)
+conanfile.txt.orig
+conaninfo.txt
+conanbuildinfo.*
+conan.lock
+
+# vcpkg
+vcpkg_installed/
+
+# Hunter
+_builds/
+
+# Documentation generated files
+docs/_build/
+docs/html/
+docs/latex/
+*.pdf
+!README.pdf
+!ROADMAP.pdf
+
+# Test results
+test-results/
+*.xml
+Testing/
+
+# Backup files
+*.bak
+*.backup
+*.old
+*.orig
+
+# Archive files
+*.zip
+*.tar
+*.tar.gz
+*.tar.bz2
+*.rar
+*.7z
+
+# System files
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# Network files
+.netrwhist
+
+# JetBrains IDEs
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Visual Studio Code
+.vscode/settings.json
+.vscode/tasks.json
+.vscode/launch.json
+.vscode/extensions.json
+.vscode/c_cpp_properties.json
+!.vscode/settings.json.example
+
+# CLion
+cmake-build-*/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Kubernetes
+*.kubeconfig
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# Local development
+local/
+tmp/
+temp/
+
+# ETL Plus specific
+data/input/*
+data/output/*
+data/temp/*
+!data/input/.gitkeep
+!data/output/.gitkeep
+!data/temp/.gitkeep
+
+# Job artifacts
+jobs/output/*
+jobs/logs/*
+!jobs/output/.gitkeep
+!jobs/logs/.gitkeep
+
+# Performance test data
+benchmarks/results/*
+!benchmarks/results/.gitkeep
+
+# SSL certificates (never commit)
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+ssl/
+certs/
+
+# API documentation generated
+api-docs/generated/
+
+# Dependency graphs
+*.dot
+*.png
+*.svg
+!docs/architecture.png

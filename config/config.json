@@ -1,0 +1,22 @@
+{
+  "server": {
+    "address": "0.0.0.0",
+    "port": 8080,
+    "threads": 4
+  },
+  "database": {
+    "host": "localhost",
+    "port": 5432,
+    "name": "etlplus",
+    "username": "postgres",
+    "password": ""
+  },
+  "auth": {
+    "jwt_secret": "your-secret-key-here",
+    "session_timeout": 3600
+  },
+  "etl": {
+    "max_concurrent_jobs": 5,
+    "job_timeout": 1800
+  }
+}
