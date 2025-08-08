@@ -1,0 +1,197 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: etlplus-backend
+  labels:
+    app: etlplus-backend
+    version: v1
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: etlplus-backend
+  template:
+    metadata:
+      labels:
+        app: etlplus-backend
+        version: v1
+    spec:
+      containers:
+      - name: etlplus-backend
+        image: ghcr.io/zlovtnik/cplus:${IMAGE_TAG:-latest}
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: ENVIRONMENT
+          value: "${ENVIRONMENT}"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: DATABASE_HOST
+          valueFrom:
+            secretKeyRef:
+              name: etlplus-secrets
+              key: database-host
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: etlplus-secrets
+              key: database-password
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: config
+          mountPath: /app/config
+          readOnly: true
+        - name: logs
+          mountPath: /app/logs
+      volumes:
+      - name: config
+        configMap:
+          name: etlplus-config
+      - name: logs
+        emptyDir: {}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: etlplus-backend-service
+  labels:
+    app: etlplus-backend
+spec:
+  selector:
+    app: etlplus-backend
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+    protocol: TCP
+  type: ClusterIP
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: etlplus-backend-ingress
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+spec:
+  tls:
+  - hosts:
+    - etlplus-${ENVIRONMENT}.yourdomain.com
+    secretName: etlplus-tls
+  rules:
+  - host: etlplus-${ENVIRONMENT}.yourdomain.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: etlplus-backend-service
+            port:
+              number: 80
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: etlplus-config
+data:
+  config.json: |
+    {
+      "server": {
+        "address": "0.0.0.0",
+        "port": 8080,
+        "threads": 4
+      },
+      "database": {
+        "host": "${DATABASE_HOST}",
+        "port": 1521,
+        "name": "FREE",
+        "service_name": "FREE",
+        "username": "etlplus",
+        "password": "${DATABASE_PASSWORD}",
+        "type": "oracle"
+      },
+      "auth": {
+        "jwt_secret": "${JWT_SECRET}",
+        "session_timeout": 3600
+      },
+      "etl": {
+        "max_concurrent_jobs": 5,
+        "job_timeout": 1800
+      }
+    }
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: etlplus-secrets
+type: Opaque
+stringData:
+  database-host: "oracle-db-service"
+  database-password: "etlplus123"
+  jwt-secret: "your-super-secret-jwt-key-here"
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: etlplus-backend-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: etlplus-backend
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
