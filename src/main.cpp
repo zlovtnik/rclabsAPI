@@ -4,6 +4,7 @@
 #include <thread>
 #include <chrono>
 
+#include "logger.hpp"
 #include "config_manager.hpp"
 #include "database_manager.hpp"
 #include "http_server.hpp"
@@ -15,7 +16,7 @@
 std::unique_ptr<HttpServer> server;
 
 void signalHandler(int signal) {
-    std::cout << "\nReceived signal " << signal << ". Shutting down gracefully..." << std::endl;
+    LOG_INFO("Main", "Received signal " + std::to_string(signal) + ". Shutting down gracefully...");
     if (server) {
         server->stop();
     }
@@ -24,20 +25,30 @@ void signalHandler(int signal) {
 
 int main() {
     try {
+        // Initialize logging system
+        auto& logger = Logger::getInstance();
+        logger.setLogLevel(LogLevel::DEBUG);
+        logger.setLogFile("logs/etlplus.log");
+        logger.enableConsoleOutput(true);
+        logger.enableFileOutput(true);
+        
+        LOG_INFO("Main", "Starting ETL Plus Backend...");
+        
         // Set up signal handling
         signal(SIGINT, signalHandler);
         signal(SIGTERM, signalHandler);
         
-        std::cout << "Starting ETL Plus Backend..." << std::endl;
-        
         // Load configuration
+        LOG_INFO("Main", "Loading configuration...");
         auto& config = ConfigManager::getInstance();
         if (!config.loadConfig("config.json")) {
-            std::cerr << "Failed to load configuration" << std::endl;
+            LOG_ERROR("Main", "Failed to load configuration");
             return 1;
         }
+        LOG_INFO("Main", "Configuration loaded successfully");
         
         // Initialize database manager
+        LOG_INFO("Main", "Initializing database manager...");
         auto dbManager = std::make_shared<DatabaseManager>();
         ConnectionConfig dbConfig;
         dbConfig.host = config.getString("database.host", "localhost");
@@ -46,23 +57,30 @@ int main() {
         dbConfig.username = config.getString("database.username", "postgres");
         dbConfig.password = config.getString("database.password", "");
         
-        std::cout << "Connecting to database..." << std::endl;
+        LOG_INFO("Main", "Connecting to database at " + dbConfig.host + ":" + std::to_string(dbConfig.port));
         if (!dbManager->connect(dbConfig)) {
-            std::cout << "Warning: Failed to connect to database. Running in offline mode." << std::endl;
+            LOG_WARN("Main", "Failed to connect to database. Running in offline mode.");
         } else {
-            std::cout << "Database connected successfully." << std::endl;
+            LOG_INFO("Main", "Database connected successfully");
         }
         
         // Initialize other managers
+        LOG_INFO("Main", "Initializing authentication manager...");
         auto authManager = std::make_shared<AuthManager>();
+        
+        LOG_INFO("Main", "Initializing data transformer...");
         auto dataTransformer = std::make_shared<DataTransformer>();
+        
+        LOG_INFO("Main", "Initializing ETL job manager...");
         auto etlManager = std::make_shared<ETLJobManager>(dbManager, dataTransformer);
         
         // Start ETL job manager
+        LOG_INFO("Main", "Starting ETL job manager...");
         etlManager->start();
-        std::cout << "ETL Job Manager started." << std::endl;
+        LOG_INFO("Main", "ETL Job Manager started successfully");
         
         // Create request handler
+        LOG_INFO("Main", "Creating request handler...");
         auto requestHandler = std::make_shared<RequestHandler>(dbManager, authManager, etlManager);
         
         // Create and configure HTTP server
@@ -70,16 +88,15 @@ int main() {
         int port = config.getInt("server.port", 8080);
         int threads = config.getInt("server.threads", 4);
         
+        LOG_INFO("Main", "Initializing HTTP server on " + address + ":" + std::to_string(port) + " with " + std::to_string(threads) + " threads");
         server = std::make_unique<HttpServer>(address, static_cast<unsigned short>(port), threads);
         server->setRequestHandler(requestHandler);
         
-        std::cout << "Starting HTTP server on " << address << ":" << port << std::endl;
-        std::cout << "Using " << threads << " worker threads." << std::endl;
-        
         // Start the server
+        LOG_INFO("Main", "Starting HTTP server...");
         server->start();
         
-        std::cout << "ETL Plus Backend is running. Press Ctrl+C to stop." << std::endl;
+        LOG_INFO("Main", "ETL Plus Backend is running. Press Ctrl+C to stop.");
         
         // Keep the main thread alive
         while (server->isRunning()) {
@@ -87,9 +104,10 @@ int main() {
         }
         
     } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
+        LOG_FATAL("Main", "Unhandled exception: " + std::string(e.what()));
         return 1;
     }
     
+    LOG_INFO("Main", "ETL Plus Backend shutdown complete");
     return 0;
 }

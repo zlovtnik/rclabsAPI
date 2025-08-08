@@ -14,6 +14,7 @@ include_directories(include)
 # Source files
 set(SOURCES
     src/main.cpp
+    src/logger.cpp
     src/config_manager.cpp
     src/database_manager.cpp
     src/http_server.cpp
