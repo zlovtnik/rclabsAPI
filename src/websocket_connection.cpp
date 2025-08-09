@@ -10,11 +10,30 @@
 WebSocketConnection::WebSocketConnection(tcp::socket socket, std::weak_ptr<WebSocketManager> manager)
     : ws_(std::move(socket))
     , manager_(manager)
-    , connectionId_(generateConnectionId()) {
+    , connectionId_(generateConnectionId())
+    , circuitBreaker_(5, std::chrono::seconds(60), 3) {
+    
+    // Initialize recovery config with defaults
+    recoveryConfig_.enableAutoReconnect = true;
+    recoveryConfig_.maxReconnectAttempts = 5;
+    recoveryConfig_.baseReconnectDelay = std::chrono::milliseconds(1000);
+    recoveryConfig_.maxReconnectDelay = std::chrono::milliseconds(30000);
+    recoveryConfig_.backoffMultiplier = 2.0;
+    recoveryConfig_.messageQueueMaxSize = 1000;
+    recoveryConfig_.connectionTimeout = std::chrono::seconds(30);
+    recoveryConfig_.heartbeatInterval = std::chrono::seconds(30);
+    recoveryConfig_.enableHeartbeat = true;
+    recoveryConfig_.maxMissedHeartbeats = 3;
+    
+    // Initialize heartbeat timer
+    auto executor = ws_.get_executor();
+    heartbeatTimer_ = std::make_unique<boost::asio::steady_timer>(executor);
+    
     WS_LOG_DEBUG("WebSocket connection created with ID: " + connectionId_);
 }
 
 WebSocketConnection::~WebSocketConnection() {
+    stopHeartbeat();
     WS_LOG_DEBUG("WebSocket connection destroyed: " + connectionId_);
 }
 
@@ -38,12 +57,31 @@ void WebSocketConnection::start() {
 
 void WebSocketConnection::send(const std::string& message) {
     if (!isOpen_.load()) {
-        WS_LOG_WARN("Attempted to send message to closed connection: " + connectionId_);
+        // Queue message for retry if recovery is enabled
+        if (recoveryConfig_.enableAutoReconnect && recoveryState_.isRecovering.load()) {
+            recoveryState_.addPendingMessage(message, recoveryConfig_);
+            WS_LOG_DEBUG("Message queued for retry on connection: " + connectionId_);
+        } else {
+            WS_LOG_WARN("Attempted to send message to closed connection: " + connectionId_);
+        }
+        return;
+    }
+    
+    // Check circuit breaker
+    if (!circuitBreaker_.allowOperation()) {
+        WS_LOG_WARN("Circuit breaker open, dropping message for connection: " + connectionId_);
         return;
     }
 
     net::post(ws_.get_executor(), [self = shared_from_this(), message]() {
-        std::lock_guard<std::mutex> lock(self->queueMutex_);
+        std::scoped_lock lock(self->queueMutex_);
+        
+        // Check queue size limit
+        if (self->messageQueue_.size() >= static_cast<size_t>(self->recoveryConfig_.messageQueueMaxSize)) {
+            WS_LOG_WARN("Message queue full for connection " + self->connectionId_ + ", dropping oldest message");
+            self->messageQueue_.pop();
+        }
+        
         self->messageQueue_.push(message);
         
         if (!self->isWriting_.load()) {
@@ -98,6 +136,7 @@ void WebSocketConnection::onRead(beast::error_code ec, std::size_t bytes_transfe
     if (ec == websocket::error::closed) {
         WS_LOG_INFO("WebSocket connection closed by client: " + connectionId_);
         isOpen_.store(false);
+        stopHeartbeat();
         if (auto manager = manager_.lock()) {
             manager->removeConnection(connectionId_);
         }
@@ -105,13 +144,13 @@ void WebSocketConnection::onRead(beast::error_code ec, std::size_t bytes_transfe
     }
 
     if (ec) {
-        WS_LOG_ERROR("WebSocket read error for connection " + connectionId_ + ": " + ec.message());
-        isOpen_.store(false);
-        if (auto manager = manager_.lock()) {
-            manager->removeConnection(connectionId_);
-        }
+        handleError("read", ec);
         return;
     }
+
+    // Reset heartbeat on successful message
+    onHeartbeatReceived();
+    circuitBreaker_.onSuccess();
 
     // For now, we'll just log received messages
     // In future tasks, we'll implement proper message handling
@@ -152,15 +191,12 @@ void WebSocketConnection::onWrite(beast::error_code ec, std::size_t bytes_transf
     boost::ignore_unused(bytes_transferred);
 
     if (ec) {
-        WS_LOG_ERROR("WebSocket write error for connection " + connectionId_ + ": " + ec.message());
-        isOpen_.store(false);
-        isWriting_.store(false);
-        if (auto manager = manager_.lock()) {
-            manager->removeConnection(connectionId_);
-        }
+        handleError("write", ec);
         return;
     }
 
+    circuitBreaker_.onSuccess();
+    
     // Continue writing if there are more messages
     doWrite();
 }
@@ -308,4 +344,213 @@ std::vector<std::string> WebSocketConnection::getActiveLogLevelFilters() const {
 std::string WebSocketConnection::generateConnectionId() {
     boost::uuids::uuid uuid = boost::uuids::random_generator()();
     return boost::uuids::to_string(uuid);
+}
+
+// Error handling and recovery methods
+bool WebSocketConnection::isHealthy() const {
+    if (!isOpen_.load()) return false;
+    
+    // Check circuit breaker state
+    if (circuitBreaker_.getState() == websocket_recovery::ConnectionCircuitBreaker::State::OPEN) {
+        return false;
+    }
+    
+    // Check heartbeat status if enabled
+    if (recoveryConfig_.enableHeartbeat) {
+        std::scoped_lock lock(heartbeatMutex_);
+        auto now = std::chrono::system_clock::now();
+        auto timeSinceLastHeartbeat = now - lastHeartbeat_;
+        auto threshold = recoveryConfig_.heartbeatInterval * recoveryConfig_.maxMissedHeartbeats;
+        return timeSinceLastHeartbeat < threshold;
+    }
+    
+    return true;
+}
+
+void WebSocketConnection::setRecoveryConfig(const websocket_recovery::ConnectionRecoveryConfig& config) {
+    recoveryConfig_ = config;
+    if (recoveryConfig_.enableHeartbeat && isOpen_.load()) {
+        startHeartbeat();
+    } else if (!recoveryConfig_.enableHeartbeat) {
+        stopHeartbeat();
+    }
+}
+
+void WebSocketConnection::handleError(const std::string& operation, beast::error_code ec) {
+    WS_LOG_ERROR("WebSocket " + operation + " error for connection " + connectionId_ + ": " + ec.message());
+    
+    circuitBreaker_.onFailure();
+    
+    // Call custom error handler if set
+    if (errorHandler_) {
+        errorHandler_(connectionId_, operation + " error: " + ec.message());
+    }
+    
+    // Check if we should attempt recovery
+    if (shouldAttemptRecovery(ec)) {
+        attemptRecovery();
+    } else {
+        // Close connection permanently
+        isOpen_.store(false);
+        isWriting_.store(false);
+        stopHeartbeat();
+        
+        if (auto manager = manager_.lock()) {
+            manager->removeConnection(connectionId_);
+        }
+    }
+}
+
+bool WebSocketConnection::shouldAttemptRecovery(beast::error_code ec) {
+    // Don't attempt recovery for certain error conditions
+    if (ec == websocket::error::closed) return false;
+    if (ec == boost::asio::error::operation_aborted) return false;
+    if (ec == boost::asio::error::connection_refused) return false;
+    
+    // Check if circuit breaker allows recovery
+    if (!circuitBreaker_.allowOperation()) return false;
+    
+    // Check recovery state
+    return recoveryState_.shouldAttemptReconnect(recoveryConfig_);
+}
+
+void WebSocketConnection::attemptRecovery() {
+    if (recoveryState_.isRecovering.load()) {
+        WS_LOG_DEBUG("Recovery already in progress for connection: " + connectionId_);
+        return;
+    }
+    
+    recoveryState_.isRecovering.store(true);
+    recoveryState_.reconnectAttempts++;
+    recoveryState_.lastReconnectAttempt = std::chrono::system_clock::now();
+    
+    WS_LOG_INFO("Attempting recovery for connection " + connectionId_ + 
+                " (attempt " + std::to_string(recoveryState_.reconnectAttempts.load()) + 
+                "/" + std::to_string(recoveryConfig_.maxReconnectAttempts) + ")");
+    
+    // Store pending message before attempting recovery
+    // Note: In a real reconnection scenario, we would need the original socket
+    // For now, we'll just queue the pending messages and notify the manager
+    if (auto manager = manager_.lock()) {
+        // In practice, this would trigger a new connection attempt
+        // For this implementation, we'll mark as failed and let the manager handle it
+        isOpen_.store(false);
+        recoveryState_.isRecovering.store(false);
+        manager->removeConnection(connectionId_);
+    }
+}
+
+void WebSocketConnection::sendPendingMessages() {
+    auto pendingMessages = recoveryState_.getPendingMessages();
+    
+    for (const auto& message : pendingMessages) {
+        send(message);
+    }
+    
+    if (!pendingMessages.empty()) {
+        WS_LOG_INFO("Sent " + std::to_string(pendingMessages.size()) + 
+                    " pending messages for connection: " + connectionId_);
+    }
+}
+
+// Heartbeat methods
+void WebSocketConnection::startHeartbeat() {
+    if (!recoveryConfig_.enableHeartbeat || heartbeatActive_.load()) return;
+    
+    heartbeatActive_.store(true);
+    {
+        std::scoped_lock lock(heartbeatMutex_);
+        lastHeartbeat_ = std::chrono::system_clock::now();
+    }
+    
+    scheduleHeartbeat();
+    WS_LOG_DEBUG("Heartbeat started for connection: " + connectionId_);
+}
+
+void WebSocketConnection::stopHeartbeat() {
+    if (!heartbeatActive_.load()) return;
+    
+    heartbeatActive_.store(false);
+    
+    if (heartbeatTimer_) {
+        heartbeatTimer_->cancel();
+    }
+    
+    WS_LOG_DEBUG("Heartbeat stopped for connection: " + connectionId_);
+}
+
+void WebSocketConnection::onHeartbeatReceived() {
+    if (!recoveryConfig_.enableHeartbeat) return;
+    
+    std::scoped_lock lock(heartbeatMutex_);
+    lastHeartbeat_ = std::chrono::system_clock::now();
+    recoveryState_.missedHeartbeats.store(0);
+}
+
+std::chrono::system_clock::time_point WebSocketConnection::getLastHeartbeat() const {
+    std::scoped_lock lock(heartbeatMutex_);
+    return lastHeartbeat_;
+}
+
+void WebSocketConnection::scheduleHeartbeat() {
+    if (!heartbeatActive_.load() || !heartbeatTimer_) return;
+    
+    heartbeatTimer_->expires_after(recoveryConfig_.heartbeatInterval);
+    heartbeatTimer_->async_wait(
+        [self = shared_from_this()](beast::error_code ec) {
+            self->onHeartbeatTimer(ec);
+        });
+}
+
+void WebSocketConnection::onHeartbeatTimer(beast::error_code ec) {
+    if (ec == boost::asio::error::operation_aborted) {
+        return; // Timer was cancelled
+    }
+    
+    if (ec) {
+        WS_LOG_ERROR("Heartbeat timer error for connection " + connectionId_ + ": " + ec.message());
+        return;
+    }
+    
+    if (!heartbeatActive_.load()) return;
+    
+    checkHeartbeatTimeout();
+    sendHeartbeat();
+    scheduleHeartbeat();
+}
+
+void WebSocketConnection::sendHeartbeat() {
+    if (!isOpen_.load()) return;
+    
+    // Send a ping frame
+    ws_.async_ping(
+        websocket::ping_data{},
+        [self = shared_from_this()](beast::error_code ec) {
+            if (ec) {
+                WS_LOG_WARN("Heartbeat ping failed for connection " + self->connectionId_ + ": " + ec.message());
+                self->recoveryState_.missedHeartbeats++;
+            }
+        });
+}
+
+void WebSocketConnection::checkHeartbeatTimeout() {
+    if (!recoveryConfig_.enableHeartbeat) return;
+    
+    std::scoped_lock lock(heartbeatMutex_);
+    auto now = std::chrono::system_clock::now();
+    auto timeSinceLastHeartbeat = now - lastHeartbeat_;
+    
+    if (timeSinceLastHeartbeat > recoveryConfig_.heartbeatInterval) {
+        recoveryState_.missedHeartbeats++;
+        
+        if (recoveryState_.missedHeartbeats.load() >= recoveryConfig_.maxMissedHeartbeats) {
+            WS_LOG_WARN("Connection " + connectionId_ + " missed " + 
+                        std::to_string(recoveryState_.missedHeartbeats.load()) + 
+                        " heartbeats, marking as unhealthy");
+            
+            // Trigger error handling
+            beast::error_code timeout_ec = boost::asio::error::timed_out;
+            const_cast<WebSocketConnection*>(this)->handleError("heartbeat_timeout", timeout_ec);
+        }
+    }
 }
