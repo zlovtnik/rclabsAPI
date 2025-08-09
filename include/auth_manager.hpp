@@ -5,6 +5,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 struct User {
   std::string id;
@@ -34,7 +35,7 @@ public:
   bool authenticateUser(std::string_view username) const;
   bool updateUser(const std::string &userId, const User &updatedUser);
   bool deleteUser(const std::string &userId);
-  std::shared_ptr<User> getUser(const std::string &userId);
+  std::shared_ptr<User> getUser(const std::string &userId) const;
 
   // Session management
   std::string createSession(const std::string &userId);
