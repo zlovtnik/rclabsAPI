@@ -145,7 +145,7 @@ public:
 // Concrete delivery implementations
 class LogNotificationDelivery : public NotificationDelivery {
 public:
-    LogNotificationDelivery(Logger* logger);
+    explicit LogNotificationDelivery(Logger* logger);
     bool deliver(const NotificationMessage& message) override;
     NotificationMethod getMethod() const override { return NotificationMethod::LOG_ONLY; }
     bool isConfigured() const override { return logger_ != nullptr; }
@@ -156,7 +156,7 @@ private:
 
 class EmailNotificationDelivery : public NotificationDelivery {
 public:
-    EmailNotificationDelivery(const NotificationConfig& config);
+    explicit EmailNotificationDelivery(const NotificationConfig& config);
     bool deliver(const NotificationMessage& message) override;
     NotificationMethod getMethod() const override { return NotificationMethod::EMAIL; }
     bool isConfigured() const override;
@@ -168,7 +168,7 @@ private:
 
 class WebhookNotificationDelivery : public NotificationDelivery {
 public:
-    WebhookNotificationDelivery(const NotificationConfig& config);
+    explicit WebhookNotificationDelivery(const NotificationConfig& config);
     bool deliver(const NotificationMessage& message) override;
     NotificationMethod getMethod() const override { return NotificationMethod::WEBHOOK; }
     bool isConfigured() const override;
