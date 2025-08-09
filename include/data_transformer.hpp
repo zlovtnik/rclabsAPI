@@ -4,16 +4,17 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "transparent_string_hash.hpp"
 
 struct TransformationRule {
   std::string sourceField;
   std::string targetField;
   std::string transformationType;
-  std::unordered_map<std::string, std::string> parameters;
+  std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> parameters;
 };
 
 struct DataRecord {
-  std::unordered_map<std::string, std::string> fields;
+  std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> fields;
 };
 
 class DataTransformer {
@@ -40,8 +41,8 @@ private:
                                   const TransformationRule &rule) const;
   std::string applyStringTransformation(
       const std::string &value, const std::string &type,
-      const std::unordered_map<std::string, std::string> &params) const;
+      const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> &params) const;
   std::string applyNumericTransformation(
       const std::string &value, const std::string &type,
-      const std::unordered_map<std::string, std::string> &params) const;
+      const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> &params) const;
 };
