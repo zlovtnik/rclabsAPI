@@ -123,6 +123,8 @@ add_executable(test_job_monitoring_models scripts/test_job_monitoring_models.cpp
     src/job_monitoring_models.cpp
     src/logger.cpp 
     src/config_manager.cpp
+    src/websocket_manager.cpp
+    src/websocket_connection.cpp
 )
 
 target_include_directories(test_job_monitoring_models PRIVATE include)
@@ -137,6 +139,9 @@ add_executable(test_etl_job_manager_monitoring scripts/test_etl_job_manager_moni
     src/config_manager.cpp
     src/exceptions.cpp
     src/exception_handler.cpp
+    src/websocket_manager.cpp
+    src/websocket_connection.cpp
+    src/job_monitoring_models.cpp
 )
 
 target_include_directories(test_etl_job_manager_monitoring PRIVATE include)
@@ -213,3 +218,16 @@ add_executable(test_log_streaming_demo scripts/test_log_streaming_demo.cpp
 
 target_include_directories(test_log_streaming_demo PRIVATE include)
 target_link_libraries(test_log_streaming_demo ${Boost_LIBRARIES} pthread)
+
+# Enhanced REST Endpoints Test Executable
+add_executable(test_enhanced_rest_endpoints_simple scripts/test_enhanced_rest_endpoints_simple.cpp 
+    src/input_validator.cpp
+    src/logger.cpp 
+    src/config_manager.cpp
+    src/websocket_manager.cpp
+    src/websocket_connection.cpp
+    src/job_monitoring_models.cpp
+)
+
+target_include_directories(test_enhanced_rest_endpoints_simple PRIVATE include)
+target_link_libraries(test_enhanced_rest_endpoints_simple ${Boost_LIBRARIES} pthread)

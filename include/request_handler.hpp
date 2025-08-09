@@ -2,10 +2,12 @@
 
 #include "exceptions.hpp"
 #include "input_validator.hpp"
+#include "etl_job_manager.hpp"
 #include <boost/beast/http.hpp>
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <chrono>
 
 namespace http = boost::beast::http;
 
@@ -55,4 +57,15 @@ private:
   createValidationErrorResponse(const InputValidator::ValidationResult &result);
   http::response<http::string_body>
   createSuccessResponse(const std::string &data);
+
+  // Utility methods for job monitoring endpoints
+  std::string extractJobIdFromPath(const std::string& target, 
+                                   const std::string& prefix, 
+                                   const std::string& suffix);
+  std::string jobStatusToString(JobStatus status);
+  JobStatus stringToJobStatus(const std::string& statusStr);
+  std::string jobTypeToString(JobType type);
+  JobType stringToJobType(const std::string& typeStr);
+  std::string formatTimestamp(const std::chrono::system_clock::time_point& timePoint);
+  std::chrono::system_clock::time_point parseTimestamp(const std::string& timestampStr);
 };
