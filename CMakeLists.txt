@@ -65,3 +65,15 @@ foreach(CONFIG_FILE ${CONFIG_FILES})
         COMMENT "Copying ${CONFIG_FILENAME}"
     )
 endforeach()
+
+# Enhanced Logging Test Executable
+add_executable(test_enhanced_logging test_enhanced_logging.cpp 
+    src/logger.cpp 
+    src/config_manager.cpp
+)
+
+target_include_directories(test_enhanced_logging PRIVATE include)
+target_link_libraries(test_enhanced_logging ${Boost_LIBRARIES} pthread)
+
+# Copy config files for the test
+add_dependencies(test_enhanced_logging copy_configs)
