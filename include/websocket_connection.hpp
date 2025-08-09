@@ -41,6 +41,25 @@ public:
     void setFilters(const ConnectionFilters& filters);
     const ConnectionFilters& getFilters() const { return filters_; }
     bool shouldReceiveMessage(MessageType type, const std::string& jobId = "", const std::string& logLevel = "") const;
+    bool shouldReceiveMessage(const WebSocketMessage& message) const;
+    
+    // Enhanced preference management
+    void updateFilterPreferences(const ConnectionFilters& newFilters);
+    void addJobIdFilter(const std::string& jobId);
+    void removeJobIdFilter(const std::string& jobId);
+    void addMessageTypeFilter(MessageType messageType);
+    void removeMessageTypeFilter(MessageType messageType);
+    void addLogLevelFilter(const std::string& logLevel);
+    void removeLogLevelFilter(const std::string& logLevel);
+    void clearFilters();
+    
+    // Filter statistics and information
+    size_t getFilteredJobCount() const;
+    size_t getFilteredMessageTypeCount() const;
+    size_t getFilteredLogLevelCount() const;
+    std::vector<std::string> getActiveJobFilters() const;
+    std::vector<MessageType> getActiveMessageTypeFilters() const;
+    std::vector<std::string> getActiveLogLevelFilters() const;
 
 private:
     websocket::stream<tcp::socket> ws_;

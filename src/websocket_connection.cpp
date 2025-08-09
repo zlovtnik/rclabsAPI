@@ -204,6 +204,107 @@ bool WebSocketConnection::shouldReceiveMessage(MessageType type, const std::stri
     return filters_.shouldReceiveMessage(tempMessage);
 }
 
+bool WebSocketConnection::shouldReceiveMessage(const WebSocketMessage& message) const {
+    std::lock_guard<std::mutex> lock(filtersMutex_);
+    return filters_.shouldReceiveMessage(message);
+}
+
+void WebSocketConnection::updateFilterPreferences(const ConnectionFilters& newFilters) {
+    std::lock_guard<std::mutex> lock(filtersMutex_);
+    filters_ = newFilters;
+    WS_LOG_INFO("Filter preferences updated for connection: " + connectionId_);
+}
+
+void WebSocketConnection::addJobIdFilter(const std::string& jobId) {
+    std::lock_guard<std::mutex> lock(filtersMutex_);
+    if (std::find(filters_.jobIds.begin(), filters_.jobIds.end(), jobId) == filters_.jobIds.end()) {
+        filters_.jobIds.push_back(jobId);
+        WS_LOG_DEBUG("Added job ID filter '" + jobId + "' to connection: " + connectionId_);
+    }
+}
+
+void WebSocketConnection::removeJobIdFilter(const std::string& jobId) {
+    std::lock_guard<std::mutex> lock(filtersMutex_);
+    auto it = std::find(filters_.jobIds.begin(), filters_.jobIds.end(), jobId);
+    if (it != filters_.jobIds.end()) {
+        filters_.jobIds.erase(it);
+        WS_LOG_DEBUG("Removed job ID filter '" + jobId + "' from connection: " + connectionId_);
+    }
+}
+
+void WebSocketConnection::addMessageTypeFilter(MessageType messageType) {
+    std::lock_guard<std::mutex> lock(filtersMutex_);
+    if (std::find(filters_.messageTypes.begin(), filters_.messageTypes.end(), messageType) == filters_.messageTypes.end()) {
+        filters_.messageTypes.push_back(messageType);
+        WS_LOG_DEBUG("Added message type filter '" + messageTypeToString(messageType) + "' to connection: " + connectionId_);
+    }
+}
+
+void WebSocketConnection::removeMessageTypeFilter(MessageType messageType) {
+    std::lock_guard<std::mutex> lock(filtersMutex_);
+    auto it = std::find(filters_.messageTypes.begin(), filters_.messageTypes.end(), messageType);
+    if (it != filters_.messageTypes.end()) {
+        filters_.messageTypes.erase(it);
+        WS_LOG_DEBUG("Removed message type filter '" + messageTypeToString(messageType) + "' from connection: " + connectionId_);
+    }
+}
+
+void WebSocketConnection::addLogLevelFilter(const std::string& logLevel) {
+    std::lock_guard<std::mutex> lock(filtersMutex_);
+    if (std::find(filters_.logLevels.begin(), filters_.logLevels.end(), logLevel) == filters_.logLevels.end()) {
+        filters_.logLevels.push_back(logLevel);
+        WS_LOG_DEBUG("Added log level filter '" + logLevel + "' to connection: " + connectionId_);
+    }
+}
+
+void WebSocketConnection::removeLogLevelFilter(const std::string& logLevel) {
+    std::lock_guard<std::mutex> lock(filtersMutex_);
+    auto it = std::find(filters_.logLevels.begin(), filters_.logLevels.end(), logLevel);
+    if (it != filters_.logLevels.end()) {
+        filters_.logLevels.erase(it);
+        WS_LOG_DEBUG("Removed log level filter '" + logLevel + "' from connection: " + connectionId_);
+    }
+}
+
+void WebSocketConnection::clearFilters() {
+    std::lock_guard<std::mutex> lock(filtersMutex_);
+    filters_.jobIds.clear();
+    filters_.messageTypes.clear();
+    filters_.logLevels.clear();
+    filters_.includeSystemNotifications = true;
+    WS_LOG_INFO("All filters cleared for connection: " + connectionId_);
+}
+
+size_t WebSocketConnection::getFilteredJobCount() const {
+    std::lock_guard<std::mutex> lock(filtersMutex_);
+    return filters_.jobIds.size();
+}
+
+size_t WebSocketConnection::getFilteredMessageTypeCount() const {
+    std::lock_guard<std::mutex> lock(filtersMutex_);
+    return filters_.messageTypes.size();
+}
+
+size_t WebSocketConnection::getFilteredLogLevelCount() const {
+    std::lock_guard<std::mutex> lock(filtersMutex_);
+    return filters_.logLevels.size();
+}
+
+std::vector<std::string> WebSocketConnection::getActiveJobFilters() const {
+    std::lock_guard<std::mutex> lock(filtersMutex_);
+    return filters_.jobIds;
+}
+
+std::vector<MessageType> WebSocketConnection::getActiveMessageTypeFilters() const {
+    std::lock_guard<std::mutex> lock(filtersMutex_);
+    return filters_.messageTypes;
+}
+
+std::vector<std::string> WebSocketConnection::getActiveLogLevelFilters() const {
+    std::lock_guard<std::mutex> lock(filtersMutex_);
+    return filters_.logLevels;
+}
+
 std::string WebSocketConnection::generateConnectionId() {
     boost::uuids::uuid uuid = boost::uuids::random_generator()();
     return boost::uuids::to_string(uuid);
