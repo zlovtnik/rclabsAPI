@@ -111,6 +111,7 @@ endif()
 set(COMMON_SOURCES
     src/logger.cpp
     src/log_handler.cpp
+    src/log_file_manager.cpp
     src/config_manager.cpp
     src/database_manager.cpp
     src/websocket_connection.cpp
@@ -216,6 +217,14 @@ create_test_executable(test_enhanced_rest_endpoints_simple scripts/test_enhanced
 create_test_executable(test_config_management_demo scripts/test_config_management_demo.cpp)
 create_test_executable(test_config_simple scripts/test_config_simple.cpp)
 create_test_executable(test_log_handler scripts/test_log_handler.cpp)
+create_test_executable(test_log_file_manager scripts/test_log_file_manager.cpp)
+target_link_libraries(test_log_file_manager GTest::gtest GTest::gtest_main)
+
+# Demo executable for LogFileManager
+add_executable(demo_log_file_manager scripts/demo_log_file_manager.cpp)
+target_include_directories(demo_log_file_manager PRIVATE include)
+target_link_libraries(demo_log_file_manager etl_common)
+
 # TEMPORARY: Disabled until test is updated for new API
 # create_test_executable(test_notification_service_error_handling scripts/test_notification_service_error_handling.cpp)
 
