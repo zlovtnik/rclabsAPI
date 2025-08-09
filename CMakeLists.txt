@@ -22,6 +22,7 @@ set(SOURCES
     src/auth_manager.cpp
     src/etl_job_manager.cpp
     src/request_handler.cpp
+    src/input_validator.cpp
 )
 
 # Create executable
