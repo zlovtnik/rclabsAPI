@@ -28,6 +28,7 @@ set(SOURCES
     src/exceptions.cpp
     src/exception_handler.cpp
     src/job_monitoring_models.cpp
+    src/job_monitor_service.cpp
 )
 
 # Create executable
@@ -136,3 +137,39 @@ add_executable(test_etl_job_manager_monitoring scripts/test_etl_job_manager_moni
 
 target_include_directories(test_etl_job_manager_monitoring PRIVATE include)
 target_link_libraries(test_etl_job_manager_monitoring ${Boost_LIBRARIES} pthread)
+
+# Job Monitor Service Test Executable
+add_executable(test_job_monitor_service scripts/test_job_monitor_service.cpp 
+    src/job_monitor_service.cpp
+    src/job_monitoring_models.cpp
+    src/etl_job_manager.cpp
+    src/websocket_manager.cpp
+    src/websocket_connection.cpp
+    src/database_manager.cpp
+    src/data_transformer.cpp
+    src/logger.cpp 
+    src/config_manager.cpp
+    src/exceptions.cpp
+    src/exception_handler.cpp
+)
+
+target_include_directories(test_job_monitor_service PRIVATE include)
+target_link_libraries(test_job_monitor_service ${Boost_LIBRARIES} pthread)
+
+# Simple Job Monitor Service Test Executable
+add_executable(test_job_monitor_service_simple scripts/test_job_monitor_service_simple.cpp 
+    src/job_monitor_service.cpp
+    src/job_monitoring_models.cpp
+    src/etl_job_manager.cpp
+    src/websocket_manager.cpp
+    src/websocket_connection.cpp
+    src/database_manager.cpp
+    src/data_transformer.cpp
+    src/logger.cpp 
+    src/config_manager.cpp
+    src/exceptions.cpp
+    src/exception_handler.cpp
+)
+
+target_include_directories(test_job_monitor_service_simple PRIVATE include)
+target_link_libraries(test_job_monitor_service_simple ${Boost_LIBRARIES} pthread)

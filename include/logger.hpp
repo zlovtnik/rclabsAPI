@@ -247,3 +247,12 @@ private:
   LOG_WARN("WebSocket", message, ##__VA_ARGS__)
 #define WS_LOG_ERROR(message, ...)                                             \
   LOG_ERROR("WebSocket", message, ##__VA_ARGS__)
+
+#define JOB_LOG_DEBUG(message, ...)                                            \
+  LOG_DEBUG("JobMonitorService", message, ##__VA_ARGS__)
+#define JOB_LOG_INFO(message, ...)                                             \
+  LOG_INFO("JobMonitorService", message, ##__VA_ARGS__)
+#define JOB_LOG_WARN(message, ...)                                             \
+  LOG_WARN("JobMonitorService", message, ##__VA_ARGS__)
+#define JOB_LOG_ERROR(message, ...)                                            \
+  LOG_ERROR("JobMonitorService", message, ##__VA_ARGS__)

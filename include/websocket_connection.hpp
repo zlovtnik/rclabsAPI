@@ -1,5 +1,6 @@
 #pragma once
 
+#include "job_monitoring_models.hpp"
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
 #include <boost/asio/dispatch.hpp>
@@ -20,25 +21,6 @@ using tcp = boost::asio::ip::tcp;
 
 // Forward declaration
 class WebSocketManager;
-
-// Message types for filtering
-enum class MessageType {
-    JOB_STATUS_UPDATE,
-    JOB_PROGRESS_UPDATE,
-    LOG_MESSAGE,
-    NOTIFICATION,
-    SYSTEM_MESSAGE
-};
-
-// Connection filters for selective message delivery
-struct ConnectionFilters {
-    std::unordered_set<std::string> jobIds;           // Filter by specific job IDs
-    std::unordered_set<MessageType> messageTypes;     // Filter by message types
-    std::unordered_set<std::string> logLevels;        // Filter by log levels (DEBUG, INFO, WARN, ERROR)
-    bool receiveAllJobs = true;                       // If true, receive updates for all jobs
-    bool receiveAllMessageTypes = true;               // If true, receive all message types
-    bool receiveAllLogLevels = true;                  // If true, receive all log levels
-};
 
 class WebSocketConnection : public std::enable_shared_from_this<WebSocketConnection> {
 public:

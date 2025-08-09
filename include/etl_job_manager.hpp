@@ -42,7 +42,7 @@ struct ETLJob {
 
 class DataTransformer;
 class DatabaseManager;
-class JobMonitorService;
+class JobMonitorServiceInterface;
 
 class ETLJobManager {
 public:
@@ -67,14 +67,14 @@ public:
   bool isRunning() const;
 
   // Job monitoring integration
-  void setJobMonitorService(std::shared_ptr<JobMonitorService> monitor);
+  void setJobMonitorService(std::shared_ptr<JobMonitorServiceInterface> monitor);
   void publishJobStatusUpdate(const std::string& jobId, JobStatus status);
   void publishJobProgress(const std::string& jobId, int progress, const std::string& step);
 
 private:
   std::shared_ptr<DatabaseManager> dbManager_;
   std::shared_ptr<DataTransformer> transformer_;
-  std::shared_ptr<JobMonitorService> monitorService_;
+  std::shared_ptr<JobMonitorServiceInterface> monitorService_;
 
   std::queue<std::shared_ptr<ETLJob>> jobQueue_;
   std::vector<std::shared_ptr<ETLJob>> jobs_;

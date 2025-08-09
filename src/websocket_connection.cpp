@@ -195,23 +195,13 @@ void WebSocketConnection::setFilters(const ConnectionFilters& filters) {
 bool WebSocketConnection::shouldReceiveMessage(MessageType type, const std::string& jobId, const std::string& logLevel) const {
     std::lock_guard<std::mutex> lock(filtersMutex_);
     
-    // Check message type filter
-    if (!filters_.receiveAllMessageTypes && filters_.messageTypes.find(type) == filters_.messageTypes.end()) {
-        return false;
-    }
+    // Use the shouldReceiveMessage method from ConnectionFilters
+    WebSocketMessage tempMessage;
+    tempMessage.type = type;
+    tempMessage.targetJobId = jobId.empty() ? std::nullopt : std::optional<std::string>(jobId);
+    tempMessage.targetLevel = logLevel.empty() ? std::nullopt : std::optional<std::string>(logLevel);
     
-    // Check job ID filter (only if jobId is provided)
-    if (!jobId.empty() && !filters_.receiveAllJobs && filters_.jobIds.find(jobId) == filters_.jobIds.end()) {
-        return false;
-    }
-    
-    // Check log level filter (only for log messages)
-    if (type == MessageType::LOG_MESSAGE && !logLevel.empty() && 
-        !filters_.receiveAllLogLevels && filters_.logLevels.find(logLevel) == filters_.logLevels.end()) {
-        return false;
-    }
-    
-    return true;
+    return filters_.shouldReceiveMessage(tempMessage);
 }
 
 std::string WebSocketConnection::generateConnectionId() {

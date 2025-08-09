@@ -9,9 +9,9 @@
 #include <sstream>
 
 // Forward declaration for JobMonitorService to avoid circular dependency
-class JobMonitorService {
+class JobMonitorServiceInterface {
 public:
-    virtual ~JobMonitorService() = default;
+    virtual ~JobMonitorServiceInterface() = default;
     virtual void onJobStatusChanged(const std::string& jobId, JobStatus oldStatus, JobStatus newStatus) = 0;
     virtual void onJobProgressUpdated(const std::string& jobId, int progressPercent, const std::string& currentStep) = 0;
 };
@@ -137,7 +137,7 @@ bool ETLJobManager::isRunning() const {
     return running_;
 }
 
-void ETLJobManager::setJobMonitorService(std::shared_ptr<JobMonitorService> monitor) {
+void ETLJobManager::setJobMonitorService(std::shared_ptr<JobMonitorServiceInterface> monitor) {
     monitorService_ = monitor;
     ETL_LOG_INFO("Job monitor service attached to ETL Job Manager");
 }

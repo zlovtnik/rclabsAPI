@@ -162,7 +162,7 @@ void WebSocketManager::broadcastLogMessage(const std::string& message, const std
     for (auto it = connections_.begin(); it != connections_.end();) {
         auto& connection = it->second;
         if (connection && connection->isOpen()) {
-            if (connection->shouldReceiveMessage(MessageType::LOG_MESSAGE, jobId, logLevel)) {
+            if (connection->shouldReceiveMessage(MessageType::JOB_LOG_MESSAGE, jobId, logLevel)) {
                 connection->send(message);
                 sentCount++;
             }
