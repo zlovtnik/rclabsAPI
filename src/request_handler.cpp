@@ -4,6 +4,8 @@
 #include "auth_manager.hpp"
 #include "etl_job_manager.hpp"
 #include "input_validator.hpp"
+#include "exceptions.hpp"
+#include "exception_handler.hpp"
 #include <iostream>
 #include <sstream>
 
@@ -48,12 +50,21 @@ RequestHandler::handleRequest(http::request<Body, http::basic_fields<Allocator>>
         // Perform comprehensive validation and handle request
         return validateAndHandleRequest(string_req);
         
+    } catch (const ETLPlus::Exceptions::BaseException& ex) {
+        REQ_LOG_ERROR("RequestHandler::handleRequest() - ETL Exception caught: " + ex.toLogString());
+        return createExceptionResponse(ex);
     } catch (const std::exception& e) {
-        REQ_LOG_ERROR("RequestHandler::handleRequest() - Exception: " + std::string(e.what()));
-        return createErrorResponse(http::status::internal_server_error, "Internal Server Error");
+        REQ_LOG_ERROR("RequestHandler::handleRequest() - Standard exception: " + std::string(e.what()));
+        auto convertedException = ETLPlus::ExceptionHandling::ExceptionHandler::convertException(
+            e, "handleRequest", ETLPlus::Exceptions::ErrorContext("handleRequest"));
+        return createExceptionResponse(*convertedException);
     } catch (...) {
         REQ_LOG_ERROR("RequestHandler::handleRequest() - Unknown exception occurred");
-        return createErrorResponse(http::status::internal_server_error, "Unknown Internal Server Error");
+        auto unknownEx = ETLPlus::Exceptions::SystemException(
+            ETLPlus::Exceptions::ErrorCode::UNKNOWN_ERROR,
+            "Unknown exception in request handler",
+            ETLPlus::Exceptions::ErrorContext("handleRequest"));
+        return createExceptionResponse(unknownEx);
     }
 }
 
@@ -62,7 +73,10 @@ http::response<http::string_body> RequestHandler::validateAndHandleRequest(const
     auto basicValidation = validateRequestBasics(req);
     if (!basicValidation.isValid) {
         REQ_LOG_WARN("RequestHandler::validateAndHandleRequest() - Basic validation failed");
-        return createValidationErrorResponse(basicValidation);
+        throw ETLPlus::Exceptions::ValidationException(
+            ETLPlus::Exceptions::ErrorCode::INVALID_INPUT,
+            "Request validation failed",
+            ETLPlus::Exceptions::ErrorContext("validateAndHandleRequest"));
     }
     
     std::string target = std::string(req.target());
@@ -73,17 +87,26 @@ http::response<http::string_body> RequestHandler::validateAndHandleRequest(const
     // Step 2: Validate components before routing
     if (!dbManager_) {
         REQ_LOG_ERROR("RequestHandler::validateAndHandleRequest() - Database manager is null");
-        return createErrorResponse(http::status::internal_server_error, "Database not available");
+        throw ETLPlus::Exceptions::SystemException(
+            ETLPlus::Exceptions::ErrorCode::COMPONENT_UNAVAILABLE,
+            "Database manager not available",
+            ETLPlus::Exceptions::ErrorContext("validateAndHandleRequest"));
     }
     
     if (!authManager_) {
         REQ_LOG_ERROR("RequestHandler::validateAndHandleRequest() - Auth manager is null");
-        return createErrorResponse(http::status::internal_server_error, "Authentication not available");
+        throw ETLPlus::Exceptions::SystemException(
+            ETLPlus::Exceptions::ErrorCode::COMPONENT_UNAVAILABLE,
+            "Authentication manager not available",
+            ETLPlus::Exceptions::ErrorContext("validateAndHandleRequest"));
     }
     
     if (!etlManager_) {
         REQ_LOG_ERROR("RequestHandler::validateAndHandleRequest() - ETL manager is null");
-        return createErrorResponse(http::status::internal_server_error, "ETL manager not available");
+        throw ETLPlus::Exceptions::SystemException(
+            ETLPlus::Exceptions::ErrorCode::COMPONENT_UNAVAILABLE,
+            "ETL manager not available",
+            ETLPlus::Exceptions::ErrorContext("validateAndHandleRequest"));
     }
     
     // Step 3: Route requests with endpoint-specific validation
@@ -102,7 +125,11 @@ http::response<http::string_body> RequestHandler::validateAndHandleRequest(const
                                    std::to_string(std::time(nullptr)) + "\"}");
     } else {
         REQ_LOG_WARN("RequestHandler::validateAndHandleRequest() - Unknown endpoint: " + target);
-        return createErrorResponse(http::status::not_found, "Endpoint not found");
+        throw ETLPlus::Exceptions::NetworkException(
+            ETLPlus::Exceptions::ErrorCode::INVALID_RESPONSE,
+            "Endpoint not found: " + target,
+            ETLPlus::Exceptions::ErrorContext("validateAndHandleRequest"),
+            404);
     }
 }
 
@@ -398,6 +425,66 @@ http::response<http::string_body> RequestHandler::createErrorResponse(http::stat
     std::string escaped_message = InputValidator::sanitizeString(message);
     
     res.body() = "{\"error\":\"" + escaped_message + "\",\"status\":\"error\"}";
+    res.prepare_payload();
+    return res;
+}
+
+http::response<http::string_body> RequestHandler::createExceptionResponse(const ETLPlus::Exceptions::BaseException& ex) {
+    http::status status = http::status::internal_server_error;
+    
+    // Map exception codes to HTTP status codes
+    switch (ex.getErrorCode()) {
+        case ETLPlus::Exceptions::ErrorCode::INVALID_INPUT:
+        case ETLPlus::Exceptions::ErrorCode::MISSING_REQUIRED_FIELD:
+        case ETLPlus::Exceptions::ErrorCode::INVALID_FORMAT:
+        case ETLPlus::Exceptions::ErrorCode::VALUE_OUT_OF_RANGE:
+        case ETLPlus::Exceptions::ErrorCode::INVALID_TYPE:
+            status = http::status::bad_request;
+            break;
+            
+        case ETLPlus::Exceptions::ErrorCode::INVALID_CREDENTIALS:
+        case ETLPlus::Exceptions::ErrorCode::TOKEN_EXPIRED:
+        case ETLPlus::Exceptions::ErrorCode::TOKEN_INVALID:
+            status = http::status::unauthorized;
+            break;
+            
+        case ETLPlus::Exceptions::ErrorCode::INSUFFICIENT_PERMISSIONS:
+        case ETLPlus::Exceptions::ErrorCode::ACCOUNT_LOCKED:
+            status = http::status::forbidden;
+            break;
+            
+        case ETLPlus::Exceptions::ErrorCode::JOB_NOT_FOUND:
+        case ETLPlus::Exceptions::ErrorCode::FILE_NOT_FOUND:
+            status = http::status::not_found;
+            break;
+            
+        case ETLPlus::Exceptions::ErrorCode::REQUEST_TIMEOUT:
+        case ETLPlus::Exceptions::ErrorCode::CONNECTION_TIMEOUT:
+            status = http::status::request_timeout;
+            break;
+            
+        case ETLPlus::Exceptions::ErrorCode::RATE_LIMIT_EXCEEDED:
+            status = http::status::too_many_requests;
+            break;
+            
+        case ETLPlus::Exceptions::ErrorCode::SERVICE_UNAVAILABLE:
+        case ETLPlus::Exceptions::ErrorCode::COMPONENT_UNAVAILABLE:
+            status = http::status::service_unavailable;
+            break;
+            
+        default:
+            status = http::status::internal_server_error;
+            break;
+    }
+    
+    http::response<http::string_body> res{status, 11};
+    res.set(http::field::server, "ETL Plus Backend");
+    res.set(http::field::content_type, "application/json");
+    res.set(http::field::access_control_allow_origin, "*");
+    res.keep_alive(false);
+    
+    // Create structured error response using the exception's JSON representation
+    res.body() = ex.toJsonString();
     res.prepare_payload();
     return res;
 }

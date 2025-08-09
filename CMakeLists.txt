@@ -23,6 +23,8 @@ set(SOURCES
     src/etl_job_manager.cpp
     src/request_handler.cpp
     src/input_validator.cpp
+    src/exceptions.cpp
+    src/exception_handler.cpp
 )
 
 # Create executable
