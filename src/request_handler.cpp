@@ -3,6 +3,7 @@
 #include "database_manager.hpp"
 #include "auth_manager.hpp"
 #include "etl_job_manager.hpp"
+#include "input_validator.hpp"
 #include <iostream>
 #include <sstream>
 
@@ -23,12 +24,6 @@ RequestHandler::handleRequest(http::request<Body, http::basic_fields<Allocator>>
     REQ_LOG_DEBUG("RequestHandler::handleRequest() - Received request: " + std::string(req.method_string()) + " " + std::string(req.target()));
     
     try {
-        // Validate request basic structure
-        if (req.target().empty()) {
-            REQ_LOG_WARN("RequestHandler::handleRequest() - Empty target in request");
-            return createErrorResponse(http::status::bad_request, "Empty request target");
-        }
-        
         // Convert to string_body if needed
         http::request<http::string_body> string_req;
         string_req.method(req.method());
@@ -50,43 +45,9 @@ RequestHandler::handleRequest(http::request<Body, http::basic_fields<Allocator>>
         
         string_req.prepare_payload();
         
-        std::string target = std::string(string_req.target());
-        REQ_LOG_INFO("RequestHandler::handleRequest() - Routing request to: " + target);
+        // Perform comprehensive validation and handle request
+        return validateAndHandleRequest(string_req);
         
-        // Validate components before routing
-        if (!dbManager_) {
-            REQ_LOG_ERROR("RequestHandler::handleRequest() - Database manager is null");
-            return createErrorResponse(http::status::internal_server_error, "Database not available");
-        }
-        
-        if (!authManager_) {
-            REQ_LOG_ERROR("RequestHandler::handleRequest() - Auth manager is null");
-            return createErrorResponse(http::status::internal_server_error, "Authentication not available");
-        }
-        
-        if (!etlManager_) {
-            REQ_LOG_ERROR("RequestHandler::handleRequest() - ETL manager is null");
-            return createErrorResponse(http::status::internal_server_error, "ETL manager not available");
-        }
-        
-        // Route requests
-        if (target.starts_with("/api/auth")) {
-            REQ_LOG_DEBUG("RequestHandler::handleRequest() - Routing to auth handler");
-            return handleAuth(string_req);
-        } else if (target.starts_with("/api/jobs")) {
-            REQ_LOG_DEBUG("RequestHandler::handleRequest() - Routing to ETL jobs handler");
-            return handleETLJobs(string_req);
-        } else if (target.starts_with("/api/monitor")) {
-            REQ_LOG_DEBUG("RequestHandler::handleRequest() - Routing to monitoring handler");
-            return handleMonitoring(string_req);
-        } else if (target == "/api/health" || target == "/api/status") {
-            REQ_LOG_DEBUG("RequestHandler::handleRequest() - Routing to health/status handler");
-            return createSuccessResponse("{\"status\":\"healthy\",\"timestamp\":\"" + 
-                                       std::to_string(std::time(nullptr)) + "\"}");
-        } else {
-            REQ_LOG_WARN("RequestHandler::handleRequest() - Unknown endpoint: " + target);
-            return createErrorResponse(http::status::not_found, "Not Found");
-        }
     } catch (const std::exception& e) {
         REQ_LOG_ERROR("RequestHandler::handleRequest() - Exception: " + std::string(e.what()));
         return createErrorResponse(http::status::internal_server_error, "Internal Server Error");
@@ -96,15 +57,139 @@ RequestHandler::handleRequest(http::request<Body, http::basic_fields<Allocator>>
     }
 }
 
-// Explicit template instantiation
-template http::response<http::string_body> 
-RequestHandler::handleRequest<http::string_body, std::allocator<char>>(
-    http::request<http::string_body, http::basic_fields<std::allocator<char>>>&& req);
+http::response<http::string_body> RequestHandler::validateAndHandleRequest(const http::request<http::string_body>& req) {
+    // Step 1: Validate basic request structure
+    auto basicValidation = validateRequestBasics(req);
+    if (!basicValidation.isValid) {
+        REQ_LOG_WARN("RequestHandler::validateAndHandleRequest() - Basic validation failed");
+        return createValidationErrorResponse(basicValidation);
+    }
+    
+    std::string target = std::string(req.target());
+    std::string method = std::string(req.method_string());
+    
+    REQ_LOG_INFO("RequestHandler::validateAndHandleRequest() - Processing validated request: " + method + " " + target);
+    
+    // Step 2: Validate components before routing
+    if (!dbManager_) {
+        REQ_LOG_ERROR("RequestHandler::validateAndHandleRequest() - Database manager is null");
+        return createErrorResponse(http::status::internal_server_error, "Database not available");
+    }
+    
+    if (!authManager_) {
+        REQ_LOG_ERROR("RequestHandler::validateAndHandleRequest() - Auth manager is null");
+        return createErrorResponse(http::status::internal_server_error, "Authentication not available");
+    }
+    
+    if (!etlManager_) {
+        REQ_LOG_ERROR("RequestHandler::validateAndHandleRequest() - ETL manager is null");
+        return createErrorResponse(http::status::internal_server_error, "ETL manager not available");
+    }
+    
+    // Step 3: Route requests with endpoint-specific validation
+    if (target.starts_with("/api/auth")) {
+        REQ_LOG_DEBUG("RequestHandler::validateAndHandleRequest() - Routing to auth handler");
+        return handleAuth(req);
+    } else if (target.starts_with("/api/jobs")) {
+        REQ_LOG_DEBUG("RequestHandler::validateAndHandleRequest() - Routing to ETL jobs handler");
+        return handleETLJobs(req);
+    } else if (target.starts_with("/api/monitor")) {
+        REQ_LOG_DEBUG("RequestHandler::validateAndHandleRequest() - Routing to monitoring handler");
+        return handleMonitoring(req);
+    } else if (target == "/api/health" || target == "/api/status") {
+        REQ_LOG_DEBUG("RequestHandler::validateAndHandleRequest() - Routing to health/status handler");
+        return createSuccessResponse("{\"status\":\"healthy\",\"timestamp\":\"" + 
+                                   std::to_string(std::time(nullptr)) + "\"}");
+    } else {
+        REQ_LOG_WARN("RequestHandler::validateAndHandleRequest() - Unknown endpoint: " + target);
+        return createErrorResponse(http::status::not_found, "Endpoint not found");
+    }
+}
+
+InputValidator::ValidationResult RequestHandler::validateRequestBasics(const http::request<http::string_body>& req) {
+    InputValidator::ValidationResult result;
+    
+    std::string target = std::string(req.target());
+    std::string method = std::string(req.method_string());
+    
+    // Validate request target/path
+    auto pathValidation = InputValidator::validateEndpointPath(target);
+    if (!pathValidation.isValid) {
+        result.errors.insert(result.errors.end(), pathValidation.errors.begin(), pathValidation.errors.end());
+        result.isValid = false;
+    }
+    
+    // Validate query parameters if present
+    size_t queryPos = target.find('?');
+    if (queryPos != std::string::npos) {
+        std::string queryString = target.substr(queryPos + 1);
+        auto queryValidation = InputValidator::validateQueryParameters(queryString);
+        if (!queryValidation.isValid) {
+            result.errors.insert(result.errors.end(), queryValidation.errors.begin(), queryValidation.errors.end());
+            result.isValid = false;
+        }
+    }
+    
+    // Validate HTTP method
+    std::vector<std::string> allowedMethods = {"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"};
+    if (!InputValidator::isValidHttpMethod(method, allowedMethods)) {
+        result.addError("method", "HTTP method not allowed", "METHOD_NOT_ALLOWED");
+    }
+    
+    // Validate request headers
+    auto headers = extractHeaders(req);
+    auto headerValidation = InputValidator::validateRequestHeaders(headers);
+    if (!headerValidation.isValid) {
+        result.errors.insert(result.errors.end(), headerValidation.errors.begin(), headerValidation.errors.end());
+        result.isValid = false;
+    }
+    
+    // Validate request size
+    if (!InputValidator::isValidRequestSize(req.body().length())) {
+        result.addError("content-length", "Request body too large", "BODY_TOO_LARGE");
+    }
+    
+    // Validate content type for POST/PUT/PATCH requests
+    if (method == "POST" || method == "PUT" || method == "PATCH") {
+        auto contentTypeIt = headers.find("content-type");
+        if (contentTypeIt != headers.end()) {
+            if (!InputValidator::isValidContentType(contentTypeIt->second)) {
+                result.addError("content-type", "Unsupported content type", "INVALID_CONTENT_TYPE");
+            }
+        }
+    }
+    
+    return result;
+}
+
+std::unordered_map<std::string, std::string> RequestHandler::extractHeaders(const http::request<http::string_body>& req) {
+    std::unordered_map<std::string, std::string> headers;
+    
+    for (auto const& field : req) {
+        std::string key = std::string(field.name_string());
+        std::string value = std::string(field.value());
+        std::transform(key.begin(), key.end(), key.begin(), ::tolower);
+        headers[key] = value;
+    }
+    
+    return headers;
+}
+
+std::unordered_map<std::string, std::string> RequestHandler::extractQueryParams(const std::string& target) {
+    size_t queryPos = target.find('?');
+    if (queryPos == std::string::npos) {
+        return {};
+    }
+    
+    std::string queryString = target.substr(queryPos + 1);
+    return InputValidator::parseQueryString(queryString);
+}
 
 http::response<http::string_body> RequestHandler::handleAuth(const http::request<http::string_body>& req) {
     std::string target = std::string(req.target());
+    std::string method = std::string(req.method_string());
     
-    // Add CORS headers for preflight requests
+    // Handle CORS preflight
     if (req.method() == http::verb::options) {
         http::response<http::string_body> res{http::status::ok, 11};
         res.set(http::field::server, "ETL Plus Backend");
@@ -116,30 +201,50 @@ http::response<http::string_body> RequestHandler::handleAuth(const http::request
         return res;
     }
     
+    // Validate allowed methods for auth endpoints
+    if (!InputValidator::isValidHttpMethod(method, {"POST", "GET"})) {
+        return createErrorResponse(http::status::method_not_allowed, "Method not allowed for auth endpoint");
+    }
+    
     if (req.method() == http::verb::post && target == "/api/auth/login") {
-        // Parse login credentials from body
-        std::string body = req.body();
-        
-        // Basic JSON validation
-        if (body.empty()) {
-            REQ_LOG_WARN("RequestHandler::handleAuth() - Empty request body for login");
-            return createErrorResponse(http::status::bad_request, "Empty request body");
+        // Validate login request body
+        auto validation = InputValidator::validateLoginRequest(req.body());
+        if (!validation.isValid) {
+            REQ_LOG_WARN("RequestHandler::handleAuth() - Login validation failed");
+            return createValidationErrorResponse(validation);
         }
         
-        // Check for basic JSON structure
-        if (body.front() != '{' || body.back() != '}') {
-            REQ_LOG_WARN("RequestHandler::handleAuth() - Invalid JSON format in login request");
-            return createErrorResponse(http::status::bad_request, "Invalid JSON format");
-        }
-        
-        REQ_LOG_INFO("RequestHandler::handleAuth() - Processing login request");
-        std::cout << "Login attempt with body: " << body << std::endl;
+        REQ_LOG_INFO("RequestHandler::handleAuth() - Processing validated login request");
         
         // For now, return a mock success response
-        return createSuccessResponse("{\"token\":\"mock_jwt_token\",\"user_id\":\"123\"}");
+        return createSuccessResponse("{\"token\":\"mock_jwt_token\",\"user_id\":\"123\",\"expires_in\":3600}");
+        
     } else if (req.method() == http::verb::post && target == "/api/auth/logout") {
+        // Validate logout request (may be empty or contain token)
+        if (!req.body().empty()) {
+            auto validation = InputValidator::validateLogoutRequest(req.body());
+            if (!validation.isValid) {
+                REQ_LOG_WARN("RequestHandler::handleAuth() - Logout validation failed");
+                return createValidationErrorResponse(validation);
+            }
+        }
+        
         return createSuccessResponse("{\"message\":\"Logged out successfully\"}");
+        
     } else if (req.method() == http::verb::get && target == "/api/auth/profile") {
+        // Validate authorization header for profile access
+        auto headers = extractHeaders(req);
+        auto authIt = headers.find("authorization");
+        if (authIt != headers.end()) {
+            auto authValidation = InputValidator::validateAuthorizationHeader(authIt->second);
+            if (!authValidation.isValid) {
+                REQ_LOG_WARN("RequestHandler::handleAuth() - Profile auth validation failed");
+                return createValidationErrorResponse(authValidation);
+            }
+        } else {
+            return createErrorResponse(http::status::unauthorized, "Authorization header required");
+        }
+        
         return createSuccessResponse("{\"user_id\":\"123\",\"username\":\"testuser\",\"email\":\"test@example.com\"}");
     }
     
@@ -148,20 +253,34 @@ http::response<http::string_body> RequestHandler::handleAuth(const http::request
 
 http::response<http::string_body> RequestHandler::handleETLJobs(const http::request<http::string_body>& req) {
     std::string target = std::string(req.target());
+    std::string method = std::string(req.method_string());
     
-    // Add CORS headers for preflight requests
+    // Handle CORS preflight
     if (req.method() == http::verb::options) {
         http::response<http::string_body> res{http::status::ok, 11};
         res.set(http::field::server, "ETL Plus Backend");
         res.set(http::field::access_control_allow_origin, "*");
-        res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
+        res.set(http::field::access_control_allow_methods, "GET, POST, PUT, DELETE, OPTIONS");
         res.set(http::field::access_control_allow_headers, "Content-Type, Authorization");
         res.keep_alive(false);
         res.prepare_payload();
         return res;
     }
     
+    // Validate allowed methods for jobs endpoints
+    if (!InputValidator::isValidHttpMethod(method, {"GET", "POST", "PUT", "DELETE"})) {
+        return createErrorResponse(http::status::method_not_allowed, "Method not allowed for jobs endpoint");
+    }
+    
     if (req.method() == http::verb::get && target == "/api/jobs") {
+        // Validate query parameters
+        auto queryParams = extractQueryParams(target);
+        auto queryValidation = InputValidator::validateJobQueryParams(queryParams);
+        if (!queryValidation.isValid) {
+            REQ_LOG_WARN("RequestHandler::handleETLJobs() - Query parameter validation failed");
+            return createValidationErrorResponse(queryValidation);
+        }
+        
         // Return list of jobs
         auto jobs = etlManager_->getAllJobs();
         std::ostringstream json;
@@ -180,24 +299,16 @@ http::response<http::string_body> RequestHandler::handleETLJobs(const http::requ
         }
         json << "]}";
         return createSuccessResponse(json.str());
+        
     } else if (req.method() == http::verb::post && target == "/api/jobs") {
-        // Create new job
-        std::string body = req.body();
-        
-        // Basic JSON validation
-        if (body.empty()) {
-            REQ_LOG_WARN("RequestHandler::handleETLJobs() - Empty request body for job creation");
-            return createErrorResponse(http::status::bad_request, "Empty request body");
+        // Validate job creation request
+        auto validation = InputValidator::validateJobCreationRequest(req.body());
+        if (!validation.isValid) {
+            REQ_LOG_WARN("RequestHandler::handleETLJobs() - Job creation validation failed");
+            return createValidationErrorResponse(validation);
         }
         
-        // Check for basic JSON structure
-        if (body.front() != '{' || body.back() != '}') {
-            REQ_LOG_WARN("RequestHandler::handleETLJobs() - Invalid JSON format in job creation request");
-            return createErrorResponse(http::status::bad_request, "Invalid JSON format");
-        }
-        
-        REQ_LOG_INFO("RequestHandler::handleETLJobs() - Processing job creation request");
-        std::cout << "Creating job with config: " << body << std::endl;
+        REQ_LOG_INFO("RequestHandler::handleETLJobs() - Processing validated job creation request");
         
         try {
             // Mock job creation
@@ -213,6 +324,22 @@ http::response<http::string_body> RequestHandler::handleETLJobs(const http::requ
             REQ_LOG_ERROR("RequestHandler::handleETLJobs() - Exception during job creation: " + std::string(e.what()));
             return createErrorResponse(http::status::internal_server_error, "Failed to create job");
         }
+        
+    } else if (req.method() == http::verb::put && target.starts_with("/api/jobs/")) {
+        // Extract job ID from path
+        std::string jobId = target.substr(11); // Remove "/api/jobs/"
+        if (!InputValidator::isValidJobId(jobId)) {
+            return createErrorResponse(http::status::bad_request, "Invalid job ID format");
+        }
+        
+        // Validate job update request
+        auto validation = InputValidator::validateJobUpdateRequest(req.body());
+        if (!validation.isValid) {
+            REQ_LOG_WARN("RequestHandler::handleETLJobs() - Job update validation failed");
+            return createValidationErrorResponse(validation);
+        }
+        
+        return createSuccessResponse("{\"job_id\":\"" + jobId + "\",\"status\":\"updated\"}");
     }
     
     return createErrorResponse(http::status::bad_request, "Invalid jobs endpoint");
@@ -220,17 +347,23 @@ http::response<http::string_body> RequestHandler::handleETLJobs(const http::requ
 
 http::response<http::string_body> RequestHandler::handleMonitoring(const http::request<http::string_body>& req) {
     std::string target = std::string(req.target());
+    std::string method = std::string(req.method_string());
     
-    // Add CORS headers for preflight requests
+    // Handle CORS preflight
     if (req.method() == http::verb::options) {
         http::response<http::string_body> res{http::status::ok, 11};
         res.set(http::field::server, "ETL Plus Backend");
         res.set(http::field::access_control_allow_origin, "*");
-        res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
+        res.set(http::field::access_control_allow_methods, "GET, OPTIONS");
         res.set(http::field::access_control_allow_headers, "Content-Type, Authorization");
         res.keep_alive(false);
         res.prepare_payload();
         return res;
+    }
+    
+    // Validate allowed methods for monitoring endpoints
+    if (!InputValidator::isValidHttpMethod(method, {"GET"})) {
+        return createErrorResponse(http::status::method_not_allowed, "Method not allowed for monitoring endpoint");
     }
     
     if (req.method() == http::verb::get && target == "/api/monitor/status") {
@@ -238,7 +371,16 @@ http::response<http::string_body> RequestHandler::handleMonitoring(const http::r
                                    std::string(dbManager_->isConnected() ? "true" : "false") + 
                                    ",\"etl_manager_running\":" + 
                                    std::string(etlManager_->isRunning() ? "true" : "false") + "}");
+                                   
     } else if (req.method() == http::verb::get && target == "/api/monitor/metrics") {
+        // Validate query parameters for metrics
+        auto queryParams = extractQueryParams(target);
+        auto queryValidation = InputValidator::validateMonitoringParams(queryParams);
+        if (!queryValidation.isValid) {
+            REQ_LOG_WARN("RequestHandler::handleMonitoring() - Metrics query validation failed");
+            return createValidationErrorResponse(queryValidation);
+        }
+        
         return createSuccessResponse("{\"total_jobs\":0,\"running_jobs\":0,\"completed_jobs\":0,\"failed_jobs\":0}");
     }
     
@@ -253,25 +395,24 @@ http::response<http::string_body> RequestHandler::createErrorResponse(http::stat
     res.keep_alive(false);
     
     // Escape quotes in the message to prevent JSON injection
-    std::string escaped_message = message;
-    size_t pos = 0;
-    while ((pos = escaped_message.find('"', pos)) != std::string::npos) {
-        escaped_message.replace(pos, 1, "\\\"");
-        pos += 2;
-    }
-    
-    // Also escape backslashes
-    pos = 0;
-    while ((pos = escaped_message.find('\\', pos)) != std::string::npos) {
-        if (pos + 1 < escaped_message.length() && escaped_message[pos + 1] != '"') {
-            escaped_message.replace(pos, 1, "\\\\");
-            pos += 2;
-        } else {
-            pos++;
-        }
-    }
+    std::string escaped_message = InputValidator::sanitizeString(message);
     
     res.body() = "{\"error\":\"" + escaped_message + "\",\"status\":\"error\"}";
+    res.prepare_payload();
+    return res;
+}
+
+http::response<http::string_body> RequestHandler::createValidationErrorResponse(const InputValidator::ValidationResult& result) {
+    http::response<http::string_body> res{http::status::bad_request, 11};
+    res.set(http::field::server, "ETL Plus Backend");
+    res.set(http::field::content_type, "application/json");
+    res.set(http::field::access_control_allow_origin, "*");
+    res.keep_alive(false);
+    
+    std::ostringstream json;
+    json << "{\"error\":\"Validation failed\",\"status\":\"error\",\"validation\":" << result.toJsonString() << "}";
+    
+    res.body() = json.str();
     res.prepare_payload();
     return res;
 }
@@ -286,3 +427,8 @@ http::response<http::string_body> RequestHandler::createSuccessResponse(const st
     res.prepare_payload();
     return res;
 }
+
+// Explicit template instantiation
+template http::response<http::string_body> 
+RequestHandler::handleRequest<http::string_body, std::allocator<char>>(
+    http::request<http::string_body, http::basic_fields<std::allocator<char>>>&& req);

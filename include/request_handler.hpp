@@ -3,6 +3,8 @@
 #include <boost/beast/http.hpp>
 #include <string>
 #include <memory>
+#include <unordered_map>
+#include "input_validator.hpp"
 
 namespace http = boost::beast::http;
 
@@ -25,9 +27,19 @@ private:
     std::shared_ptr<AuthManager> authManager_;
     std::shared_ptr<ETLJobManager> etlManager_;
     
+    // Enhanced validation methods
+    http::response<http::string_body> validateAndHandleRequest(const http::request<http::string_body>& req);
+    InputValidator::ValidationResult validateRequestBasics(const http::request<http::string_body>& req);
+    std::unordered_map<std::string, std::string> extractHeaders(const http::request<http::string_body>& req);
+    std::unordered_map<std::string, std::string> extractQueryParams(const std::string& target);
+    
+    // Request handlers with validation
     http::response<http::string_body> handleAuth(const http::request<http::string_body>& req);
     http::response<http::string_body> handleETLJobs(const http::request<http::string_body>& req);
     http::response<http::string_body> handleMonitoring(const http::request<http::string_body>& req);
+    
+    // Response creation methods
     http::response<http::string_body> createErrorResponse(http::status status, const std::string& message);
+    http::response<http::string_body> createValidationErrorResponse(const InputValidator::ValidationResult& result);
     http::response<http::string_body> createSuccessResponse(const std::string& data);
 };
