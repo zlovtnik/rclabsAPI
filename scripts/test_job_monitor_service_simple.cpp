@@ -22,6 +22,8 @@ public:
         timeoutCount++;
     }
     
+    bool isRunning() const override { return true; }
+    
     int failureCount = 0;
     int timeoutCount = 0;
 };
