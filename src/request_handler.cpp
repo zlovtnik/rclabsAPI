@@ -149,6 +149,10 @@ http::response<http::string_body> RequestHandler::validateAndHandleRequest(
     REQ_LOG_DEBUG(
         "RequestHandler::validateAndHandleRequest() - Routing to auth handler");
     return handleAuth(req);
+  } else if (target.rfind("/api/logs", 0) == 0) {
+    REQ_LOG_DEBUG("RequestHandler::validateAndHandleRequest() - Routing to "
+                  "logs handler");
+    return handleLogs(req);
   } else if (target.rfind("/api/jobs", 0) == 0) {
     REQ_LOG_DEBUG("RequestHandler::validateAndHandleRequest() - Routing to ETL "
                   "jobs handler");
@@ -348,6 +352,49 @@ RequestHandler::handleAuth(const http::request<http::string_body> &req) const {
 
   return createErrorResponse(http::status::bad_request,
                              "Invalid auth endpoint");
+}
+
+http::response<http::string_body>
+RequestHandler::handleLogs(const http::request<http::string_body> &req) const {
+  auto target = std::string(req.target());
+  auto method = std::string(req.method_string());
+  using enum http::field;
+
+  // Handle CORS preflight
+  if (req.method() == http::verb::options) {
+    http::response<http::string_body> res{http::status::ok, 11};
+    res.set(server, "ETL Plus Backend");
+    res.set(access_control_allow_origin, "*");
+    res.set(access_control_allow_methods, "GET, POST, OPTIONS");
+    res.set(access_control_allow_headers, "Content-Type, Authorization");
+    res.keep_alive(false);
+    res.prepare_payload();
+    return res;
+  }
+
+  // Validate allowed methods for logs endpoints
+  if (!InputValidator::isValidHttpMethod(method, {"GET", "POST"})) {
+    return createErrorResponse(http::status::method_not_allowed,
+                               "Method not allowed for logs endpoint");
+  }
+
+  // Handle different log endpoints
+  if (req.method() == http::verb::get && target == "/api/logs") {
+    // Return recent logs
+    REQ_LOG_INFO("RequestHandler::handleLogs() - Retrieving recent logs");
+    return createSuccessResponse(R"({"logs":[],"total":0,"message":"Logs endpoint implemented"})");
+  } else if (req.method() == http::verb::get && target.rfind("/api/logs/", 0) == 0) {
+    // Handle specific log queries with parameters
+    REQ_LOG_INFO("RequestHandler::handleLogs() - Processing log query with parameters");
+    return createSuccessResponse(R"({"logs":[],"total":0,"message":"Log query endpoint implemented"})");
+  } else if (req.method() == http::verb::post && target == "/api/logs/search") {
+    // Handle log search requests
+    REQ_LOG_INFO("RequestHandler::handleLogs() - Processing log search request");
+    return createSuccessResponse(R"({"results":[],"total":0,"message":"Log search endpoint implemented"})");
+  }
+
+  return createErrorResponse(http::status::bad_request,
+                             "Invalid logs endpoint");
 }
 
 http::response<http::string_body>
