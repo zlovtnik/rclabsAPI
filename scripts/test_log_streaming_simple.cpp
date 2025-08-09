@@ -1,5 +1,6 @@
 #include "../include/logger.hpp"
 #include "../include/job_monitoring_models.hpp"
+#include "../include/transparent_string_hash.hpp"
 #include <iostream>
 #include <thread>
 #include <chrono>
@@ -106,7 +107,7 @@ void testJobSpecificLogging() {
     logger.configure(config);
     
     // Test job-specific logging methods
-    std::unordered_map<std::string, std::string> context = {
+    std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> context = {
         {"step", "data_validation"},
         {"records", "1000"}
     };
@@ -145,7 +146,7 @@ void testLogMacros() {
     Logger& logger = Logger::getInstance();
     
     // Test the new job-specific macros
-    std::unordered_map<std::string, std::string> context = {{"test", "macro"}};
+    std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> context = {{"test", "macro"}};
     
     LOG_DEBUG_JOB("TestComponent", "Debug macro test", "macro_job", context);
     LOG_INFO_JOB("TestComponent", "Info macro test", "macro_job", context);

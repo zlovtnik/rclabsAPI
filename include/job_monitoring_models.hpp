@@ -5,7 +5,10 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <string_view>
+#include <functional>
 #include "etl_job_manager.hpp"
+#include "transparent_string_hash.hpp"
 
 // Forward declarations
 struct LogMessage;
@@ -93,7 +96,7 @@ struct LogMessage {
     std::string component;
     std::string message;
     std::chrono::system_clock::time_point timestamp;
-    std::unordered_map<std::string, std::string> context;
+    std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> context;
     
     // JSON serialization
     std::string toJson() const;

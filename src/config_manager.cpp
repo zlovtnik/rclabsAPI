@@ -7,6 +7,7 @@
 #include <functional>
 #include <mutex>
 #include <stdexcept>
+#include <format>
 
 static std::mutex configMutex;
 
@@ -71,8 +72,8 @@ double ConfigManager::getDouble(const std::string& key, double defaultValue) con
     return defaultValue;
 }
 
-std::unordered_set<std::string> ConfigManager::getStringSet(const std::string& key) const {
-    std::unordered_set<std::string> result;
+std::unordered_set<std::string, TransparentStringHash, std::equal_to<>> ConfigManager::getStringSet(const std::string& key) const {
+    std::unordered_set<std::string, TransparentStringHash, std::equal_to<>> result;
     if (auto it = configData.find(key); it != configData.end()) {
         std::string value = it->second;
         if (!value.empty() && value.front() == '[' && value.back() == ']') {
@@ -263,7 +264,7 @@ void ConfigManager::notifyConfigChange(const std::string& section, const Monitor
 }
 
 bool ConfigManager::validateAndUpdateConfigData(const std::string& section, 
-                                               const std::unordered_map<std::string, std::string>& updates) {
+                                               const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& updates) {
     // Note: Called with configMutex already locked
     try {
         // Update configData with new values
@@ -280,8 +281,8 @@ bool ConfigManager::validateAndUpdateConfigData(const std::string& section,
     }
 }
 
-std::unordered_map<std::string, std::string> ConfigManager::configToMap(const MonitoringConfig& config) const {
-    std::unordered_map<std::string, std::string> result;
+std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> ConfigManager::configToMap(const MonitoringConfig& config) const {
+    std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> result;
     
     // WebSocket config
     auto wsMap = webSocketConfigToMap(config.websocket);
@@ -294,7 +295,7 @@ std::unordered_map<std::string, std::string> ConfigManager::configToMap(const Mo
     return result;
 }
 
-std::unordered_map<std::string, std::string> ConfigManager::webSocketConfigToMap(const WebSocketConfig& config) const {
+std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> ConfigManager::webSocketConfigToMap(const WebSocketConfig& config) const {
     return {
         {"monitoring.websocket.enabled", config.enabled ? "true" : "false"},
         {"monitoring.websocket.port", std::to_string(config.port)},
@@ -304,7 +305,7 @@ std::unordered_map<std::string, std::string> ConfigManager::webSocketConfigToMap
     };
 }
 
-std::unordered_map<std::string, std::string> ConfigManager::jobTrackingConfigToMap(const JobTrackingConfig& config) const {
+std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> ConfigManager::jobTrackingConfigToMap(const JobTrackingConfig& config) const {
     return {
         {"monitoring.job_tracking.progress_update_interval", std::to_string(config.progressUpdateInterval)},
         {"monitoring.job_tracking.log_streaming_enabled", config.logStreamingEnabled ? "true" : "false"},
@@ -408,38 +409,38 @@ ConfigValidationResult WebSocketConfig::validate() const {
     ConfigValidationResult result;
     
     if (port <= 0 || port > 65535) {
-        result.addError("WebSocket port must be between 1 and 65535, got: " + std::to_string(port));
+        result.addError(std::format("WebSocket port must be between 1 and 65535, got: {}", port));
     }
     
     if (port < 1024) {
-        result.addWarning("WebSocket port " + std::to_string(port) + " is in privileged range (< 1024)");
+        result.addWarning(std::format("WebSocket port {} is in privileged range (< 1024)", port));
     }
     
     if (maxConnections <= 0) {
-        result.addError("WebSocket max_connections must be positive, got: " + std::to_string(maxConnections));
+        result.addError(std::format("WebSocket max_connections must be positive, got: {}", maxConnections));
     }
     
     if (maxConnections > 10000) {
-        result.addWarning("WebSocket max_connections is very high (" + std::to_string(maxConnections) + 
-                         "), this may cause resource issues");
+        result.addWarning(std::format("WebSocket max_connections is very high ({}), this may cause resource issues", 
+                                     maxConnections));
     }
     
     if (heartbeatInterval <= 0) {
-        result.addError("WebSocket heartbeat_interval must be positive, got: " + std::to_string(heartbeatInterval));
+        result.addError(std::format("WebSocket heartbeat_interval must be positive, got: {}", heartbeatInterval));
     }
     
     if (heartbeatInterval < 5) {
-        result.addWarning("WebSocket heartbeat_interval is very low (" + std::to_string(heartbeatInterval) + 
-                         " seconds), this may cause unnecessary network traffic");
+        result.addWarning(std::format("WebSocket heartbeat_interval is very low ({} seconds), this may cause unnecessary network traffic", 
+                                     heartbeatInterval));
     }
     
     if (messageQueueSize <= 0) {
-        result.addError("WebSocket message_queue_size must be positive, got: " + std::to_string(messageQueueSize));
+        result.addError(std::format("WebSocket message_queue_size must be positive, got: {}", messageQueueSize));
     }
     
     if (messageQueueSize > 100000) {
-        result.addWarning("WebSocket message_queue_size is very high (" + std::to_string(messageQueueSize) + 
-                         "), this may cause memory issues");
+        result.addWarning(std::format("WebSocket message_queue_size is very high ({}), this may cause memory issues", 
+                                     messageQueueSize));
     }
     
     return result;
@@ -470,28 +471,28 @@ ConfigValidationResult JobTrackingConfig::validate() const {
     ConfigValidationResult result;
     
     if (progressUpdateInterval <= 0) {
-        result.addError("Job tracking progress_update_interval must be positive, got: " + 
-                       std::to_string(progressUpdateInterval));
+        result.addError(std::format("Job tracking progress_update_interval must be positive, got: {}", 
+                                   progressUpdateInterval));
     }
     
     if (progressUpdateInterval < 1) {
-        result.addWarning("Job tracking progress_update_interval is very low (" + 
-                         std::to_string(progressUpdateInterval) + " seconds), this may cause performance issues");
+        result.addWarning(std::format("Job tracking progress_update_interval is very low ({} seconds), this may cause performance issues", 
+                                     progressUpdateInterval));
     }
     
     if (progressUpdateInterval > 300) {
-        result.addWarning("Job tracking progress_update_interval is very high (" + 
-                         std::to_string(progressUpdateInterval) + " seconds), updates may seem delayed");
+        result.addWarning(std::format("Job tracking progress_update_interval is very high ({} seconds), updates may seem delayed", 
+                                     progressUpdateInterval));
     }
     
     if (timeoutWarningThreshold <= 0) {
-        result.addError("Job tracking timeout_warning_threshold must be positive, got: " + 
-                       std::to_string(timeoutWarningThreshold));
+        result.addError(std::format("Job tracking timeout_warning_threshold must be positive, got: {}", 
+                                   timeoutWarningThreshold));
     }
     
     if (timeoutWarningThreshold < 5) {
-        result.addWarning("Job tracking timeout_warning_threshold is very low (" + 
-                         std::to_string(timeoutWarningThreshold) + " minutes), may cause false alarms");
+        result.addWarning(std::format("Job tracking timeout_warning_threshold is very low ({} minutes), may cause false alarms", 
+                                     timeoutWarningThreshold));
     }
     
     return result;
@@ -540,9 +541,8 @@ ConfigValidationResult MonitoringConfig::validate() const {
     
     // Cross-validation checks
     if (websocket.enabled && jobTracking.progressUpdateInterval > websocket.heartbeatInterval) {
-        result.addWarning("Job progress update interval (" + std::to_string(jobTracking.progressUpdateInterval) + 
-                         "s) is greater than WebSocket heartbeat interval (" + 
-                         std::to_string(websocket.heartbeatInterval) + "s)");
+        result.addWarning(std::format("Job progress update interval ({}s) is greater than WebSocket heartbeat interval ({}s)", 
+                                     jobTracking.progressUpdateInterval, websocket.heartbeatInterval));
     }
     
     return result;

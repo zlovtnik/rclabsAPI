@@ -4,6 +4,18 @@ project(ETLPlusBackend)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Build optimization flags
+set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
+set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
+
+# Enable parallel compilation
+if(MSVC)
+    add_compile_options(/MP)
+endif()
+
+# Use Ninja generator if available (add to your build command: cmake -GNinja)
+# Or enable parallel builds: make -j$(nproc) or cmake --build . --parallel
+
 # Find required packages
 find_package(Boost REQUIRED COMPONENTS system filesystem)
 find_package(Threads REQUIRED)
@@ -66,40 +78,22 @@ if(NOT JSONCPP_FOUND)
     endif()
 else()
     message(STATUS "Found jsoncpp via pkg-config: ${JSONCPP_LIBRARIES}")
-    # Extract the actual library path for linking
     if(JSONCPP_LIBRARIES MATCHES "jsoncpp")
         set(JSONCPP_LIBRARIES "/opt/homebrew/Cellar/jsoncpp/1.9.6/lib/libjsoncpp.dylib")
         message(STATUS "Using jsoncpp library path: ${JSONCPP_LIBRARIES}")
     endif()
 endif()
 
-# Include directories
-if(JSONCPP_INCLUDE_DIR)
-    include_directories(${JSONCPP_INCLUDE_DIR})
-endif()
-if(JSONCPP_INCLUDE_DIRS)
-    include_directories(${JSONCPP_INCLUDE_DIRS})
-endif()
-if(CURL_INCLUDE_DIRS)
-    include_directories(${CURL_INCLUDE_DIRS})
-endif()
-
-# Include directories
-include_directories(include)
-
-# Source files
-set(SOURCES
-    src/main.cpp
+# Create a shared library for common sources to avoid recompilation
+set(COMMON_SOURCES
     src/logger.cpp
     src/config_manager.cpp
     src/database_manager.cpp
-    src/http_server.cpp
     src/websocket_connection.cpp
     src/websocket_manager.cpp
     src/data_transformer.cpp
     src/auth_manager.cpp
     src/etl_job_manager.cpp
-    src/request_handler.cpp
     src/input_validator.cpp
     src/exceptions.cpp
     src/exception_handler.cpp
@@ -108,16 +102,37 @@ set(SOURCES
     src/notification_service.cpp
 )
 
-# Create executable
-add_executable(ETLPlusBackend ${SOURCES})
+add_library(etl_common STATIC ${COMMON_SOURCES})
 
-# Link libraries
-target_link_libraries(ETLPlusBackend 
+# Set include directories for the library
+target_include_directories(etl_common PUBLIC include)
+if(JSONCPP_INCLUDE_DIR)
+    target_include_directories(etl_common PUBLIC ${JSONCPP_INCLUDE_DIR})
+endif()
+if(JSONCPP_INCLUDE_DIRS)
+    target_include_directories(etl_common PUBLIC ${JSONCPP_INCLUDE_DIRS})
+endif()
+if(CURL_INCLUDE_DIRS)
+    target_include_directories(etl_common PUBLIC ${CURL_INCLUDE_DIRS})
+endif()
+
+# Link libraries to the common library
+target_link_libraries(etl_common PUBLIC
     ${Boost_LIBRARIES}
     Threads::Threads
     ${CURL_LIBRARIES}
     ${JSONCPP_LIBRARIES}
 )
+
+# Main executable - now much simpler
+add_executable(ETLPlusBackend 
+    src/main.cpp
+    src/http_server.cpp
+    src/request_handler.cpp
+)
+
+target_include_directories(ETLPlusBackend PRIVATE include)
+target_link_libraries(ETLPlusBackend etl_common)
 
 # Set output directory
 set_target_properties(ETLPlusBackend PROPERTIES
@@ -149,236 +164,62 @@ foreach(CONFIG_FILE ${CONFIG_FILES})
     )
 endforeach()
 
-# WebSocket Basic Test Executable
-add_executable(test_websocket_basic scripts/test_websocket_basic.cpp 
-    src/websocket_connection.cpp
-    src/websocket_manager.cpp
-    src/job_monitoring_models.cpp
-    src/logger.cpp 
-    src/config_manager.cpp
-)
+# Macro to create test executables more efficiently
+macro(create_test_executable target_name script_file)
+    add_executable(${target_name} ${script_file})
+    target_include_directories(${target_name} PRIVATE include)
+    target_link_libraries(${target_name} etl_common)
+endmacro()
 
-target_include_directories(test_websocket_basic PRIVATE include)
-target_link_libraries(test_websocket_basic ${Boost_LIBRARIES} pthread)
+# Create all test executables using the shared library
+create_test_executable(test_websocket_basic scripts/test_websocket_basic.cpp)
+create_test_executable(test_websocket_integration scripts/test_websocket_integration.cpp)
+create_test_executable(test_websocket_manager_enhanced scripts/test_websocket_manager_enhanced.cpp)
+create_test_executable(test_websocket_filtering_demo scripts/test_websocket_filtering_demo.cpp)
+create_test_executable(test_job_monitoring_models scripts/test_job_monitoring_models.cpp)
+create_test_executable(test_etl_job_manager_monitoring scripts/test_etl_job_manager_monitoring.cpp)
+create_test_executable(test_job_monitor_service scripts/test_job_monitor_service.cpp)
+create_test_executable(test_job_monitor_service_simple scripts/test_job_monitor_service_simple.cpp)
+create_test_executable(test_log_streaming_simple scripts/test_log_streaming_simple.cpp)
+create_test_executable(test_log_streaming_integration scripts/test_log_streaming_integration.cpp)
+create_test_executable(test_log_streaming_demo scripts/test_log_streaming_demo.cpp)
+create_test_executable(test_enhanced_rest_endpoints_simple scripts/test_enhanced_rest_endpoints_simple.cpp)
+create_test_executable(test_config_management_demo scripts/test_config_management_demo.cpp)
+create_test_executable(test_config_simple scripts/test_config_simple.cpp)
 
-# WebSocket Integration Test Executable
-add_executable(test_websocket_integration scripts/test_websocket_integration.cpp 
-    src/websocket_connection.cpp
-    src/websocket_manager.cpp
-    src/job_monitoring_models.cpp
-    src/logger.cpp 
-    src/config_manager.cpp
-)
+# Optional: Enable precompiled headers for common includes (C++20 feature)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.16")
+    target_precompile_headers(etl_common PRIVATE
+        <iostream>
+        <string>
+        <vector>
+        <memory>
+        <functional>
+        <boost/beast.hpp>
+        <boost/asio.hpp>
+    )
+endif()
 
-target_include_directories(test_websocket_integration PRIVATE include)
-target_link_libraries(test_websocket_integration ${Boost_LIBRARIES} pthread)
-
-# Enhanced WebSocket Manager Test Executable
-add_executable(test_websocket_manager_enhanced scripts/test_websocket_manager_enhanced.cpp 
-    src/websocket_connection.cpp
-    src/websocket_manager.cpp
-    src/job_monitoring_models.cpp
-    src/logger.cpp 
-    src/config_manager.cpp
-)
-
-target_include_directories(test_websocket_manager_enhanced PRIVATE include)
-target_link_libraries(test_websocket_manager_enhanced ${Boost_LIBRARIES} pthread)
-
-# WebSocket Filtering Demo Executable
-add_executable(test_websocket_filtering_demo scripts/test_websocket_filtering_demo.cpp 
-    src/websocket_connection.cpp
-    src/websocket_manager.cpp
-    src/job_monitoring_models.cpp
-    src/logger.cpp 
-    src/config_manager.cpp
-)
-
-target_include_directories(test_websocket_filtering_demo PRIVATE include)
-target_link_libraries(test_websocket_filtering_demo ${Boost_LIBRARIES} pthread)
-
-# Job Monitoring Models Test Executable
-add_executable(test_job_monitoring_models scripts/test_job_monitoring_models.cpp 
-    src/job_monitoring_models.cpp
-    src/logger.cpp 
-    src/config_manager.cpp
-    src/websocket_manager.cpp
-    src/websocket_connection.cpp
-)
-
-target_include_directories(test_job_monitoring_models PRIVATE include)
-target_link_libraries(test_job_monitoring_models ${Boost_LIBRARIES} pthread)
-
-# ETL Job Manager Monitoring Test Executable
-add_executable(test_etl_job_manager_monitoring scripts/test_etl_job_manager_monitoring.cpp 
-    src/etl_job_manager.cpp
-    src/database_manager.cpp
-    src/data_transformer.cpp
-    src/logger.cpp 
-    src/config_manager.cpp
-    src/exceptions.cpp
-    src/exception_handler.cpp
-    src/websocket_manager.cpp
-    src/websocket_connection.cpp
-    src/job_monitoring_models.cpp
-)
-
-target_include_directories(test_etl_job_manager_monitoring PRIVATE include)
-target_link_libraries(test_etl_job_manager_monitoring ${Boost_LIBRARIES} pthread)
-
-# Job Monitor Service Test Executable
-add_executable(test_job_monitor_service scripts/test_job_monitor_service.cpp 
-    src/job_monitor_service.cpp
-    src/job_monitoring_models.cpp
-    src/etl_job_manager.cpp
-    src/websocket_manager.cpp
-    src/websocket_connection.cpp
-    src/database_manager.cpp
-    src/data_transformer.cpp
-    src/logger.cpp 
-    src/config_manager.cpp
-    src/exceptions.cpp
-    src/exception_handler.cpp
-)
-
-target_include_directories(test_job_monitor_service PRIVATE include)
-target_link_libraries(test_job_monitor_service ${Boost_LIBRARIES} pthread)
-
-# Simple Job Monitor Service Test Executable
-add_executable(test_job_monitor_service_simple scripts/test_job_monitor_service_simple.cpp 
-    src/job_monitor_service.cpp
-    src/job_monitoring_models.cpp
-    src/etl_job_manager.cpp
-    src/websocket_manager.cpp
-    src/websocket_connection.cpp
-    src/database_manager.cpp
-    src/data_transformer.cpp
-    src/logger.cpp 
-    src/config_manager.cpp
-    src/exceptions.cpp
-    src/exception_handler.cpp
-)
-
-target_include_directories(test_job_monitor_service_simple PRIVATE include)
-target_link_libraries(test_job_monitor_service_simple ${Boost_LIBRARIES} pthread)
-
-# Log Streaming Test Executable
-add_executable(test_log_streaming_simple scripts/test_log_streaming_simple.cpp 
-    src/job_monitoring_models.cpp
-    src/websocket_manager.cpp
-    src/websocket_connection.cpp
-    src/logger.cpp 
-    src/config_manager.cpp
-)
-
-target_include_directories(test_log_streaming_simple PRIVATE include)
-target_link_libraries(test_log_streaming_simple ${Boost_LIBRARIES} pthread)
-
-# Log Streaming Integration Test Executable
-add_executable(test_log_streaming_integration scripts/test_log_streaming_integration.cpp 
-    src/job_monitoring_models.cpp
-    src/websocket_manager.cpp
-    src/websocket_connection.cpp
-    src/logger.cpp 
-    src/config_manager.cpp
-)
-
-target_include_directories(test_log_streaming_integration PRIVATE include)
-target_link_libraries(test_log_streaming_integration ${Boost_LIBRARIES} pthread)
-
-# Log Streaming Demo Executable
-add_executable(test_log_streaming_demo scripts/test_log_streaming_demo.cpp 
-    src/job_monitoring_models.cpp
-    src/websocket_manager.cpp
-    src/websocket_connection.cpp
-    src/logger.cpp 
-    src/config_manager.cpp
-)
-
-target_include_directories(test_log_streaming_demo PRIVATE include)
-target_link_libraries(test_log_streaming_demo ${Boost_LIBRARIES} pthread)
-
-# Enhanced REST Endpoints Test Executable
-add_executable(test_enhanced_rest_endpoints_simple scripts/test_enhanced_rest_endpoints_simple.cpp 
-    src/input_validator.cpp
-    src/logger.cpp 
-    src/config_manager.cpp
-    src/websocket_manager.cpp
-    src/websocket_connection.cpp
-    src/job_monitoring_models.cpp
-)
-
-target_include_directories(test_enhanced_rest_endpoints_simple PRIVATE include)
-target_link_libraries(test_enhanced_rest_endpoints_simple ${Boost_LIBRARIES} pthread)
-
-# Configuration Management Test Executable (Requires GoogleTest - commented out until GoogleTest is available)
-# add_executable(test_config_management scripts/test_config_management.cpp 
-#     src/config_manager.cpp
-#     src/logger.cpp 
-# )
-
-# target_include_directories(test_config_management PRIVATE include)
-# target_link_libraries(test_config_management 
-#     ${Boost_LIBRARIES} 
-#     pthread
-#     gtest 
-#     gtest_main
-#     gmock
-# )
-
-# Configuration Management Demo Test Executable
-add_executable(test_config_management_demo scripts/test_config_management_demo.cpp 
-    src/config_manager.cpp
-    src/logger.cpp 
-    src/websocket_manager.cpp
-    src/websocket_connection.cpp
-    src/job_monitoring_models.cpp
-)
-
-target_include_directories(test_config_management_demo PRIVATE include)
-target_link_libraries(test_config_management_demo ${Boost_LIBRARIES} pthread)
-
-# Simple Configuration Test Executable
-add_executable(test_config_simple scripts/test_config_simple.cpp 
-    src/config_manager.cpp
-    src/logger.cpp 
-    src/websocket_manager.cpp
-    src/websocket_connection.cpp
-    src/job_monitoring_models.cpp
-)
-
-target_include_directories(test_config_simple PRIVATE include)
-target_link_libraries(test_config_simple ${Boost_LIBRARIES} pthread)
-
-# Notification Service Test Executable (Requires GoogleTest - commented out)
-# add_executable(test_notification_service scripts/test_notification_service.cpp 
-#     src/notification_service.cpp
-#     src/logger.cpp 
-#     src/config_manager.cpp
-# )
-
-# target_include_directories(test_notification_service PRIVATE include)
-# target_link_libraries(test_notification_service 
-#     ${Boost_LIBRARIES} 
-#     ${CURL_LIBRARIES}
-#     ${JSONCPP_LIBRARIES}
-#     pthread
-#     gtest 
-#     gtest_main
-#     gmock
-# )
-
-# Notification Service Integration Demo (commented out due to missing WebSocketManager dependencies)
-# add_executable(test_notification_service_integration scripts/test_notification_service_integration.cpp 
-#     src/notification_service.cpp
-#     src/logger.cpp 
-#     src/config_manager.cpp
-# )
-
-# target_include_directories(test_notification_service_integration PRIVATE include)
-# target_link_libraries(test_notification_service_integration 
-#     ${Boost_LIBRARIES} 
-#     ${CURL_LIBRARIES}
-#     ${JSONCPP_LIBRARIES}
-#     pthread
-# )
+# Mac-specific optimizations
+if(APPLE)
+    # Use all CPU cores for compilation
+    include(ProcessorCount)
+    ProcessorCount(N)
+    if(NOT N EQUAL 0)
+        set(CMAKE_BUILD_PARALLEL_LEVEL ${N})
+        message(STATUS "Using ${N} parallel build jobs")
+    endif()
+    
+    # Enable ccache if available
+    find_program(CCACHE_PROGRAM ccache)
+    if(CCACHE_PROGRAM)
+        set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+        message(STATUS "Using ccache: ${CCACHE_PROGRAM}")
+    endif()
+    
+    # Mac-specific compiler flags for better performance
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-declarations")
+    
+    # Use libc++ (should be default on modern macOS)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+endif()

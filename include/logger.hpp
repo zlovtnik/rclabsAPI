@@ -15,6 +15,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <functional>
+#include <string_view>
+#include "transparent_string_hash.hpp"
 
 // Forward declarations for real-time log streaming
 class WebSocketManager;
@@ -34,7 +36,7 @@ struct LogConfig {
   size_t maxFileSize = 10 * 1024 * 1024; // 10MB
   int maxBackupFiles = 5;
   bool enableRotation = true;
-  std::unordered_set<std::string> componentFilter; // Empty = all components
+  std::unordered_set<std::string, TransparentStringHash, std::equal_to<>> componentFilter; // Empty = all components
   bool includeMetrics = false;
   int flushInterval = 1000; // milliseconds
   
@@ -42,7 +44,7 @@ struct LogConfig {
   bool enableRealTimeStreaming = false;
   size_t streamingQueueSize = 1000;
   bool streamAllLevels = true;
-  std::unordered_set<std::string> streamingJobFilter; // Empty = all jobs
+  std::unordered_set<std::string, TransparentStringHash, std::equal_to<>> streamingJobFilter; // Empty = all jobs
 };
 
 struct LogMetrics {
@@ -89,31 +91,31 @@ public:
   void enableConsoleOutput(bool enable);
   void enableFileOutput(bool enable);
   void enableAsyncLogging(bool enable);
-  void setComponentFilter(const std::unordered_set<std::string> &components);
+  void setComponentFilter(const std::unordered_set<std::string, TransparentStringHash, std::equal_to<>> &components);
   void enableRotation(bool enable, size_t maxFileSize = 10 * 1024 * 1024,
                       int maxBackupFiles = 5);
 
   // Logging methods
   void log(LogLevel level, const std::string &component,
            const std::string &message,
-           const std::unordered_map<std::string, std::string> &context = {});
+           const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> &context = {});
   void debug(const std::string &component, const std::string &message,
-             const std::unordered_map<std::string, std::string> &context = {});
+             const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> &context = {});
   void info(const std::string &component, const std::string &message,
-            const std::unordered_map<std::string, std::string> &context = {});
+            const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> &context = {});
   void warn(const std::string &component, const std::string &message,
-            const std::unordered_map<std::string, std::string> &context = {});
+            const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> &context = {});
   void error(const std::string &component, const std::string &message,
-             const std::unordered_map<std::string, std::string> &context = {});
+             const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> &context = {});
   void fatal(const std::string &component, const std::string &message,
-             const std::unordered_map<std::string, std::string> &context = {});
+             const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> &context = {});
 
   // Metrics and performance logging
   void logMetric(const std::string &name, double value,
                  const std::string &unit = "");
   void logPerformance(
       const std::string &operation, double durationMs,
-      const std::unordered_map<std::string, std::string> &context = {});
+      const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> &context = {});
   LogMetrics getMetrics() const;
 
   // Control methods
@@ -123,7 +125,7 @@ public:
   // Real-time log streaming methods
   void setWebSocketManager(std::shared_ptr<WebSocketManager> wsManager);
   void enableRealTimeStreaming(bool enable);
-  void setStreamingJobFilter(const std::unordered_set<std::string>& jobIds);
+  void setStreamingJobFilter(const std::unordered_set<std::string, TransparentStringHash, std::equal_to<>>& jobIds);
   void addStreamingJobFilter(const std::string& jobId);
   void removeStreamingJobFilter(const std::string& jobId);
   void clearStreamingJobFilter();
@@ -131,22 +133,22 @@ public:
   // Job-specific logging methods
   void logForJob(LogLevel level, const std::string& component, 
                  const std::string& message, const std::string& jobId,
-                 const std::unordered_map<std::string, std::string>& context = {});
+                 const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context = {});
   void debugForJob(const std::string& component, const std::string& message, 
                    const std::string& jobId,
-                   const std::unordered_map<std::string, std::string>& context = {});
+                   const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context = {});
   void infoForJob(const std::string& component, const std::string& message, 
                   const std::string& jobId,
-                  const std::unordered_map<std::string, std::string>& context = {});
+                  const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context = {});
   void warnForJob(const std::string& component, const std::string& message, 
                   const std::string& jobId,
-                  const std::unordered_map<std::string, std::string>& context = {});
+                  const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context = {});
   void errorForJob(const std::string& component, const std::string& message, 
                    const std::string& jobId,
-                   const std::unordered_map<std::string, std::string>& context = {});
+                   const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context = {});
   void fatalForJob(const std::string& component, const std::string& message, 
                    const std::string& jobId,
-                   const std::unordered_map<std::string, std::string>& context = {});
+                   const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context = {});
 
 private:
   Logger() = default;
@@ -188,13 +190,13 @@ private:
   std::string
   formatMessage(LogLevel level, const std::string &component,
                 const std::string &message,
-                const std::unordered_map<std::string, std::string> &context);
+                const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> &context);
   std::string formatTextMessage(
       LogLevel level, const std::string &component, const std::string &message,
-      const std::unordered_map<std::string, std::string> &context);
+      const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> &context);
   std::string formatJsonMessage(
       LogLevel level, const std::string &component, const std::string &message,
-      const std::unordered_map<std::string, std::string> &context);
+      const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> &context);
   void writeLog(const std::string &formattedMessage);
   void writeLogSync(const std::string &formattedMessage);
   void writeLogAsync(const std::string &formattedMessage);
@@ -209,7 +211,7 @@ private:
   bool shouldStreamLog(LogLevel level, const std::string& jobId);
   std::shared_ptr<LogMessage> createLogMessage(LogLevel level, const std::string& component,
                                               const std::string& message, const std::string& jobId,
-                                              const std::unordered_map<std::string, std::string>& context);
+                                              const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context);
 };
 
 // Convenience macros for logging (backward compatible)

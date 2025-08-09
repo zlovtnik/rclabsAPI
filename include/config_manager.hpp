@@ -3,11 +3,13 @@
 #include "logger.hpp"
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 #include <functional>
 #include <type_traits>
+#include "transparent_string_hash.hpp"
 
 // Forward declarations
 class ConfigManager;
@@ -77,7 +79,7 @@ public:
   int getInt(const std::string &key, int defaultValue = 0) const;
   bool getBool(const std::string &key, bool defaultValue = false) const;
   double getDouble(const std::string &key, double defaultValue = 0.0) const;
-  std::unordered_set<std::string> getStringSet(const std::string &key) const;
+  std::unordered_set<std::string, TransparentStringHash, std::equal_to<>> getStringSet(const std::string &key) const;
 
   // Logging configuration helpers
   LogConfig getLoggingConfig() const;
@@ -108,8 +110,8 @@ public:
 
 private:
   ConfigManager() = default;
-  std::unordered_map<std::string, std::string> configData;
-  std::unordered_map<std::string, ConfigChangeCallback> changeCallbacks;
+  std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> configData;
+  std::unordered_map<std::string, ConfigChangeCallback, TransparentStringHash, std::equal_to<>> changeCallbacks;
   std::string configFilePath;
   
   bool parseConfigFile(const std::string &configPath);
@@ -118,10 +120,10 @@ private:
   
   // Helper methods for configuration updates
   void notifyConfigChange(const std::string& section, const MonitoringConfig& newConfig);
-  bool validateAndUpdateConfigData(const std::string& section, const std::unordered_map<std::string, std::string>& updates);
-  std::unordered_map<std::string, std::string> configToMap(const MonitoringConfig& config) const;
-  std::unordered_map<std::string, std::string> webSocketConfigToMap(const WebSocketConfig& config) const;
-  std::unordered_map<std::string, std::string> jobTrackingConfigToMap(const JobTrackingConfig& config) const;
+  bool validateAndUpdateConfigData(const std::string& section, const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& updates);
+  std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> configToMap(const MonitoringConfig& config) const;
+  std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> webSocketConfigToMap(const WebSocketConfig& config) const;
+  std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> jobTrackingConfigToMap(const JobTrackingConfig& config) const;
 };
 
 // Template method implementation

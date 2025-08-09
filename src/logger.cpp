@@ -169,7 +169,7 @@ void Logger::enableAsyncLogging(bool enable) {
     }
 }
 
-void Logger::setComponentFilter(const std::unordered_set<std::string>& components) {
+void Logger::setComponentFilter(const std::unordered_set<std::string, TransparentStringHash, std::equal_to<>>& components) {
     std::lock_guard<std::mutex> lock(configMutex_);
     config_.componentFilter = components;
 }
@@ -182,7 +182,7 @@ void Logger::enableRotation(bool enable, size_t maxFileSize, int maxBackupFiles)
 }
 
 void Logger::log(LogLevel level, const std::string& component, const std::string& message, 
-                 const std::unordered_map<std::string, std::string>& context) {
+                 const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
     if (!shouldLog(level, component)) {
         return;
     }
@@ -200,34 +200,34 @@ void Logger::log(LogLevel level, const std::string& component, const std::string
 }
 
 void Logger::debug(const std::string& component, const std::string& message, 
-                   const std::unordered_map<std::string, std::string>& context) {
+                   const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
     log(LogLevel::DEBUG, component, message, context);
 }
 
 void Logger::info(const std::string& component, const std::string& message, 
-                  const std::unordered_map<std::string, std::string>& context) {
+                  const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
     log(LogLevel::INFO, component, message, context);
 }
 
 void Logger::warn(const std::string& component, const std::string& message, 
-                  const std::unordered_map<std::string, std::string>& context) {
+                  const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
     log(LogLevel::WARN, component, message, context);
 }
 
 void Logger::error(const std::string& component, const std::string& message, 
-                   const std::unordered_map<std::string, std::string>& context) {
+                   const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
     log(LogLevel::ERROR, component, message, context);
 }
 
 void Logger::fatal(const std::string& component, const std::string& message, 
-                   const std::unordered_map<std::string, std::string>& context) {
+                   const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
     log(LogLevel::FATAL, component, message, context);
 }
 
 void Logger::logMetric(const std::string& name, double value, const std::string& unit) {
     if (!config_.includeMetrics) return;
     
-    std::unordered_map<std::string, std::string> context = {
+    std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> context = {
         {"metric_name", name},
         {"metric_value", std::to_string(value)},
         {"metric_unit", unit},
@@ -238,7 +238,7 @@ void Logger::logMetric(const std::string& name, double value, const std::string&
 }
 
 void Logger::logPerformance(const std::string& operation, double durationMs, 
-                           const std::unordered_map<std::string, std::string>& context) {
+                           const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
     auto perfContext = context;
     perfContext["operation"] = operation;
     perfContext["duration_ms"] = std::to_string(durationMs);
@@ -304,7 +304,7 @@ std::string Logger::levelToString(LogLevel level) {
 
 std::string Logger::formatMessage(LogLevel level, const std::string& component, 
                                  const std::string& message, 
-                                 const std::unordered_map<std::string, std::string>& context) {
+                                 const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
     return config_.format == LogFormat::JSON 
         ? formatJsonMessage(level, component, message, context)
         : formatTextMessage(level, component, message, context);
@@ -312,7 +312,7 @@ std::string Logger::formatMessage(LogLevel level, const std::string& component,
 
 std::string Logger::formatTextMessage(LogLevel level, const std::string& component, 
                                      const std::string& message, 
-                                     const std::unordered_map<std::string, std::string>& context) {
+                                     const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
     std::ostringstream oss;
     oss << "[" << formatTimestamp() << "] "
         << "[" << levelToString(level) << "] "
@@ -331,7 +331,7 @@ std::string Logger::formatTextMessage(LogLevel level, const std::string& compone
 
 std::string Logger::formatJsonMessage(LogLevel level, const std::string& component, 
                                      const std::string& message, 
-                                     const std::unordered_map<std::string, std::string>& context) {
+                                     const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
     std::ostringstream oss;
     oss << "{"
         << "\"timestamp\":\"" << formatTimestamp() << "\","
@@ -524,7 +524,7 @@ void Logger::enableRealTimeStreaming(bool enable) {
     }
 }
 
-void Logger::setStreamingJobFilter(const std::unordered_set<std::string>& jobIds) {
+void Logger::setStreamingJobFilter(const std::unordered_set<std::string, TransparentStringHash, std::equal_to<>>& jobIds) {
     std::lock_guard<std::mutex> lock(configMutex_);
     config_.streamingJobFilter = jobIds;
 }
@@ -546,7 +546,7 @@ void Logger::clearStreamingJobFilter() {
 
 void Logger::logForJob(LogLevel level, const std::string& component, 
                        const std::string& message, const std::string& jobId,
-                       const std::unordered_map<std::string, std::string>& context) {
+                       const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
     // Regular logging
     log(level, component, message, context);
     
@@ -569,31 +569,31 @@ void Logger::logForJob(LogLevel level, const std::string& component,
 
 void Logger::debugForJob(const std::string& component, const std::string& message, 
                          const std::string& jobId,
-                         const std::unordered_map<std::string, std::string>& context) {
+                         const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
     logForJob(LogLevel::DEBUG, component, message, jobId, context);
 }
 
 void Logger::infoForJob(const std::string& component, const std::string& message, 
                         const std::string& jobId,
-                        const std::unordered_map<std::string, std::string>& context) {
+                        const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
     logForJob(LogLevel::INFO, component, message, jobId, context);
 }
 
 void Logger::warnForJob(const std::string& component, const std::string& message, 
                         const std::string& jobId,
-                        const std::unordered_map<std::string, std::string>& context) {
+                        const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
     logForJob(LogLevel::WARN, component, message, jobId, context);
 }
 
 void Logger::errorForJob(const std::string& component, const std::string& message, 
                          const std::string& jobId,
-                         const std::unordered_map<std::string, std::string>& context) {
+                         const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
     logForJob(LogLevel::ERROR, component, message, jobId, context);
 }
 
 void Logger::fatalForJob(const std::string& component, const std::string& message, 
                          const std::string& jobId,
-                         const std::unordered_map<std::string, std::string>& context) {
+                         const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
     logForJob(LogLevel::FATAL, component, message, jobId, context);
 }
 
@@ -661,7 +661,7 @@ bool Logger::shouldStreamLog(LogLevel level, const std::string& jobId) {
 
 std::shared_ptr<LogMessage> Logger::createLogMessage(LogLevel level, const std::string& component,
                                                     const std::string& message, const std::string& jobId,
-                                                    const std::unordered_map<std::string, std::string>& context) {
+                                                    const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
     auto logMsg = std::make_shared<LogMessage>();
     logMsg->jobId = jobId;
     logMsg->level = levelToString(level);
