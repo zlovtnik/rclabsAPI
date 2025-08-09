@@ -28,7 +28,7 @@ ETLJobManager::~ETLJobManager() {
 }
 
 std::string ETLJobManager::scheduleJob(const ETLJobConfig& config) {
-    std::lock_guard<std::mutex> lock(jobMutex_);
+    std::scoped_lock lock(jobMutex_);
     
     auto job = std::make_shared<ETLJob>();
     job->jobId = config.jobId.empty() ? generateJobId() : config.jobId;
@@ -51,7 +51,7 @@ std::string ETLJobManager::scheduleJob(const ETLJobConfig& config) {
 }
 
 bool ETLJobManager::cancelJob(const std::string& jobId) {
-    std::lock_guard<std::mutex> lock(jobMutex_);
+    std::scoped_lock lock(jobMutex_);
     
     for (auto& job : jobs_) {
         if (job->jobId == jobId && job->status == JobStatus::PENDING) {
@@ -77,7 +77,7 @@ bool ETLJobManager::resumeJob(const std::string& jobId) {
 }
 
 std::shared_ptr<ETLJob> ETLJobManager::getJob(const std::string& jobId) const {
-    std::lock_guard<std::mutex> lock(jobMutex_);
+    std::scoped_lock lock(jobMutex_);
     
     for (const auto& job : jobs_) {
         if (job->jobId == jobId) {
@@ -89,12 +89,12 @@ std::shared_ptr<ETLJob> ETLJobManager::getJob(const std::string& jobId) const {
 }
 
 std::vector<std::shared_ptr<ETLJob>> ETLJobManager::getAllJobs() const {
-    std::lock_guard<std::mutex> lock(jobMutex_);
+    std::scoped_lock lock(jobMutex_);
     return jobs_;
 }
 
 std::vector<std::shared_ptr<ETLJob>> ETLJobManager::getJobsByStatus(JobStatus status) const {
-    std::lock_guard<std::mutex> lock(jobMutex_);
+    std::scoped_lock lock(jobMutex_);
     
     std::vector<std::shared_ptr<ETLJob>> result;
     for (const auto& job : jobs_) {
