@@ -29,7 +29,7 @@ void WebSocketManager::stop() {
     running_.store(false);
     
     // Close all connections
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    std::scoped_lock lock(connectionsMutex_);
     for (auto& [id, connection] : connections_) {
         if (connection && connection->isOpen()) {
             connection->close();
@@ -64,7 +64,7 @@ void WebSocketManager::addConnection(std::shared_ptr<WebSocketConnection> connec
         return;
     }
 
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    std::scoped_lock lock(connectionsMutex_);
     connections_[connection->getId()] = connection;
     
     WS_LOG_INFO("WebSocket connection added: " + connection->getId() + 
@@ -72,7 +72,7 @@ void WebSocketManager::addConnection(std::shared_ptr<WebSocketConnection> connec
 }
 
 void WebSocketManager::removeConnection(const std::string& connectionId) {
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    std::scoped_lock lock(connectionsMutex_);
     auto it = connections_.find(connectionId);
     if (it != connections_.end()) {
         connections_.erase(it);
