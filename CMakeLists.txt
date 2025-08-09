@@ -27,6 +27,8 @@ set(SOURCES
     src/input_validator.cpp
     src/exceptions.cpp
     src/exception_handler.cpp
+    src/job_monitoring_models.cpp
+    src/job_monitor_service.cpp
 )
 
 # Create executable
@@ -69,9 +71,10 @@ foreach(CONFIG_FILE ${CONFIG_FILES})
 endforeach()
 
 # WebSocket Basic Test Executable
-add_executable(test_websocket_basic test_websocket_basic.cpp 
+add_executable(test_websocket_basic scripts/test_websocket_basic.cpp 
     src/websocket_connection.cpp
     src/websocket_manager.cpp
+    src/job_monitoring_models.cpp
     src/logger.cpp 
     src/config_manager.cpp
 )
@@ -80,12 +83,97 @@ target_include_directories(test_websocket_basic PRIVATE include)
 target_link_libraries(test_websocket_basic ${Boost_LIBRARIES} pthread)
 
 # WebSocket Integration Test Executable
-add_executable(test_websocket_integration test_websocket_integration.cpp 
+add_executable(test_websocket_integration scripts/test_websocket_integration.cpp 
     src/websocket_connection.cpp
     src/websocket_manager.cpp
+    src/job_monitoring_models.cpp
     src/logger.cpp 
     src/config_manager.cpp
 )
 
 target_include_directories(test_websocket_integration PRIVATE include)
 target_link_libraries(test_websocket_integration ${Boost_LIBRARIES} pthread)
+
+# Enhanced WebSocket Manager Test Executable
+add_executable(test_websocket_manager_enhanced scripts/test_websocket_manager_enhanced.cpp 
+    src/websocket_connection.cpp
+    src/websocket_manager.cpp
+    src/job_monitoring_models.cpp
+    src/logger.cpp 
+    src/config_manager.cpp
+)
+
+target_include_directories(test_websocket_manager_enhanced PRIVATE include)
+target_link_libraries(test_websocket_manager_enhanced ${Boost_LIBRARIES} pthread)
+
+# WebSocket Filtering Demo Executable
+add_executable(test_websocket_filtering_demo scripts/test_websocket_filtering_demo.cpp 
+    src/websocket_connection.cpp
+    src/websocket_manager.cpp
+    src/job_monitoring_models.cpp
+    src/logger.cpp 
+    src/config_manager.cpp
+)
+
+target_include_directories(test_websocket_filtering_demo PRIVATE include)
+target_link_libraries(test_websocket_filtering_demo ${Boost_LIBRARIES} pthread)
+
+# Job Monitoring Models Test Executable
+add_executable(test_job_monitoring_models scripts/test_job_monitoring_models.cpp 
+    src/job_monitoring_models.cpp
+    src/logger.cpp 
+    src/config_manager.cpp
+)
+
+target_include_directories(test_job_monitoring_models PRIVATE include)
+target_link_libraries(test_job_monitoring_models ${Boost_LIBRARIES} pthread)
+
+# ETL Job Manager Monitoring Test Executable
+add_executable(test_etl_job_manager_monitoring scripts/test_etl_job_manager_monitoring.cpp 
+    src/etl_job_manager.cpp
+    src/database_manager.cpp
+    src/data_transformer.cpp
+    src/logger.cpp 
+    src/config_manager.cpp
+    src/exceptions.cpp
+    src/exception_handler.cpp
+)
+
+target_include_directories(test_etl_job_manager_monitoring PRIVATE include)
+target_link_libraries(test_etl_job_manager_monitoring ${Boost_LIBRARIES} pthread)
+
+# Job Monitor Service Test Executable
+add_executable(test_job_monitor_service scripts/test_job_monitor_service.cpp 
+    src/job_monitor_service.cpp
+    src/job_monitoring_models.cpp
+    src/etl_job_manager.cpp
+    src/websocket_manager.cpp
+    src/websocket_connection.cpp
+    src/database_manager.cpp
+    src/data_transformer.cpp
+    src/logger.cpp 
+    src/config_manager.cpp
+    src/exceptions.cpp
+    src/exception_handler.cpp
+)
+
+target_include_directories(test_job_monitor_service PRIVATE include)
+target_link_libraries(test_job_monitor_service ${Boost_LIBRARIES} pthread)
+
+# Simple Job Monitor Service Test Executable
+add_executable(test_job_monitor_service_simple scripts/test_job_monitor_service_simple.cpp 
+    src/job_monitor_service.cpp
+    src/job_monitoring_models.cpp
+    src/etl_job_manager.cpp
+    src/websocket_manager.cpp
+    src/websocket_connection.cpp
+    src/database_manager.cpp
+    src/data_transformer.cpp
+    src/logger.cpp 
+    src/config_manager.cpp
+    src/exceptions.cpp
+    src/exception_handler.cpp
+)
+
+target_include_directories(test_job_monitor_service_simple PRIVATE include)
+target_link_libraries(test_job_monitor_service_simple ${Boost_LIBRARIES} pthread)

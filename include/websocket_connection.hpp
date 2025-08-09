@@ -1,5 +1,6 @@
 #pragma once
 
+#include "job_monitoring_models.hpp"
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
 #include <boost/asio/dispatch.hpp>
@@ -10,6 +11,8 @@
 #include <mutex>
 #include <functional>
 #include <atomic>
+#include <unordered_set>
+#include <vector>
 
 namespace beast = boost::beast;
 namespace websocket = beast::websocket;
@@ -33,6 +36,11 @@ public:
     
     const std::string& getId() const { return connectionId_; }
     bool isOpen() const { return isOpen_.load(); }
+    
+    // Connection filtering methods
+    void setFilters(const ConnectionFilters& filters);
+    const ConnectionFilters& getFilters() const { return filters_; }
+    bool shouldReceiveMessage(MessageType type, const std::string& jobId = "", const std::string& logLevel = "") const;
 
 private:
     websocket::stream<tcp::socket> ws_;
@@ -43,6 +51,8 @@ private:
     std::mutex queueMutex_;
     std::atomic<bool> isOpen_{false};
     std::atomic<bool> isWriting_{false};
+    ConnectionFilters filters_;
+    mutable std::mutex filtersMutex_;
 
     void onAccept(beast::error_code ec);
     void doRead();

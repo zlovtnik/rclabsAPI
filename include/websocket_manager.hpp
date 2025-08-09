@@ -6,6 +6,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <functional>
 
 namespace net = boost::asio;
 using tcp = boost::asio::ip::tcp;
@@ -25,8 +26,19 @@ public:
     void broadcastMessage(const std::string& message);
     void sendToConnection(const std::string& connectionId, const std::string& message);
     
+    // Enhanced broadcasting with filtering
+    void broadcastJobUpdate(const std::string& message, const std::string& jobId);
+    void broadcastLogMessage(const std::string& message, const std::string& jobId, const std::string& logLevel);
+    void broadcastByMessageType(const std::string& message, MessageType messageType, const std::string& jobId = "");
+    void broadcastToFilteredConnections(const std::string& message, 
+                                      std::function<bool(const ConnectionFilters&)> filterPredicate);
+    
     size_t getConnectionCount() const;
     std::vector<std::string> getConnectionIds() const;
+    
+    // Connection filter management
+    void setConnectionFilters(const std::string& connectionId, const ConnectionFilters& filters);
+    ConnectionFilters getConnectionFilters(const std::string& connectionId) const;
 
 private:
     mutable std::mutex connectionsMutex_;

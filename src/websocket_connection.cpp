@@ -186,6 +186,24 @@ void WebSocketConnection::doClose() {
         });
 }
 
+void WebSocketConnection::setFilters(const ConnectionFilters& filters) {
+    std::lock_guard<std::mutex> lock(filtersMutex_);
+    filters_ = filters;
+    WS_LOG_DEBUG("Filters updated for connection: " + connectionId_);
+}
+
+bool WebSocketConnection::shouldReceiveMessage(MessageType type, const std::string& jobId, const std::string& logLevel) const {
+    std::lock_guard<std::mutex> lock(filtersMutex_);
+    
+    // Use the shouldReceiveMessage method from ConnectionFilters
+    WebSocketMessage tempMessage;
+    tempMessage.type = type;
+    tempMessage.targetJobId = jobId.empty() ? std::nullopt : std::optional<std::string>(jobId);
+    tempMessage.targetLevel = logLevel.empty() ? std::nullopt : std::optional<std::string>(logLevel);
+    
+    return filters_.shouldReceiveMessage(tempMessage);
+}
+
 std::string WebSocketConnection::generateConnectionId() {
     boost::uuids::uuid uuid = boost::uuids::random_generator()();
     return boost::uuids::to_string(uuid);

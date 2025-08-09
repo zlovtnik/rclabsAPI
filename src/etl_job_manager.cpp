@@ -8,6 +8,14 @@
 #include <random>
 #include <sstream>
 
+// Forward declaration for JobMonitorService to avoid circular dependency
+class JobMonitorServiceInterface {
+public:
+    virtual ~JobMonitorServiceInterface() = default;
+    virtual void onJobStatusChanged(const std::string& jobId, JobStatus oldStatus, JobStatus newStatus) = 0;
+    virtual void onJobProgressUpdated(const std::string& jobId, int progressPercent, const std::string& currentStep) = 0;
+};
+
 ETLJobManager::ETLJobManager(std::shared_ptr<DatabaseManager> dbManager,
                            std::shared_ptr<DataTransformer> transformer)
     : dbManager_(dbManager)
@@ -129,6 +137,28 @@ bool ETLJobManager::isRunning() const {
     return running_;
 }
 
+void ETLJobManager::setJobMonitorService(std::shared_ptr<JobMonitorServiceInterface> monitor) {
+    monitorService_ = monitor;
+    ETL_LOG_INFO("Job monitor service attached to ETL Job Manager");
+}
+
+void ETLJobManager::publishJobStatusUpdate(const std::string& jobId, JobStatus status) {
+    if (monitorService_) {
+        auto job = getJob(jobId);
+        if (job) {
+            JobStatus oldStatus = job->status;
+            job->status = status; // Update the job status first
+            monitorService_->onJobStatusChanged(jobId, oldStatus, status);
+        }
+    }
+}
+
+void ETLJobManager::publishJobProgress(const std::string& jobId, int progress, const std::string& step) {
+    if (monitorService_) {
+        monitorService_->onJobProgressUpdated(jobId, progress, step);
+    }
+}
+
 void ETLJobManager::workerLoop() {
     while (running_) {
         std::unique_lock<std::mutex> lock(jobMutex_);
@@ -145,7 +175,11 @@ void ETLJobManager::workerLoop() {
             lock.unlock();
             
             if (job->status == JobStatus::PENDING) {
-                executeJob(job);
+                if (monitorService_) {
+                    executeJobWithMonitoring(job);
+                } else {
+                    executeJob(job);
+                }
             }
         }
     }
@@ -307,6 +341,111 @@ void ETLJobManager::executeFullETLJob(std::shared_ptr<ETLJob> job) {
     executeLoadJob(job);
     
     std::cout << "Full ETL pipeline completed for job: " << job->jobId << std::endl;
+}
+
+void ETLJobManager::executeJobWithMonitoring(std::shared_ptr<ETLJob> job) {
+    ETL_LOG_INFO("Executing job with monitoring: " + job->jobId);
+    
+    // Update status to RUNNING and publish event
+    updateJobStatus(job, JobStatus::RUNNING);
+    job->startedAt = std::chrono::system_clock::now();
+    
+    ETLPlus::Exceptions::ErrorContext context("executeJobWithMonitoring");
+    context.addInfo("job_id", job->jobId);
+    context.addInfo("job_type", std::to_string(static_cast<int>(job->type)));
+    
+    try {
+        switch (job->type) {
+            case JobType::EXTRACT:
+                updateJobProgress(job, 0, "Starting data extraction");
+                executeExtractJob(job);
+                updateJobProgress(job, 100, "Data extraction completed");
+                break;
+            case JobType::TRANSFORM:
+                updateJobProgress(job, 0, "Starting data transformation");
+                executeTransformJob(job);
+                updateJobProgress(job, 100, "Data transformation completed");
+                break;
+            case JobType::LOAD:
+                updateJobProgress(job, 0, "Starting data loading");
+                executeLoadJob(job);
+                updateJobProgress(job, 100, "Data loading completed");
+                break;
+            case JobType::FULL_ETL:
+                // Full ETL with detailed progress tracking
+                updateJobProgress(job, 0, "Starting full ETL pipeline");
+                
+                updateJobProgress(job, 10, "Extracting data from source");
+                executeExtractJob(job);
+                
+                updateJobProgress(job, 50, "Transforming extracted data");
+                executeTransformJob(job);
+                
+                updateJobProgress(job, 80, "Loading transformed data");
+                executeLoadJob(job);
+                
+                updateJobProgress(job, 100, "Full ETL pipeline completed");
+                break;
+        }
+        
+        updateJobStatus(job, JobStatus::COMPLETED);
+        ETL_LOG_INFO("Job completed successfully with monitoring: " + job->jobId);
+        
+    } catch (const ETLPlus::Exceptions::BaseException& ex) {
+        updateJobStatus(job, JobStatus::FAILED);
+        job->errorMessage = ex.getMessage();
+        ETL_LOG_ERROR("Job failed with ETL exception: " + job->jobId + " - " + ex.toLogString());
+        throw;
+        
+    } catch (const std::exception& e) {
+        updateJobStatus(job, JobStatus::FAILED);
+        job->errorMessage = e.what();
+        
+        auto etlEx = ETLPlus::Exceptions::ETLException(
+            ETLPlus::Exceptions::ErrorCode::JOB_EXECUTION_FAILED,
+            "Job execution failed: " + std::string(e.what()),
+            context,
+            job->jobId);
+        
+        ETL_LOG_ERROR("Job failed with standard exception: " + job->jobId + " - " + etlEx.toLogString());
+        throw etlEx;
+        
+    } catch (...) {
+        updateJobStatus(job, JobStatus::FAILED);
+        job->errorMessage = "Unknown error occurred during job execution";
+        
+        auto unknownEx = ETLPlus::Exceptions::ETLException(
+            ETLPlus::Exceptions::ErrorCode::JOB_EXECUTION_FAILED,
+            "Job execution failed with unknown error",
+            context,
+            job->jobId);
+        
+        ETL_LOG_ERROR("Job failed with unknown exception: " + job->jobId + " - " + unknownEx.toLogString());
+        throw unknownEx;
+    }
+    
+    job->completedAt = std::chrono::system_clock::now();
+}
+
+void ETLJobManager::updateJobProgress(std::shared_ptr<ETLJob> job, int progress, const std::string& step) {
+    ETL_LOG_DEBUG("Job progress update: " + job->jobId + " - " + std::to_string(progress) + "% - " + step);
+    
+    if (monitorService_) {
+        monitorService_->onJobProgressUpdated(job->jobId, progress, step);
+    }
+}
+
+void ETLJobManager::updateJobStatus(std::shared_ptr<ETLJob> job, JobStatus newStatus) {
+    JobStatus oldStatus = job->status;
+    job->status = newStatus;
+    
+    ETL_LOG_INFO("Job status changed: " + job->jobId + " from " + 
+                 std::to_string(static_cast<int>(oldStatus)) + " to " + 
+                 std::to_string(static_cast<int>(newStatus)));
+    
+    if (monitorService_) {
+        monitorService_->onJobStatusChanged(job->jobId, oldStatus, newStatus);
+    }
 }
 
 std::string ETLJobManager::generateJobId() {
