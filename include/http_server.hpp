@@ -17,6 +17,7 @@ namespace net = boost::asio;
 using tcp = boost::asio::ip::tcp;
 
 class RequestHandler;
+class WebSocketManager;
 
 class HttpServer {
 public:
@@ -28,6 +29,7 @@ public:
   bool isRunning() const;
 
   void setRequestHandler(std::shared_ptr<RequestHandler> handler);
+  void setWebSocketManager(std::shared_ptr<WebSocketManager> wsManager);
 
 private:
   struct Impl;

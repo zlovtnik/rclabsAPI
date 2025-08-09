@@ -238,3 +238,12 @@ private:
   LOG_WARN("RequestHandler", message, ##__VA_ARGS__)
 #define REQUEST_LOG_ERROR(message, ...)                                        \
   LOG_ERROR("RequestHandler", message, ##__VA_ARGS__)
+
+#define WS_LOG_DEBUG(message, ...)                                             \
+  LOG_DEBUG("WebSocket", message, ##__VA_ARGS__)
+#define WS_LOG_INFO(message, ...)                                              \
+  LOG_INFO("WebSocket", message, ##__VA_ARGS__)
+#define WS_LOG_WARN(message, ...)                                              \
+  LOG_WARN("WebSocket", message, ##__VA_ARGS__)
+#define WS_LOG_ERROR(message, ...)                                             \
+  LOG_ERROR("WebSocket", message, ##__VA_ARGS__)

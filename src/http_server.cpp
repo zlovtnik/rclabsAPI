@@ -1,8 +1,10 @@
 #include "logger.hpp"
 #include "http_server.hpp"
 #include "request_handler.hpp"
+#include "websocket_manager.hpp"
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
+#include <boost/beast/websocket.hpp>
 #include <boost/beast/version.hpp>
 #include <boost/asio/dispatch.hpp>
 #include <boost/asio/strand.hpp>
@@ -23,10 +25,12 @@ using tcp = boost::asio::ip::tcp;
 
 class Session : public std::enable_shared_from_this<Session> {
 public:
-    Session(tcp::socket&& socket, std::shared_ptr<RequestHandler> handler)
+    Session(tcp::socket&& socket, std::shared_ptr<RequestHandler> handler, std::shared_ptr<WebSocketManager> wsManager)
         : stream_(std::move(socket))
-        , handler_(handler) {
-        HTTP_LOG_DEBUG("Session created with handler: " + std::string(handler ? "valid" : "null"));
+        , handler_(handler)
+        , wsManager_(wsManager) {
+        HTTP_LOG_DEBUG("Session created with handler: " + std::string(handler ? "valid" : "null") + 
+                      ", WebSocket manager: " + std::string(wsManager ? "valid" : "null"));
     }
 
     void run() {
@@ -40,6 +44,7 @@ private:
     beast::flat_buffer buffer_;
     http::request<http::string_body> req_;
     std::shared_ptr<RequestHandler> handler_;
+    std::shared_ptr<WebSocketManager> wsManager_;
 
     void doRead() {
         HTTP_LOG_DEBUG("Session::doRead() - Starting read operation");
@@ -69,6 +74,28 @@ private:
         }
 
         HTTP_LOG_INFO("Session::onRead() - Processing request: " + std::string(req_.method_string()) + " " + std::string(req_.target()));
+        
+        // Check if this is a WebSocket upgrade request
+        if (beast::websocket::is_upgrade(req_)) {
+            HTTP_LOG_INFO("Session::onRead() - WebSocket upgrade request detected");
+            
+            if (!wsManager_) {
+                HTTP_LOG_ERROR("Session::onRead() - WebSocket manager not available for upgrade");
+                http::response<http::string_body> error_res{http::status::service_unavailable, req_.version()};
+                error_res.set(http::field::server, "ETL Plus Backend");
+                error_res.set(http::field::content_type, "application/json");
+                error_res.keep_alive(false);
+                error_res.body() = "{\"error\":\"WebSocket service not available\"}";
+                error_res.prepare_payload();
+                sendResponse(std::move(error_res));
+                return;
+            }
+            
+            // Release the socket from the HTTP stream and pass it to WebSocket manager
+            tcp::socket socket = stream_.release_socket();
+            wsManager_->handleUpgrade(std::move(socket));
+            return;
+        }
         
         if (!handler_) {
             HTTP_LOG_ERROR("Session::onRead() - Handler is null!");
@@ -170,10 +197,11 @@ private:
 
 class Listener : public std::enable_shared_from_this<Listener> {
 public:
-    Listener(net::io_context& ioc, tcp::endpoint endpoint, std::shared_ptr<RequestHandler> handler)
+    Listener(net::io_context& ioc, tcp::endpoint endpoint, std::shared_ptr<RequestHandler> handler, std::shared_ptr<WebSocketManager> wsManager)
         : ioc_(ioc)
         , acceptor_(net::make_strand(ioc))
-        , handler_(handler) {
+        , handler_(handler)
+        , wsManager_(wsManager) {
         beast::error_code ec;
 
         acceptor_.open(endpoint.protocol(), ec);
@@ -209,6 +237,7 @@ private:
     net::io_context& ioc_;
     tcp::acceptor acceptor_;
     std::shared_ptr<RequestHandler> handler_;
+    std::shared_ptr<WebSocketManager> wsManager_;
 
     void fail(beast::error_code ec, char const* what) {
         std::cerr << what << ": " << ec.message() << "\n";
@@ -232,7 +261,7 @@ private:
                 HTTP_LOG_ERROR("Listener::onAccept() - Handler is null!");
             } else {
                 HTTP_LOG_DEBUG("Listener::onAccept() - Creating session with valid handler");
-                std::make_shared<Session>(std::move(socket), handler_)->run();
+                std::make_shared<Session>(std::move(socket), handler_, wsManager_)->run();
             }
         }
 
@@ -246,6 +275,7 @@ struct HttpServer::Impl {
     unsigned short port;
     int threads;
     std::shared_ptr<RequestHandler> handler;
+    std::shared_ptr<WebSocketManager> wsManager;
     std::unique_ptr<net::io_context> ioc;
     std::vector<std::thread> threadPool;
     bool running = false;
@@ -283,7 +313,7 @@ void HttpServer::start() {
         HTTP_LOG_DEBUG("HttpServer::start() - Address parsed: " + address.to_string());
         
         HTTP_LOG_DEBUG("HttpServer::start() - Creating listener");
-        std::make_shared<Listener>(*pImpl->ioc, tcp::endpoint{address, pImpl->port}, pImpl->handler)->run();
+        std::make_shared<Listener>(*pImpl->ioc, tcp::endpoint{address, pImpl->port}, pImpl->handler, pImpl->wsManager)->run();
 
         HTTP_LOG_DEBUG("HttpServer::start() - Starting thread pool");
         pImpl->threadPool.reserve(pImpl->threads);
@@ -332,4 +362,9 @@ bool HttpServer::isRunning() const {
 void HttpServer::setRequestHandler(std::shared_ptr<RequestHandler> handler) {
     HTTP_LOG_INFO("HttpServer::setRequestHandler() - Setting request handler: " + std::string(handler ? "valid" : "null"));
     pImpl->handler = handler;
+}
+
+void HttpServer::setWebSocketManager(std::shared_ptr<WebSocketManager> wsManager) {
+    HTTP_LOG_INFO("HttpServer::setWebSocketManager() - Setting WebSocket manager: " + std::string(wsManager ? "valid" : "null"));
+    pImpl->wsManager = wsManager;
 }

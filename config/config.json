@@ -34,5 +34,13 @@
     "component_filter": [],
     "include_metrics": false,
     "flush_interval": 1000
+  },
+  "monitoring": {
+    "websocket": {
+      "enabled": true,
+      "max_connections": 100,
+      "heartbeat_interval": 30,
+      "message_queue_size": 1000
+    }
   }
 }
