@@ -15,7 +15,26 @@ std::string JobMetrics::toJson() const {
          << "\"processingRate\":" << std::fixed << std::setprecision(2) << processingRate << ","
          << "\"memoryUsage\":" << memoryUsage << ","
          << "\"cpuUsage\":" << std::fixed << std::setprecision(2) << cpuUsage << ","
-         << "\"executionTime\":" << executionTime.count()
+         << "\"executionTime\":" << executionTime.count() << ","
+         
+         // Extended performance metrics
+         << "\"peakMemoryUsage\":" << peakMemoryUsage << ","
+         << "\"peakCpuUsage\":" << std::fixed << std::setprecision(2) << peakCpuUsage << ","
+         << "\"averageProcessingRate\":" << std::fixed << std::setprecision(2) << averageProcessingRate << ","
+         << "\"totalBytesProcessed\":" << totalBytesProcessed << ","
+         << "\"totalBytesWritten\":" << totalBytesWritten << ","
+         << "\"totalBatches\":" << totalBatches << ","
+         << "\"averageBatchSize\":" << std::fixed << std::setprecision(2) << averageBatchSize << ","
+         
+         // Error statistics
+         << "\"errorRate\":" << std::fixed << std::setprecision(2) << errorRate << ","
+         << "\"consecutiveErrors\":" << consecutiveErrors << ","
+         << "\"timeToFirstError\":" << timeToFirstError.count() << ","
+         
+         // Performance indicators
+         << "\"throughputMBps\":" << std::fixed << std::setprecision(2) << throughputMBps << ","
+         << "\"memoryEfficiency\":" << std::fixed << std::setprecision(2) << memoryEfficiency << ","
+         << "\"cpuEfficiency\":" << std::fixed << std::setprecision(2) << cpuEfficiency
          << "}";
     return json.str();
 }
@@ -33,8 +52,24 @@ JobMetrics JobMetrics::fromJson(const std::string& json) {
     std::regex cpuUsageRegex("\"cpuUsage\"\\s*:\\s*([0-9.]+)");
     std::regex executionTimeRegex("\"executionTime\"\\s*:\\s*(\\d+)");
     
+    // Extended metrics regexes
+    std::regex peakMemoryUsageRegex("\"peakMemoryUsage\"\\s*:\\s*(\\d+)");
+    std::regex peakCpuUsageRegex("\"peakCpuUsage\"\\s*:\\s*([0-9.]+)");
+    std::regex averageProcessingRateRegex("\"averageProcessingRate\"\\s*:\\s*([0-9.]+)");
+    std::regex totalBytesProcessedRegex("\"totalBytesProcessed\"\\s*:\\s*(\\d+)");
+    std::regex totalBytesWrittenRegex("\"totalBytesWritten\"\\s*:\\s*(\\d+)");
+    std::regex totalBatchesRegex("\"totalBatches\"\\s*:\\s*(\\d+)");
+    std::regex averageBatchSizeRegex("\"averageBatchSize\"\\s*:\\s*([0-9.]+)");
+    std::regex errorRateRegex("\"errorRate\"\\s*:\\s*([0-9.]+)");
+    std::regex consecutiveErrorsRegex("\"consecutiveErrors\"\\s*:\\s*(\\d+)");
+    std::regex timeToFirstErrorRegex("\"timeToFirstError\"\\s*:\\s*(\\d+)");
+    std::regex throughputMBpsRegex("\"throughputMBps\"\\s*:\\s*([0-9.]+)");
+    std::regex memoryEfficiencyRegex("\"memoryEfficiency\"\\s*:\\s*([0-9.]+)");
+    std::regex cpuEfficiencyRegex("\"cpuEfficiency\"\\s*:\\s*([0-9.]+)");
+    
     std::smatch match;
     
+    // Parse basic metrics
     if (std::regex_search(json, match, recordsProcessedRegex)) {
         metrics.recordsProcessed = std::stoi(match[1].str());
     }
@@ -57,12 +92,127 @@ JobMetrics JobMetrics::fromJson(const std::string& json) {
         metrics.executionTime = std::chrono::milliseconds(std::stoll(match[1].str()));
     }
     
+    // Parse extended metrics
+    if (std::regex_search(json, match, peakMemoryUsageRegex)) {
+        metrics.peakMemoryUsage = std::stoull(match[1].str());
+    }
+    if (std::regex_search(json, match, peakCpuUsageRegex)) {
+        metrics.peakCpuUsage = std::stod(match[1].str());
+    }
+    if (std::regex_search(json, match, averageProcessingRateRegex)) {
+        metrics.averageProcessingRate = std::stod(match[1].str());
+    }
+    if (std::regex_search(json, match, totalBytesProcessedRegex)) {
+        metrics.totalBytesProcessed = std::stoull(match[1].str());
+    }
+    if (std::regex_search(json, match, totalBytesWrittenRegex)) {
+        metrics.totalBytesWritten = std::stoull(match[1].str());
+    }
+    if (std::regex_search(json, match, totalBatchesRegex)) {
+        metrics.totalBatches = std::stoi(match[1].str());
+    }
+    if (std::regex_search(json, match, averageBatchSizeRegex)) {
+        metrics.averageBatchSize = std::stod(match[1].str());
+    }
+    if (std::regex_search(json, match, errorRateRegex)) {
+        metrics.errorRate = std::stod(match[1].str());
+    }
+    if (std::regex_search(json, match, consecutiveErrorsRegex)) {
+        metrics.consecutiveErrors = std::stoi(match[1].str());
+    }
+    if (std::regex_search(json, match, timeToFirstErrorRegex)) {
+        metrics.timeToFirstError = std::chrono::milliseconds(std::stoll(match[1].str()));
+    }
+    if (std::regex_search(json, match, throughputMBpsRegex)) {
+        metrics.throughputMBps = std::stod(match[1].str());
+    }
+    if (std::regex_search(json, match, memoryEfficiencyRegex)) {
+        metrics.memoryEfficiency = std::stod(match[1].str());
+    }
+    if (std::regex_search(json, match, cpuEfficiencyRegex)) {
+        metrics.cpuEfficiency = std::stod(match[1].str());
+    }
+    
     return metrics;
 }
 
 void JobMetrics::updateProcessingRate(std::chrono::milliseconds elapsed) {
     if (elapsed.count() > 0) {
         processingRate = static_cast<double>(recordsProcessed) / (elapsed.count() / 1000.0);
+    }
+}
+
+void JobMetrics::updatePerformanceIndicators() {
+    lastUpdateTime = std::chrono::system_clock::now();
+    
+    // Update processing rate based on execution time
+    if (executionTime.count() > 0) {
+        processingRate = static_cast<double>(recordsProcessed) / (executionTime.count() / 1000.0);
+    }
+    
+    // Calculate error rate
+    if (recordsProcessed > 0) {
+        errorRate = (static_cast<double>(recordsFailed) / recordsProcessed) * 100.0;
+    }
+    
+    // Calculate throughput in MB/s
+    if (executionTime.count() > 0 && totalBytesProcessed > 0) {
+        double seconds = executionTime.count() / 1000.0;
+        double megabytes = totalBytesProcessed / (1024.0 * 1024.0);
+        throughputMBps = megabytes / seconds;
+    }
+    
+    // Calculate memory efficiency (records per MB)
+    if (memoryUsage > 0 && recordsProcessed > 0) {
+        double memoryMB = memoryUsage / (1024.0 * 1024.0);
+        memoryEfficiency = recordsProcessed / memoryMB;
+    }
+    
+    // Calculate CPU efficiency (records per CPU percentage)
+    if (cpuUsage > 0.0 && recordsProcessed > 0) {
+        cpuEfficiency = recordsProcessed / cpuUsage;
+    }
+    
+    // Update peak values
+    if (memoryUsage > peakMemoryUsage) {
+        peakMemoryUsage = memoryUsage;
+    }
+    if (cpuUsage > peakCpuUsage) {
+        peakCpuUsage = cpuUsage;
+    }
+}
+
+void JobMetrics::recordError() {
+    consecutiveErrors++;
+    
+    // Record time to first error if this is the first error
+    if (recordsFailed == 0) {
+        timeToFirstError = executionTime;
+        firstErrorTime = std::chrono::system_clock::now();
+    }
+}
+
+void JobMetrics::recordBatch(int batchSize, int successful, int failed, size_t bytesProcessed) {
+    totalBatches++;
+    totalBytesProcessed += bytesProcessed;
+    
+    // Reset consecutive errors if this batch had some successes
+    if (successful > 0) {
+        consecutiveErrors = 0;
+    }
+    
+    // Update average batch size
+    calculateAverages();
+}
+
+void JobMetrics::calculateAverages() {
+    if (totalBatches > 0) {
+        averageBatchSize = static_cast<double>(recordsProcessed) / totalBatches;
+    }
+    
+    // Calculate average processing rate over job lifetime
+    if (executionTime.count() > 0) {
+        averageProcessingRate = static_cast<double>(recordsProcessed) / (executionTime.count() / 1000.0);
     }
 }
 
@@ -74,6 +224,109 @@ void JobMetrics::reset() {
     memoryUsage = 0;
     cpuUsage = 0.0;
     executionTime = std::chrono::milliseconds(0);
+    
+    // Reset extended metrics
+    peakMemoryUsage = 0;
+    peakCpuUsage = 0.0;
+    averageProcessingRate = 0.0;
+    totalBytesProcessed = 0;
+    totalBytesWritten = 0;
+    totalBatches = 0;
+    averageBatchSize = 0.0;
+    
+    errorRate = 0.0;
+    consecutiveErrors = 0;
+    timeToFirstError = std::chrono::milliseconds(0);
+    
+    throughputMBps = 0.0;
+    memoryEfficiency = 0.0;
+    cpuEfficiency = 0.0;
+    
+    startTime = std::chrono::system_clock::time_point{};
+    lastUpdateTime = std::chrono::system_clock::time_point{};
+    firstErrorTime = std::chrono::system_clock::time_point{};
+}
+
+double JobMetrics::getOverallEfficiency() const {
+    // Composite efficiency score based on multiple factors
+    double efficiency = 0.0;
+    int factors = 0;
+    
+    // Processing rate efficiency (normalized to 0-1)
+    if (averageProcessingRate > 0) {
+        efficiency += std::min(1.0, averageProcessingRate / 1000.0); // Assume 1000 records/sec is excellent
+        factors++;
+    }
+    
+    // Error rate efficiency (inverted - lower error rate is better)
+    if (recordsProcessed > 0) {
+        efficiency += (100.0 - errorRate) / 100.0;
+        factors++;
+    }
+    
+    // Memory efficiency
+    if (memoryEfficiency > 0) {
+        efficiency += std::min(1.0, memoryEfficiency / 1000.0); // Assume 1000 records/MB is excellent
+        factors++;
+    }
+    
+    // CPU efficiency
+    if (cpuEfficiency > 0) {
+        efficiency += std::min(1.0, cpuEfficiency / 100.0); // Assume 100 records per CPU% is excellent
+        factors++;
+    }
+    
+    return factors > 0 ? efficiency / factors : 0.0;
+}
+
+bool JobMetrics::isPerformingWell(const JobMetrics& baseline) const {
+    // Performance comparison thresholds
+    const double PERFORMANCE_THRESHOLD = 0.8; // 80% of baseline performance
+    
+    bool performanceGood = true;
+    
+    // Check processing rate
+    if (baseline.averageProcessingRate > 0) {
+        performanceGood &= (averageProcessingRate >= baseline.averageProcessingRate * PERFORMANCE_THRESHOLD);
+    }
+    
+    // Check error rate (should be lower than baseline)
+    if (baseline.recordsProcessed > 0) {
+        performanceGood &= (errorRate <= baseline.errorRate * 1.2); // Allow 20% more errors
+    }
+    
+    // Check memory efficiency
+    if (baseline.memoryEfficiency > 0) {
+        performanceGood &= (memoryEfficiency >= baseline.memoryEfficiency * PERFORMANCE_THRESHOLD);
+    }
+    
+    // Check CPU efficiency
+    if (baseline.cpuEfficiency > 0) {
+        performanceGood &= (cpuEfficiency >= baseline.cpuEfficiency * PERFORMANCE_THRESHOLD);
+    }
+    
+    return performanceGood;
+}
+
+std::string JobMetrics::getPerformanceSummary() const {
+    std::ostringstream summary;
+    summary << "Performance Summary: ";
+    summary << recordsProcessed << " records processed";
+    summary << " (" << std::fixed << std::setprecision(1) << processingRate << " rec/sec)";
+    summary << ", " << std::fixed << std::setprecision(1) << errorRate << "% error rate";
+    
+    if (throughputMBps > 0) {
+        summary << ", " << std::fixed << std::setprecision(2) << throughputMBps << " MB/s throughput";
+    }
+    
+    if (memoryEfficiency > 0) {
+        summary << ", " << std::fixed << std::setprecision(1) << memoryEfficiency << " rec/MB memory efficiency";
+    }
+    
+    double efficiency = getOverallEfficiency();
+    summary << ", Overall efficiency: " << std::fixed << std::setprecision(1) << (efficiency * 100) << "%";
+    
+    return summary.str();
 }
 
 // JobStatusUpdate implementation

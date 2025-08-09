@@ -7,11 +7,14 @@
 #include <unordered_map>
 #include <string_view>
 #include <functional>
-#include "etl_job_manager.hpp"
 #include "transparent_string_hash.hpp"
 
 // Forward declarations
 struct LogMessage;
+
+// Enum definitions
+enum class JobStatus { PENDING, RUNNING, COMPLETED, FAILED, CANCELLED };
+enum class JobType { EXTRACT, TRANSFORM, LOAD, FULL_ETL };
 
 // Message type enumeration for WebSocket routing
 enum class MessageType {
@@ -30,9 +33,33 @@ struct JobMetrics {
     int recordsSuccessful = 0;
     int recordsFailed = 0;
     double processingRate = 0.0; // records per second
-    size_t memoryUsage = 0;      // bytes
-    double cpuUsage = 0.0;       // percentage
+    size_t memoryUsage = 0;      // bytes used during job execution
+    double cpuUsage = 0.0;       // percentage of CPU used
     std::chrono::milliseconds executionTime{0};
+    
+    // Extended performance metrics
+    size_t peakMemoryUsage = 0;  // peak memory usage during execution
+    double peakCpuUsage = 0.0;   // peak CPU usage during execution
+    double averageProcessingRate = 0.0; // average processing rate over job lifetime
+    size_t totalBytesProcessed = 0;     // total data volume processed
+    size_t totalBytesWritten = 0;       // total data volume written
+    int totalBatches = 0;               // total number of batches processed
+    double averageBatchSize = 0.0;      // average batch size
+    
+    // Error statistics
+    double errorRate = 0.0;      // percentage of failed records
+    int consecutiveErrors = 0;   // consecutive error count
+    std::chrono::milliseconds timeToFirstError{0}; // time until first error
+    
+    // Performance indicators
+    double throughputMBps = 0.0; // throughput in MB/s
+    double memoryEfficiency = 0.0; // records per MB of memory used
+    double cpuEfficiency = 0.0;    // records per CPU percentage
+    
+    // Timestamps for detailed tracking
+    std::chrono::system_clock::time_point startTime;
+    std::chrono::system_clock::time_point lastUpdateTime;
+    std::chrono::system_clock::time_point firstErrorTime;
     
     // JSON serialization
     std::string toJson() const;
@@ -40,7 +67,16 @@ struct JobMetrics {
     
     // Helper methods
     void updateProcessingRate(std::chrono::milliseconds elapsed);
+    void updatePerformanceIndicators();
+    void recordError();
+    void recordBatch(int batchSize, int successful, int failed, size_t bytesProcessed);
+    void calculateAverages();
     void reset();
+    
+    // Comparison and analysis
+    double getOverallEfficiency() const;
+    bool isPerformingWell(const JobMetrics& baseline) const;
+    std::string getPerformanceSummary() const;
 };
 
 // Job status update message for WebSocket communication

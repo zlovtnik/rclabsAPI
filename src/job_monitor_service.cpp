@@ -396,10 +396,283 @@ void JobMonitorService::updateJobMetrics(const std::string& jobId, const JobMetr
         data.updateExecutionTime();
     });
 
+    // Store metrics snapshot for historical analysis
+    storeMetricsSnapshot(jobId, metrics);
+
     // Broadcast metrics update
     broadcastJobMetrics(jobId, metrics);
     
     JOB_LOG_DEBUG("Updated job metrics for job: " + jobId);
+}
+
+std::vector<JobMetrics> JobMonitorService::getJobMetricsHistory(const std::string& jobId, 
+                                                               std::chrono::system_clock::time_point since) const {
+    std::scoped_lock lock(metricsHistoryMutex_);
+    
+    auto historyIt = metricsHistory_.find(jobId);
+    if (historyIt == metricsHistory_.end()) {
+        return {}; // No history found
+    }
+    
+    std::vector<JobMetrics> result;
+    for (const auto& metrics : historyIt->second) {
+        if (since == std::chrono::system_clock::time_point{} || metrics.lastUpdateTime >= since) {
+            result.push_back(metrics);
+        }
+    }
+    
+    return result;
+}
+
+JobMetrics JobMonitorService::getAggregatedMetrics(const std::vector<std::string>& jobIds) const {
+    std::vector<JobMetrics> metricsCollection;
+    
+    for (const auto& jobId : jobIds) {
+        auto metrics = getJobMetrics(jobId);
+        if (metrics.recordsProcessed > 0) { // Only include jobs with actual data
+            metricsCollection.push_back(metrics);
+        }
+    }
+    
+    return aggregateMetrics(metricsCollection);
+}
+
+JobMetrics JobMonitorService::getAggregatedMetricsByType(JobType jobType) const {
+    std::vector<JobMetrics> metricsCollection;
+    
+    withJobDataLock<void>([&]() {
+        // Collect from active jobs
+        for (const auto& [jobId, data] : activeJobs_) {
+            if (data.jobType == jobType && data.metrics.recordsProcessed > 0) {
+                metricsCollection.push_back(data.metrics);
+            }
+        }
+        
+        // Collect from completed jobs
+        for (const auto& [jobId, data] : completedJobs_) {
+            if (data.jobType == jobType && data.metrics.recordsProcessed > 0) {
+                metricsCollection.push_back(data.metrics);
+            }
+        }
+    });
+    
+    return aggregateMetrics(metricsCollection);
+}
+
+JobMetrics JobMonitorService::getAggregatedMetricsByTimeRange(std::chrono::system_clock::time_point start,
+                                                             std::chrono::system_clock::time_point end) const {
+    std::vector<JobMetrics> metricsCollection;
+    
+    withJobDataLock<void>([&]() {
+        // Collect from active jobs
+        for (const auto& [jobId, data] : activeJobs_) {
+            if (data.startTime >= start && data.startTime <= end && data.metrics.recordsProcessed > 0) {
+                metricsCollection.push_back(data.metrics);
+            }
+        }
+        
+        // Collect from completed jobs
+        for (const auto& [jobId, data] : completedJobs_) {
+            if (data.startTime >= start && data.startTime <= end && data.metrics.recordsProcessed > 0) {
+                metricsCollection.push_back(data.metrics);
+            }
+        }
+    });
+    
+    return aggregateMetrics(metricsCollection);
+}
+
+double JobMonitorService::getAverageProcessingRate(JobType jobType) const {
+    std::vector<double> rates;
+    
+    withJobDataLock<void>([&]() {
+        // Collect from active jobs
+        for (const auto& [jobId, data] : activeJobs_) {
+            if ((jobType == static_cast<JobType>(-1) || data.jobType == jobType) && 
+                data.metrics.averageProcessingRate > 0) {
+                rates.push_back(data.metrics.averageProcessingRate);
+            }
+        }
+        
+        // Collect from completed jobs
+        for (const auto& [jobId, data] : completedJobs_) {
+            if ((jobType == static_cast<JobType>(-1) || data.jobType == jobType) && 
+                data.metrics.averageProcessingRate > 0) {
+                rates.push_back(data.metrics.averageProcessingRate);
+            }
+        }
+    });
+    
+    if (rates.empty()) {
+        return 0.0;
+    }
+    
+    double sum = 0.0;
+    for (double rate : rates) {
+        sum += rate;
+    }
+    
+    return sum / rates.size();
+}
+
+double JobMonitorService::getAverageErrorRate(JobType jobType) const {
+    std::vector<double> errorRates;
+    
+    withJobDataLock<void>([&]() {
+        // Collect from active jobs
+        for (const auto& [jobId, data] : activeJobs_) {
+            if ((jobType == static_cast<JobType>(-1) || data.jobType == jobType) && 
+                data.metrics.recordsProcessed > 0) {
+                errorRates.push_back(data.metrics.errorRate);
+            }
+        }
+        
+        // Collect from completed jobs
+        for (const auto& [jobId, data] : completedJobs_) {
+            if ((jobType == static_cast<JobType>(-1) || data.jobType == jobType) && 
+                data.metrics.recordsProcessed > 0) {
+                errorRates.push_back(data.metrics.errorRate);
+            }
+        }
+    });
+    
+    if (errorRates.empty()) {
+        return 0.0;
+    }
+    
+    double sum = 0.0;
+    for (double rate : errorRates) {
+        sum += rate;
+    }
+    
+    return sum / errorRates.size();
+}
+
+std::pair<JobMetrics, JobMetrics> JobMonitorService::getPerformanceBenchmarks() const {
+    std::vector<JobMetrics> allMetrics;
+    
+    withJobDataLock<void>([&]() {
+        // Collect all metrics for benchmark calculation
+        for (const auto& [jobId, data] : activeJobs_) {
+            if (data.metrics.recordsProcessed > 0) {
+                allMetrics.push_back(data.metrics);
+            }
+        }
+        
+        for (const auto& [jobId, data] : completedJobs_) {
+            if (data.metrics.recordsProcessed > 0) {
+                allMetrics.push_back(data.metrics);
+            }
+        }
+    });
+    
+    if (allMetrics.empty()) {
+        return {JobMetrics{}, JobMetrics{}};
+    }
+    
+    // Calculate min and max benchmarks
+    JobMetrics minBenchmark = allMetrics[0];
+    JobMetrics maxBenchmark = allMetrics[0];
+    
+    for (const auto& metrics : allMetrics) {
+        // Update minimum benchmarks (worst performance)
+        if (metrics.averageProcessingRate < minBenchmark.averageProcessingRate && metrics.averageProcessingRate > 0) {
+            minBenchmark.averageProcessingRate = metrics.averageProcessingRate;
+        }
+        if (metrics.errorRate > minBenchmark.errorRate) {
+            minBenchmark.errorRate = metrics.errorRate;
+        }
+        if (metrics.memoryEfficiency < minBenchmark.memoryEfficiency && metrics.memoryEfficiency > 0) {
+            minBenchmark.memoryEfficiency = metrics.memoryEfficiency;
+        }
+        
+        // Update maximum benchmarks (best performance)
+        if (metrics.averageProcessingRate > maxBenchmark.averageProcessingRate) {
+            maxBenchmark.averageProcessingRate = metrics.averageProcessingRate;
+        }
+        if (metrics.errorRate < maxBenchmark.errorRate) {
+            maxBenchmark.errorRate = metrics.errorRate;
+        }
+        if (metrics.memoryEfficiency > maxBenchmark.memoryEfficiency) {
+            maxBenchmark.memoryEfficiency = metrics.memoryEfficiency;
+        }
+        if (metrics.cpuEfficiency > maxBenchmark.cpuEfficiency) {
+            maxBenchmark.cpuEfficiency = metrics.cpuEfficiency;
+        }
+    }
+    
+    return {minBenchmark, maxBenchmark};
+}
+
+void JobMonitorService::storeMetricsSnapshot(const std::string& jobId, const JobMetrics& metrics) {
+    std::scoped_lock lock(metricsHistoryMutex_);
+    
+    auto& history = metricsHistory_[jobId];
+    history.push_back(metrics);
+    
+    // Limit history size
+    if (history.size() > maxMetricsHistorySize_) {
+        history.erase(history.begin());
+    }
+    
+    // Cleanup old metrics periodically
+    static auto lastCleanup = std::chrono::system_clock::now();
+    auto now = std::chrono::system_clock::now();
+    if (now - lastCleanup > std::chrono::hours(1)) { // Cleanup every hour
+        cleanupOldMetrics();
+        lastCleanup = now;
+    }
+}
+
+JobMonitorService::ResourceUtilization JobMonitorService::getCurrentResourceUtilization() const {
+    ResourceUtilization utilization;
+    utilization.timestamp = std::chrono::system_clock::now();
+    
+    // Calculate current resource utilization from active jobs
+    double totalMemory = 0.0;
+    double totalCpu = 0.0;
+    double peakMemory = 0.0;
+    double peakCpu = 0.0;
+    size_t activeJobCount = 0;
+    
+    withJobDataLock<void>([&]() {
+        for (const auto& [jobId, data] : activeJobs_) {
+            if (data.metrics.memoryUsage > 0 || data.metrics.cpuUsage > 0) {
+                totalMemory += data.metrics.memoryUsage / (1024.0 * 1024.0); // Convert to MB
+                totalCpu += data.metrics.cpuUsage;
+                
+                if (data.metrics.peakMemoryUsage / (1024.0 * 1024.0) > peakMemory) {
+                    peakMemory = data.metrics.peakMemoryUsage / (1024.0 * 1024.0);
+                }
+                if (data.metrics.peakCpuUsage > peakCpu) {
+                    peakCpu = data.metrics.peakCpuUsage;
+                }
+                
+                activeJobCount++;
+            }
+        }
+    });
+    
+    utilization.averageMemoryUsage = activeJobCount > 0 ? totalMemory / activeJobCount : 0.0;
+    utilization.averageCpuUsage = activeJobCount > 0 ? totalCpu / activeJobCount : 0.0;
+    utilization.peakMemoryUsage = peakMemory;
+    utilization.peakCpuUsage = peakCpu;
+    
+    return utilization;
+}
+
+std::vector<JobMonitorService::ResourceUtilization> JobMonitorService::getResourceUtilizationHistory(
+    std::chrono::system_clock::time_point since) const {
+    std::scoped_lock lock(metricsHistoryMutex_);
+    
+    std::vector<ResourceUtilization> result;
+    for (const auto& utilization : resourceHistory_) {
+        if (since == std::chrono::system_clock::time_point{} || utilization.timestamp >= since) {
+            result.push_back(utilization);
+        }
+    }
+    
+    return result;
 }
 
 void JobMonitorService::setMaxRecentLogs(size_t maxLogs) {
@@ -862,5 +1135,152 @@ bool JobMonitorService::checkNotificationServiceHealth() {
     } catch (const std::exception& e) {
         JOB_LOG_WARN("Notification Service health check failed: " + std::string(e.what()));
         return false;
+    }
+}
+
+// Metrics helper methods implementation
+
+void JobMonitorService::cleanupOldMetrics() {
+    auto cutoffTime = std::chrono::system_clock::now() - metricsRetentionPeriod_;
+    
+    for (auto it = metricsHistory_.begin(); it != metricsHistory_.end();) {
+        auto& history = it->second;
+        
+        // Remove old metrics
+        history.erase(
+            std::remove_if(history.begin(), history.end(),
+                [cutoffTime](const JobMetrics& metrics) {
+                    return metrics.lastUpdateTime < cutoffTime;
+                }),
+            history.end());
+        
+        // Remove empty histories
+        if (history.empty()) {
+            it = metricsHistory_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    
+    JOB_LOG_DEBUG("Cleaned up old metrics data");
+}
+
+void JobMonitorService::cleanupOldResourceHistory() {
+    auto cutoffTime = std::chrono::system_clock::now() - metricsRetentionPeriod_;
+    
+    resourceHistory_.erase(
+        std::remove_if(resourceHistory_.begin(), resourceHistory_.end(),
+            [cutoffTime](const ResourceUtilization& utilization) {
+                return utilization.timestamp < cutoffTime;
+            }),
+        resourceHistory_.end());
+    
+    // Limit resource history size
+    if (resourceHistory_.size() > maxResourceHistorySize_) {
+        auto excess = resourceHistory_.size() - maxResourceHistorySize_;
+        resourceHistory_.erase(resourceHistory_.begin(), resourceHistory_.begin() + excess);
+    }
+    
+    JOB_LOG_DEBUG("Cleaned up old resource utilization data");
+}
+
+JobMetrics JobMonitorService::aggregateMetrics(const std::vector<JobMetrics>& metricsCollection) const {
+    if (metricsCollection.empty()) {
+        return JobMetrics{};
+    }
+    
+    JobMetrics aggregated;
+    size_t count = metricsCollection.size();
+    
+    // Sum basic metrics
+    for (const auto& metrics : metricsCollection) {
+        aggregated.recordsProcessed += metrics.recordsProcessed;
+        aggregated.recordsSuccessful += metrics.recordsSuccessful;
+        aggregated.recordsFailed += metrics.recordsFailed;
+        aggregated.totalBytesProcessed += metrics.totalBytesProcessed;
+        aggregated.totalBytesWritten += metrics.totalBytesWritten;
+        aggregated.totalBatches += metrics.totalBatches;
+        
+        // Track peak values
+        if (metrics.peakMemoryUsage > aggregated.peakMemoryUsage) {
+            aggregated.peakMemoryUsage = metrics.peakMemoryUsage;
+        }
+        if (metrics.peakCpuUsage > aggregated.peakCpuUsage) {
+            aggregated.peakCpuUsage = metrics.peakCpuUsage;
+        }
+        
+        // Accumulate execution time
+        aggregated.executionTime += metrics.executionTime;
+    }
+    
+    // Calculate averages
+    if (count > 0) {
+        aggregated.memoryUsage = aggregated.peakMemoryUsage; // Use peak as representative
+        aggregated.cpuUsage = aggregated.peakCpuUsage; // Use peak as representative
+        
+        // Calculate average processing rate
+        double totalRate = 0.0;
+        int validRates = 0;
+        for (const auto& metrics : metricsCollection) {
+            if (metrics.averageProcessingRate > 0) {
+                totalRate += metrics.averageProcessingRate;
+                validRates++;
+            }
+        }
+        if (validRates > 0) {
+            aggregated.averageProcessingRate = totalRate / validRates;
+        }
+        
+        // Calculate average batch size
+        if (aggregated.totalBatches > 0) {
+            aggregated.averageBatchSize = static_cast<double>(aggregated.recordsProcessed) / aggregated.totalBatches;
+        }
+        
+        // Calculate overall processing rate
+        if (aggregated.executionTime.count() > 0) {
+            aggregated.processingRate = static_cast<double>(aggregated.recordsProcessed) / 
+                                      (aggregated.executionTime.count() / 1000.0);
+        }
+        
+        // Calculate average error rate
+        if (aggregated.recordsProcessed > 0) {
+            aggregated.errorRate = (static_cast<double>(aggregated.recordsFailed) / aggregated.recordsProcessed) * 100.0;
+        }
+        
+        // Calculate throughput
+        if (aggregated.executionTime.count() > 0 && aggregated.totalBytesProcessed > 0) {
+            double seconds = aggregated.executionTime.count() / 1000.0;
+            double megabytes = aggregated.totalBytesProcessed / (1024.0 * 1024.0);
+            aggregated.throughputMBps = megabytes / seconds;
+        }
+        
+        // Calculate efficiency metrics
+        if (aggregated.memoryUsage > 0) {
+            double memoryMB = aggregated.memoryUsage / (1024.0 * 1024.0);
+            aggregated.memoryEfficiency = aggregated.recordsProcessed / memoryMB;
+        }
+        
+        if (aggregated.cpuUsage > 0) {
+            aggregated.cpuEfficiency = aggregated.recordsProcessed / aggregated.cpuUsage;
+        }
+    }
+    
+    aggregated.lastUpdateTime = std::chrono::system_clock::now();
+    
+    return aggregated;
+}
+
+void JobMonitorService::updateResourceUtilization() {
+    auto utilization = getCurrentResourceUtilization();
+    
+    std::scoped_lock lock(metricsHistoryMutex_);
+    resourceHistory_.push_back(utilization);
+    
+    // Cleanup periodically
+    static auto lastCleanup = std::chrono::system_clock::now();
+    auto now = std::chrono::system_clock::now();
+    if (now - lastCleanup > std::chrono::hours(1)) { // Cleanup every hour
+        cleanupOldResourceHistory();
+        lastCleanup = now;
     }
 }

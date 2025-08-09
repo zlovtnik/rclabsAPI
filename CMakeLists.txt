@@ -110,6 +110,8 @@ endif()
 # Create a shared library for common sources to avoid recompilation
 set(COMMON_SOURCES
     src/logger.cpp
+    src/log_handler.cpp
+    src/log_file_manager.cpp
     src/config_manager.cpp
     src/database_manager.cpp
     src/websocket_connection.cpp
@@ -124,6 +126,7 @@ set(COMMON_SOURCES
     src/job_monitoring_models.cpp
     src/job_monitor_service.cpp
     src/notification_service.cpp
+    src/system_metrics.cpp
 )
 
 add_library(etl_common STATIC ${COMMON_SOURCES})
@@ -213,6 +216,15 @@ create_test_executable(test_log_streaming_demo scripts/test_log_streaming_demo.c
 create_test_executable(test_enhanced_rest_endpoints_simple scripts/test_enhanced_rest_endpoints_simple.cpp)
 create_test_executable(test_config_management_demo scripts/test_config_management_demo.cpp)
 create_test_executable(test_config_simple scripts/test_config_simple.cpp)
+create_test_executable(test_log_handler scripts/test_log_handler.cpp)
+create_test_executable(test_log_file_manager scripts/test_log_file_manager.cpp)
+target_link_libraries(test_log_file_manager GTest::gtest GTest::gtest_main)
+
+# Demo executable for LogFileManager
+add_executable(demo_log_file_manager scripts/demo_log_file_manager.cpp)
+target_include_directories(demo_log_file_manager PRIVATE include)
+target_link_libraries(demo_log_file_manager etl_common)
+
 # TEMPORARY: Disabled until test is updated for new API
 # create_test_executable(test_notification_service_error_handling scripts/test_notification_service_error_handling.cpp)
 

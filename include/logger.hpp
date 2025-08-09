@@ -16,6 +16,9 @@
 #include <unordered_set>
 #include <functional>
 #include <string_view>
+#include <vector>
+#include <regex>
+#include <optional>
 #include "transparent_string_hash.hpp"
 
 // Forward declarations for real-time log streaming
@@ -25,6 +28,64 @@ struct LogMessage;
 enum class LogLevel { DEBUG = 0, INFO = 1, WARN = 2, ERROR = 3, FATAL = 4 };
 
 enum class LogFormat { TEXT = 0, JSON = 1 };
+
+// Enhanced log rotation and retention configuration
+struct LogRotationConfig {
+  bool enableRotation = true;
+  size_t maxFileSize = 10 * 1024 * 1024; // 10MB
+  int maxBackupFiles = 5;
+
+  // Enhanced retention policies
+  bool enableTimeBasedRotation = false;
+  std::chrono::hours rotationInterval = std::chrono::hours(24);
+  std::chrono::hours retentionPeriod = std::chrono::hours(24 * 7); // 7 days
+
+  // Compression settings
+  bool compressOldLogs = false;
+  std::string compressionFormat = "gzip"; // gzip, zip, none
+
+  // Cleanup settings
+  bool enableAutoCleanup = true;
+  std::chrono::minutes cleanupInterval = std::chrono::minutes(60);
+};
+
+// Historical log query parameters
+struct LogQueryParams {
+  std::string jobId = "";
+  std::string component = "";
+  LogLevel minLevel = LogLevel::DEBUG;
+  LogLevel maxLevel = LogLevel::FATAL;
+  std::chrono::system_clock::time_point startTime = std::chrono::system_clock::time_point::min();
+  std::chrono::system_clock::time_point endTime = std::chrono::system_clock::time_point::max();
+  size_t maxResults = 1000;
+  size_t offset = 0;
+  bool includeArchived = false;
+  std::string searchText = "";
+  bool sortDescending = true;
+};
+
+// Historical log entry structure
+struct HistoricalLogEntry {
+  std::chrono::system_clock::time_point timestamp;
+  LogLevel level;
+  std::string component;
+  std::string message;
+  std::string jobId;
+  std::string filename;
+  size_t lineNumber;
+  std::unordered_map<std::string, std::string> context;
+};
+
+// Log file information
+struct LogFileInfo {
+  std::string filename;
+  std::string fullPath;
+  size_t fileSize;
+  std::chrono::system_clock::time_point createdTime;
+  std::chrono::system_clock::time_point lastModified;
+  bool isCompressed;
+  bool isArchived;
+};
 
 struct LogConfig {
   LogLevel level = LogLevel::INFO;
@@ -45,6 +106,15 @@ struct LogConfig {
   size_t streamingQueueSize = 1000;
   bool streamAllLevels = true;
   std::unordered_set<std::string, TransparentStringHash, std::equal_to<>> streamingJobFilter; // Empty = all jobs
+
+  // Enhanced rotation and retention
+  LogRotationConfig rotation;
+
+  // Historical access configuration
+  bool enableHistoricalAccess = true;
+  std::string archiveDirectory = "logs/archive";
+  size_t maxQueryResults = 10000;
+  bool enableLogIndexing = true;
 };
 
 struct LogMetrics {
@@ -150,6 +220,25 @@ public:
                    const std::string& jobId,
                    const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context = {});
 
+  // Historical log access methods
+  void enableHistoricalAccess(bool enable);
+  bool isHistoricalAccessEnabled() const;
+  void setArchiveDirectory(const std::string &directory);
+  std::string getArchiveDirectory() const;
+  void setMaxQueryResults(size_t maxResults);
+  size_t getMaxQueryResults() const;
+  void enableLogIndexing(bool enable);
+  bool isLogIndexingEnabled() const;
+
+  // Log querying methods
+  std::vector<HistoricalLogEntry> queryLogs(const LogQueryParams &params);
+  std::vector<LogFileInfo> listLogFiles(bool includeArchived = false);
+  bool archiveLogFile(const std::string &filename);
+  bool restoreLogFile(const std::string &filename);
+  bool deleteLogFile(const std::string &filename);
+  bool compressLogFile(const std::string &filename, const std::string &format = "gzip");
+  bool decompressLogFile(const std::string &filename);
+
 private:
   Logger() = default;
   ~Logger();
@@ -212,6 +301,25 @@ private:
   std::shared_ptr<LogMessage> createLogMessage(LogLevel level, const std::string& component,
                                               const std::string& message, const std::string& jobId,
                                               const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context);
+
+  // Historical log access helpers
+  mutable std::mutex indexMutex_;
+  void archiveOldLogs();
+  void cleanupArchivedLogs();
+  void indexLogFile(const std::string &filename);
+  void removeLogFileIndex(const std::string &filename);
+  std::vector<HistoricalLogEntry> searchLogs(const std::string &query, const std::string &jobId = "");
+  void sortLogEntries(std::vector<HistoricalLogEntry> &entries, bool descending);
+
+  // Log parsing helpers
+  std::optional<HistoricalLogEntry> parseLogLine(const std::string& line, const std::string& filename, size_t lineNumber);
+  std::optional<HistoricalLogEntry> parseTextLogLine(const std::string& line, HistoricalLogEntry& entry);
+  std::optional<HistoricalLogEntry> parseJsonLogLine(const std::string& line, HistoricalLogEntry& entry);
+  std::chrono::system_clock::time_point parseTimestamp(const std::string& timestampStr);
+  LogLevel stringToLogLevel(const std::string& levelStr);
+  void parseContextString(const std::string& contextStr, std::unordered_map<std::string, std::string>& context);
+  void parseJsonContext(const std::string& contextStr, std::unordered_map<std::string, std::string>& context);
+  bool matchesQuery(const HistoricalLogEntry& entry, const LogQueryParams& params);
 };
 
 // Convenience macros for logging (backward compatible)

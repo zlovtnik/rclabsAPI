@@ -4,6 +4,7 @@
 #include "logger.hpp"
 #include "exceptions.hpp"
 #include "exception_handler.hpp"
+#include "system_metrics.hpp"
 #include <iostream>
 #include <random>
 #include <sstream>
@@ -14,6 +15,7 @@ public:
     virtual ~JobMonitorServiceInterface() = default;
     virtual void onJobStatusChanged(const std::string& jobId, JobStatus oldStatus, JobStatus newStatus) = 0;
     virtual void onJobProgressUpdated(const std::string& jobId, int progressPercent, const std::string& currentStep) = 0;
+    virtual void updateJobMetrics(const std::string& jobId, const JobMetrics& metrics) = 0;
 };
 
 ETLJobManager::ETLJobManager(std::shared_ptr<DatabaseManager> dbManager,
@@ -159,6 +161,56 @@ void ETLJobManager::publishJobProgress(const std::string& jobId, int progress, c
     }
 }
 
+void ETLJobManager::publishJobMetrics(const std::string& jobId, const JobMetrics& metrics) {
+    if (monitorService_) {
+        monitorService_->updateJobMetrics(jobId, metrics);
+    }
+}
+
+void ETLJobManager::enableMetricsCollection(bool enabled) {
+    metricsCollectionEnabled_ = enabled;
+    ETL_LOG_INFO("Metrics collection " + std::string(enabled ? "enabled" : "disabled"));
+}
+
+bool ETLJobManager::isMetricsCollectionEnabled() const {
+    return metricsCollectionEnabled_;
+}
+
+void ETLJobManager::setMetricsUpdateInterval(std::chrono::milliseconds interval) {
+    metricsUpdateInterval_ = interval;
+    ETL_LOG_INFO("Metrics update interval set to " + std::to_string(interval.count()) + "ms");
+}
+
+JobMetrics ETLJobManager::getJobMetrics(const std::string& jobId) const {
+    std::scoped_lock lock(jobMutex_);
+    
+    for (const auto& job : jobs_) {
+        if (job->jobId == jobId) {
+            if (job->metricsCollector && job->metricsCollector->isCollecting()) {
+                // Return real-time metrics from collector
+                auto snapshot = job->metricsCollector->getMetricsSnapshot();
+                JobMetrics metrics = job->metrics;
+                
+                // Update with real-time data
+                metrics.recordsProcessed = snapshot.recordsProcessed;
+                metrics.recordsSuccessful = snapshot.recordsSuccessful;
+                metrics.recordsFailed = snapshot.recordsFailed;
+                metrics.processingRate = snapshot.processingRate;
+                metrics.executionTime = snapshot.executionTime;
+                metrics.memoryUsage = snapshot.memoryUsage;
+                metrics.cpuUsage = snapshot.cpuUsage;
+                
+                return metrics;
+            } else {
+                // Return stored metrics
+                return job->metrics;
+            }
+        }
+    }
+    
+    return JobMetrics{}; // Return empty metrics if job not found
+}
+
 void ETLJobManager::workerLoop() {
     while (running_) {
         std::unique_lock<std::mutex> lock(jobMutex_);
@@ -256,12 +308,38 @@ void ETLJobManager::executeJob(std::shared_ptr<ETLJob> job) {
 void ETLJobManager::executeExtractJob(std::shared_ptr<ETLJob> job) {
     std::cout << "Extracting data from: " << job->sourceConfig << std::endl;
     
-    // Simulate data extraction
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    // Simulate data extraction with metrics collection
+    const int totalRecords = 100;
+    const int batchSize = 20;
+    const size_t bytesPerRecord = 512; // Approximate size per record
     
-    job->recordsProcessed = 100;
-    job->recordsSuccessful = 95;
-    job->recordsFailed = 5;
+    for (int processed = 0; processed < totalRecords; processed += batchSize) {
+        int currentBatch = std::min(batchSize, totalRecords - processed);
+        
+        // Simulate processing time
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        
+        // Simulate success/failure rates (95% success rate)
+        int successful = static_cast<int>(currentBatch * 0.95);
+        int failed = currentBatch - successful;
+        
+        // Record metrics if collector is available
+        if (job->metricsCollector && job->metricsCollector->isCollecting()) {
+            job->metricsCollector->recordBatchProcessed(currentBatch, successful, failed);
+            
+            // Record batch processing for advanced metrics
+            size_t batchBytes = currentBatch * bytesPerRecord;
+            job->metrics.recordBatch(currentBatch, successful, failed, batchBytes);
+        }
+        
+        // Update job statistics
+        job->recordsProcessed += currentBatch;
+        job->recordsSuccessful += successful;
+        job->recordsFailed += failed;
+    }
+    
+    // Final batch size
+    job->metrics.totalBytesProcessed += totalRecords * bytesPerRecord;
 }
 
 void ETLJobManager::executeTransformJob(std::shared_ptr<ETLJob> job) {
@@ -274,12 +352,30 @@ void ETLJobManager::executeTransformJob(std::shared_ptr<ETLJob> job) {
     record1.fields["age"] = "30";
     inputData.push_back(record1);
     
-    // Apply transformations
+    const int totalRecords = static_cast<int>(inputData.size());
+    const size_t bytesPerRecord = 256; // Transformed records are smaller
+    
+    // Apply transformations with metrics tracking
     auto transformedData = transformer_->transform(inputData);
     
-    job->recordsProcessed = static_cast<int>(inputData.size());
-    job->recordsSuccessful = static_cast<int>(transformedData.size());
-    job->recordsFailed = 0;
+    // Simulate transformation processing with batches
+    int successful = static_cast<int>(transformedData.size());
+    int failed = totalRecords - successful;
+    
+    // Record metrics if collector is available
+    if (job->metricsCollector && job->metricsCollector->isCollecting()) {
+        job->metricsCollector->recordBatchProcessed(totalRecords, successful, failed);
+        
+        // Record transformation metrics
+        size_t inputBytes = totalRecords * 512; // Input size
+        size_t outputBytes = successful * bytesPerRecord; // Output size
+        job->metrics.recordBatch(totalRecords, successful, failed, inputBytes);
+        job->metrics.totalBytesWritten += outputBytes;
+    }
+    
+    job->recordsProcessed += totalRecords;
+    job->recordsSuccessful += successful;
+    job->recordsFailed += failed;
 }
 
 void ETLJobManager::executeLoadJob(std::shared_ptr<ETLJob> job) {
@@ -289,9 +385,6 @@ void ETLJobManager::executeLoadJob(std::shared_ptr<ETLJob> job) {
     context.addInfo("job_id", job->jobId);
     context.addInfo("target_config", job->targetConfig);
     
-    // Simulate data loading with proper transaction handling
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
-    
     if (!dbManager_->isConnected()) {
         throw ETLPlus::Exceptions::DatabaseException(
             ETLPlus::Exceptions::ErrorCode::CONNECTION_FAILED,
@@ -299,31 +392,58 @@ void ETLJobManager::executeLoadJob(std::shared_ptr<ETLJob> job) {
             context);
     }
 
+    // Simulate data loading with metrics collection
+    const int totalRecords = 95;
+    const int batchSize = 10;
+    const size_t bytesPerRecord = 128; // Database records are more compact
+    
     // Use transaction scope for safe database operations
     WITH_DATABASE_TRANSACTION(dbManager_, "LoadJobData", {
         ETL_LOG_DEBUG("Executing load operation within transaction");
         
-        // Simulate potential database operations that could fail
-        if (!dbManager_->executeQuery("INSERT INTO processed_data VALUES (...)")) {
-            throw ETLPlus::Exceptions::DatabaseException(
-                ETLPlus::Exceptions::ErrorCode::QUERY_FAILED,
-                "Failed to insert processed data",
-                context,
-                "INSERT INTO processed_data VALUES (...)");
-        }
-        
-        // Additional validation - simulate constraint check
-        if (job->jobId.find("fail") != std::string::npos) {
-            throw ETLPlus::Exceptions::DatabaseException(
-                ETLPlus::Exceptions::ErrorCode::CONSTRAINT_VIOLATION,
-                "Simulated constraint violation during load",
-                context);
+        for (int processed = 0; processed < totalRecords; processed += batchSize) {
+            int currentBatch = std::min(batchSize, totalRecords - processed);
+            
+            // Simulate database operation time
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            
+            // Simulate potential database operations that could fail
+            if (!dbManager_->executeQuery("INSERT INTO processed_data VALUES (...)")) {
+                throw ETLPlus::Exceptions::DatabaseException(
+                    ETLPlus::Exceptions::ErrorCode::QUERY_FAILED,
+                    "Failed to insert processed data",
+                    context,
+                    "INSERT INTO processed_data VALUES (...)");
+            }
+            
+            // Simulate success/failure rates (94% success rate for database operations)
+            int successful = static_cast<int>(currentBatch * 0.94);
+            int failed = currentBatch - successful;
+            
+            // Additional validation - simulate constraint check
+            if (job->jobId.find("fail") != std::string::npos) {
+                throw ETLPlus::Exceptions::DatabaseException(
+                    ETLPlus::Exceptions::ErrorCode::CONSTRAINT_VIOLATION,
+                    "Simulated constraint violation during load",
+                    context);
+            }
+            
+            // Record metrics if collector is available
+            if (job->metricsCollector && job->metricsCollector->isCollecting()) {
+                job->metricsCollector->recordBatchProcessed(currentBatch, successful, failed);
+                
+                // Record load metrics
+                size_t batchBytes = currentBatch * bytesPerRecord;
+                job->metrics.recordBatch(currentBatch, successful, failed, batchBytes);
+                job->metrics.totalBytesWritten += successful * bytesPerRecord;
+            }
+            
+            // Update job statistics
+            job->recordsProcessed += currentBatch;
+            job->recordsSuccessful += successful;
+            job->recordsFailed += failed;
         }
     });
-    
-    job->recordsProcessed = 95;
-    job->recordsSuccessful = 90;
-    job->recordsFailed = 5;
     
     ETL_LOG_INFO("Load job completed successfully");
 }
@@ -346,9 +466,15 @@ void ETLJobManager::executeFullETLJob(std::shared_ptr<ETLJob> job) {
 void ETLJobManager::executeJobWithMonitoring(std::shared_ptr<ETLJob> job) {
     ETL_LOG_INFO("Executing job with monitoring: " + job->jobId);
     
+    // Start metrics collection if enabled
+    if (metricsCollectionEnabled_) {
+        startJobMetricsCollection(job);
+    }
+    
     // Update status to RUNNING and publish event
     updateJobStatus(job, JobStatus::RUNNING);
     job->startedAt = std::chrono::system_clock::now();
+    job->metrics.startTime = job->startedAt;
     
     ETLPlus::Exceptions::ErrorContext context("executeJobWithMonitoring");
     context.addInfo("job_id", job->jobId);
@@ -372,7 +498,7 @@ void ETLJobManager::executeJobWithMonitoring(std::shared_ptr<ETLJob> job) {
                 updateJobProgress(job, 100, "Data loading completed");
                 break;
             case JobType::FULL_ETL:
-                // Full ETL with detailed progress tracking
+                // Full ETL with detailed progress tracking and metrics
                 updateJobProgress(job, 0, "Starting full ETL pipeline");
                 
                 updateJobProgress(job, 10, "Extracting data from source");
@@ -394,12 +520,25 @@ void ETLJobManager::executeJobWithMonitoring(std::shared_ptr<ETLJob> job) {
     } catch (const ETLPlus::Exceptions::BaseException& ex) {
         updateJobStatus(job, JobStatus::FAILED);
         job->errorMessage = ex.getMessage();
+        
+        // Record error in metrics
+        if (job->metricsCollector && job->metricsCollector->isCollecting()) {
+            job->metricsCollector->recordFailedRecord();
+            job->metrics.recordError();
+        }
+        
         ETL_LOG_ERROR("Job failed with ETL exception: " + job->jobId + " - " + ex.toLogString());
         throw;
         
     } catch (const std::exception& e) {
         updateJobStatus(job, JobStatus::FAILED);
         job->errorMessage = e.what();
+        
+        // Record error in metrics
+        if (job->metricsCollector && job->metricsCollector->isCollecting()) {
+            job->metricsCollector->recordFailedRecord();
+            job->metrics.recordError();
+        }
         
         auto etlEx = ETLPlus::Exceptions::ETLException(
             ETLPlus::Exceptions::ErrorCode::JOB_EXECUTION_FAILED,
@@ -414,6 +553,12 @@ void ETLJobManager::executeJobWithMonitoring(std::shared_ptr<ETLJob> job) {
         updateJobStatus(job, JobStatus::FAILED);
         job->errorMessage = "Unknown error occurred during job execution";
         
+        // Record error in metrics
+        if (job->metricsCollector && job->metricsCollector->isCollecting()) {
+            job->metricsCollector->recordFailedRecord();
+            job->metrics.recordError();
+        }
+        
         auto unknownEx = ETLPlus::Exceptions::ETLException(
             ETLPlus::Exceptions::ErrorCode::JOB_EXECUTION_FAILED,
             "Job execution failed with unknown error",
@@ -425,6 +570,11 @@ void ETLJobManager::executeJobWithMonitoring(std::shared_ptr<ETLJob> job) {
     }
     
     job->completedAt = std::chrono::system_clock::now();
+    
+    // Stop metrics collection and finalize metrics
+    if (metricsCollectionEnabled_) {
+        stopJobMetricsCollection(job);
+    }
 }
 
 void ETLJobManager::updateJobProgress(std::shared_ptr<ETLJob> job, int progress, const std::string& step) {
@@ -455,4 +605,112 @@ std::string ETLJobManager::generateJobId() {
     
     return "job_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count()) + 
            "_" + std::to_string(dis(gen));
+}
+
+void ETLJobManager::startJobMetricsCollection(std::shared_ptr<ETLJob> job) {
+    if (!metricsCollectionEnabled_) {
+        return;
+    }
+    
+    // Create metrics collector for this job
+    job->metricsCollector = std::make_shared<ETLPlus::Metrics::JobMetricsCollector>(job->jobId);
+    
+    // Set up real-time metrics callback
+    setupMetricsCallback(job);
+    
+    // Start collection
+    job->metricsCollector->setUpdateInterval(metricsUpdateInterval_);
+    job->metricsCollector->startCollection();
+    
+    ETL_LOG_INFO("Started metrics collection for job: " + job->jobId);
+}
+
+void ETLJobManager::stopJobMetricsCollection(std::shared_ptr<ETLJob> job) {
+    if (!job->metricsCollector) {
+        return;
+    }
+    
+    // Stop collection
+    job->metricsCollector->stopCollection();
+    
+    // Update final metrics from collector
+    updateJobMetricsFromCollector(job);
+    
+    // Finalize metrics calculations
+    auto executionTime = std::chrono::duration_cast<std::chrono::milliseconds>(
+        job->completedAt - job->startedAt);
+    job->metrics.executionTime = executionTime;
+    job->metrics.updatePerformanceIndicators();
+    job->metrics.calculateAverages();
+    
+    // Publish final metrics
+    if (monitorService_) {
+        publishJobMetrics(job->jobId, job->metrics);
+    }
+    
+    ETL_LOG_INFO("Stopped metrics collection for job: " + job->jobId + " - " + 
+                 job->metrics.getPerformanceSummary());
+}
+
+void ETLJobManager::updateJobMetricsFromCollector(std::shared_ptr<ETLJob> job) {
+    if (!job->metricsCollector) {
+        return;
+    }
+    
+    auto snapshot = job->metricsCollector->getMetricsSnapshot();
+    
+    // Update job metrics from collector snapshot
+    job->metrics.recordsProcessed = snapshot.recordsProcessed;
+    job->metrics.recordsSuccessful = snapshot.recordsSuccessful;
+    job->metrics.recordsFailed = snapshot.recordsFailed;
+    job->metrics.processingRate = snapshot.processingRate;
+    job->metrics.executionTime = snapshot.executionTime;
+    job->metrics.memoryUsage = snapshot.memoryUsage;
+    job->metrics.cpuUsage = snapshot.cpuUsage;
+    
+    // Update the basic job fields for compatibility
+    job->recordsProcessed = snapshot.recordsProcessed;
+    job->recordsSuccessful = snapshot.recordsSuccessful;
+    job->recordsFailed = snapshot.recordsFailed;
+}
+
+void ETLJobManager::setupMetricsCallback(std::shared_ptr<ETLJob> job) {
+    if (!job->metricsCollector || !monitorService_) {
+        return;
+    }
+    
+    // Set up callback for real-time metrics updates
+    auto metricsCallback = [this, jobId = job->jobId](
+        const std::string& callbackJobId, 
+        const ETLPlus::Metrics::JobMetricsCollector::MetricsSnapshot& snapshot) {
+        
+        // Find the job and update its metrics
+        std::scoped_lock lock(jobMutex_);
+        for (auto& jobPtr : jobs_) {
+            if (jobPtr->jobId == jobId) {
+                // Update metrics from snapshot
+                JobMetrics metrics = jobPtr->metrics;
+                metrics.recordsProcessed = snapshot.recordsProcessed;
+                metrics.recordsSuccessful = snapshot.recordsSuccessful;
+                metrics.recordsFailed = snapshot.recordsFailed;
+                metrics.processingRate = snapshot.processingRate;
+                metrics.executionTime = snapshot.executionTime;
+                metrics.memoryUsage = snapshot.memoryUsage;
+                metrics.cpuUsage = snapshot.cpuUsage;
+                metrics.lastUpdateTime = snapshot.timestamp;
+                
+                // Update performance indicators
+                metrics.updatePerformanceIndicators();
+                
+                // Store updated metrics
+                jobPtr->metrics = metrics;
+                
+                // Publish metrics update
+                publishJobMetrics(jobId, metrics);
+                break;
+            }
+        }
+    };
+    
+    job->metricsCollector->setMetricsUpdateCallback(metricsCallback);
 }
