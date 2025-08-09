@@ -75,7 +75,7 @@ bool ConfigManager::parseConfigFile(const std::string& configPath) {
         line.erase(line.find_last_not_of(" \t") + 1);
         
         // Skip empty lines and comments
-        if (line.empty() || line[0] == '#' || line[0] == '/' || line == "{" || line == "}") {
+        if (line.empty() || line[0] == '#' || line[0] == '/' || line == "{" || line == "}" || line == "},") {
             continue;
         }
         
