@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     libboost-filesystem-dev \
     libboost-system-dev \
+    libnlohmann-json3-dev \
     libpqxx-dev \
     libssl-dev \
     pkg-config \
