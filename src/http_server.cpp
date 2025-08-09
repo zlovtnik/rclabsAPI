@@ -46,6 +46,10 @@ private:
         req_ = {};
         stream_.expires_after(std::chrono::seconds(30));
 
+        // Set a reasonable limit for request body size (10MB)
+        auto parser = std::make_shared<http::request_parser<http::string_body>>();
+        parser->body_limit(10 * 1024 * 1024); // 10MB limit
+        
         http::async_read(stream_, buffer_, req_,
             beast::bind_front_handler(&Session::onRead, shared_from_this()));
     }
@@ -68,6 +72,14 @@ private:
         
         if (!handler_) {
             HTTP_LOG_ERROR("Session::onRead() - Handler is null!");
+            // Send a proper error response instead of just returning
+            http::response<http::string_body> error_res{http::status::internal_server_error, req_.version()};
+            error_res.set(http::field::server, "ETL Plus Backend");
+            error_res.set(http::field::content_type, "application/json");
+            error_res.keep_alive(false);
+            error_res.body() = "{\"error\":\"Internal server error - handler not available\"}";
+            error_res.prepare_payload();
+            sendResponse(std::move(error_res));
             return;
         }
         
@@ -78,6 +90,24 @@ private:
             sendResponse(std::move(response));
         } catch (const std::exception& e) {
             HTTP_LOG_ERROR("Session::onRead() - Exception in handler: " + std::string(e.what()));
+            // Send proper error response for exceptions
+            http::response<http::string_body> error_res{http::status::internal_server_error, req_.version()};
+            error_res.set(http::field::server, "ETL Plus Backend");
+            error_res.set(http::field::content_type, "application/json");
+            error_res.keep_alive(false);
+            error_res.body() = "{\"error\":\"Internal server error\"}";
+            error_res.prepare_payload();
+            sendResponse(std::move(error_res));
+        } catch (...) {
+            HTTP_LOG_ERROR("Session::onRead() - Unknown exception in handler");
+            // Send proper error response for unknown exceptions
+            http::response<http::string_body> error_res{http::status::internal_server_error, req_.version()};
+            error_res.set(http::field::server, "ETL Plus Backend");
+            error_res.set(http::field::content_type, "application/json");
+            error_res.keep_alive(false);
+            error_res.body() = "{\"error\":\"Internal server error\"}";
+            error_res.prepare_payload();
+            sendResponse(std::move(error_res));
         }
     }
 
@@ -90,14 +120,23 @@ private:
             auto response = std::make_shared<http::response<http::string_body>>(std::move(msg));
             HTTP_LOG_DEBUG("Session::sendResponse() - Shared response created successfully");
             
+            // Ensure the session stays alive for the duration of the write operation
+            auto self = shared_from_this();
+            
             HTTP_LOG_DEBUG("Session::sendResponse() - About to call http::async_write");
             http::async_write(stream_, *response,
-                [self = shared_from_this(), response](beast::error_code ec, std::size_t bytes_transferred) {
+                [self, response](beast::error_code ec, std::size_t bytes_transferred) {
                     self->onWrite(response->need_eof(), ec, bytes_transferred);
                 });
             HTTP_LOG_DEBUG("Session::sendResponse() - http::async_write called successfully");
         } catch (const std::exception& e) {
             HTTP_LOG_ERROR("Session::sendResponse() - Exception: " + std::string(e.what()));
+            // Close the connection on error
+            doClose();
+        } catch (...) {
+            HTTP_LOG_ERROR("Session::sendResponse() - Unknown exception occurred");
+            // Close the connection on unknown error
+            doClose();
         }
     }
 

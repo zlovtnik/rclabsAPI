@@ -41,13 +41,16 @@ set_target_properties(ETLPlusBackend PROPERTIES
 # Create necessary directories
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/bin/logs)
 
-# Copy config file to build directory
+# Copy config file to build directory - this will copy every time if the source changes
 configure_file(${CMAKE_SOURCE_DIR}/config/config.json ${CMAKE_BINARY_DIR}/bin/config.json COPYONLY)
 
 # Create a custom target to copy all config files
 add_custom_target(copy_configs ALL
     COMMENT "Copying configuration files to build directory"
 )
+
+# Add a dependency so the executable depends on config files being copied
+add_dependencies(ETLPlusBackend copy_configs)
 
 # Add commands to copy any additional config files if they exist
 file(GLOB CONFIG_FILES "${CMAKE_SOURCE_DIR}/config/*")

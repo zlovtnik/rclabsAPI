@@ -23,6 +23,12 @@ RequestHandler::handleRequest(http::request<Body, http::basic_fields<Allocator>>
     REQ_LOG_DEBUG("RequestHandler::handleRequest() - Received request: " + std::string(req.method_string()) + " " + std::string(req.target()));
     
     try {
+        // Validate request basic structure
+        if (req.target().empty()) {
+            REQ_LOG_WARN("RequestHandler::handleRequest() - Empty target in request");
+            return createErrorResponse(http::status::bad_request, "Empty request target");
+        }
+        
         // Convert to string_body if needed
         http::request<http::string_body> string_req;
         string_req.method(req.method());
@@ -47,6 +53,22 @@ RequestHandler::handleRequest(http::request<Body, http::basic_fields<Allocator>>
         std::string target = std::string(string_req.target());
         REQ_LOG_INFO("RequestHandler::handleRequest() - Routing request to: " + target);
         
+        // Validate components before routing
+        if (!dbManager_) {
+            REQ_LOG_ERROR("RequestHandler::handleRequest() - Database manager is null");
+            return createErrorResponse(http::status::internal_server_error, "Database not available");
+        }
+        
+        if (!authManager_) {
+            REQ_LOG_ERROR("RequestHandler::handleRequest() - Auth manager is null");
+            return createErrorResponse(http::status::internal_server_error, "Authentication not available");
+        }
+        
+        if (!etlManager_) {
+            REQ_LOG_ERROR("RequestHandler::handleRequest() - ETL manager is null");
+            return createErrorResponse(http::status::internal_server_error, "ETL manager not available");
+        }
+        
         // Route requests
         if (target.starts_with("/api/auth")) {
             REQ_LOG_DEBUG("RequestHandler::handleRequest() - Routing to auth handler");
@@ -68,6 +90,9 @@ RequestHandler::handleRequest(http::request<Body, http::basic_fields<Allocator>>
     } catch (const std::exception& e) {
         REQ_LOG_ERROR("RequestHandler::handleRequest() - Exception: " + std::string(e.what()));
         return createErrorResponse(http::status::internal_server_error, "Internal Server Error");
+    } catch (...) {
+        REQ_LOG_ERROR("RequestHandler::handleRequest() - Unknown exception occurred");
+        return createErrorResponse(http::status::internal_server_error, "Unknown Internal Server Error");
     }
 }
 
@@ -79,9 +104,35 @@ RequestHandler::handleRequest<http::string_body, std::allocator<char>>(
 http::response<http::string_body> RequestHandler::handleAuth(const http::request<http::string_body>& req) {
     std::string target = std::string(req.target());
     
+    // Add CORS headers for preflight requests
+    if (req.method() == http::verb::options) {
+        http::response<http::string_body> res{http::status::ok, 11};
+        res.set(http::field::server, "ETL Plus Backend");
+        res.set(http::field::access_control_allow_origin, "*");
+        res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
+        res.set(http::field::access_control_allow_headers, "Content-Type, Authorization");
+        res.keep_alive(false);
+        res.prepare_payload();
+        return res;
+    }
+    
     if (req.method() == http::verb::post && target == "/api/auth/login") {
         // Parse login credentials from body
         std::string body = req.body();
+        
+        // Basic JSON validation
+        if (body.empty()) {
+            REQ_LOG_WARN("RequestHandler::handleAuth() - Empty request body for login");
+            return createErrorResponse(http::status::bad_request, "Empty request body");
+        }
+        
+        // Check for basic JSON structure
+        if (body.front() != '{' || body.back() != '}') {
+            REQ_LOG_WARN("RequestHandler::handleAuth() - Invalid JSON format in login request");
+            return createErrorResponse(http::status::bad_request, "Invalid JSON format");
+        }
+        
+        REQ_LOG_INFO("RequestHandler::handleAuth() - Processing login request");
         std::cout << "Login attempt with body: " << body << std::endl;
         
         // For now, return a mock success response
@@ -97,6 +148,18 @@ http::response<http::string_body> RequestHandler::handleAuth(const http::request
 
 http::response<http::string_body> RequestHandler::handleETLJobs(const http::request<http::string_body>& req) {
     std::string target = std::string(req.target());
+    
+    // Add CORS headers for preflight requests
+    if (req.method() == http::verb::options) {
+        http::response<http::string_body> res{http::status::ok, 11};
+        res.set(http::field::server, "ETL Plus Backend");
+        res.set(http::field::access_control_allow_origin, "*");
+        res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
+        res.set(http::field::access_control_allow_headers, "Content-Type, Authorization");
+        res.keep_alive(false);
+        res.prepare_payload();
+        return res;
+    }
     
     if (req.method() == http::verb::get && target == "/api/jobs") {
         // Return list of jobs
@@ -120,17 +183,36 @@ http::response<http::string_body> RequestHandler::handleETLJobs(const http::requ
     } else if (req.method() == http::verb::post && target == "/api/jobs") {
         // Create new job
         std::string body = req.body();
+        
+        // Basic JSON validation
+        if (body.empty()) {
+            REQ_LOG_WARN("RequestHandler::handleETLJobs() - Empty request body for job creation");
+            return createErrorResponse(http::status::bad_request, "Empty request body");
+        }
+        
+        // Check for basic JSON structure
+        if (body.front() != '{' || body.back() != '}') {
+            REQ_LOG_WARN("RequestHandler::handleETLJobs() - Invalid JSON format in job creation request");
+            return createErrorResponse(http::status::bad_request, "Invalid JSON format");
+        }
+        
+        REQ_LOG_INFO("RequestHandler::handleETLJobs() - Processing job creation request");
         std::cout << "Creating job with config: " << body << std::endl;
         
-        // Mock job creation
-        ETLJobConfig config;
-        config.jobId = "job_" + std::to_string(std::time(nullptr));
-        config.type = JobType::FULL_ETL;
-        config.sourceConfig = "mock_source";
-        config.targetConfig = "mock_target";
-        
-        std::string jobId = etlManager_->scheduleJob(config);
-        return createSuccessResponse("{\"job_id\":\"" + jobId + "\",\"status\":\"scheduled\"}");
+        try {
+            // Mock job creation
+            ETLJobConfig config;
+            config.jobId = "job_" + std::to_string(std::time(nullptr));
+            config.type = JobType::FULL_ETL;
+            config.sourceConfig = "mock_source";
+            config.targetConfig = "mock_target";
+            
+            std::string jobId = etlManager_->scheduleJob(config);
+            return createSuccessResponse("{\"job_id\":\"" + jobId + "\",\"status\":\"scheduled\"}");
+        } catch (const std::exception& e) {
+            REQ_LOG_ERROR("RequestHandler::handleETLJobs() - Exception during job creation: " + std::string(e.what()));
+            return createErrorResponse(http::status::internal_server_error, "Failed to create job");
+        }
     }
     
     return createErrorResponse(http::status::bad_request, "Invalid jobs endpoint");
@@ -138,6 +220,18 @@ http::response<http::string_body> RequestHandler::handleETLJobs(const http::requ
 
 http::response<http::string_body> RequestHandler::handleMonitoring(const http::request<http::string_body>& req) {
     std::string target = std::string(req.target());
+    
+    // Add CORS headers for preflight requests
+    if (req.method() == http::verb::options) {
+        http::response<http::string_body> res{http::status::ok, 11};
+        res.set(http::field::server, "ETL Plus Backend");
+        res.set(http::field::access_control_allow_origin, "*");
+        res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
+        res.set(http::field::access_control_allow_headers, "Content-Type, Authorization");
+        res.keep_alive(false);
+        res.prepare_payload();
+        return res;
+    }
     
     if (req.method() == http::verb::get && target == "/api/monitor/status") {
         return createSuccessResponse("{\"server_status\":\"running\",\"db_connected\":" + 
@@ -155,8 +249,29 @@ http::response<http::string_body> RequestHandler::createErrorResponse(http::stat
     http::response<http::string_body> res{status, 11};
     res.set(http::field::server, "ETL Plus Backend");
     res.set(http::field::content_type, "application/json");
+    res.set(http::field::access_control_allow_origin, "*");
     res.keep_alive(false);
-    res.body() = "{\"error\":\"" + message + "\"}";
+    
+    // Escape quotes in the message to prevent JSON injection
+    std::string escaped_message = message;
+    size_t pos = 0;
+    while ((pos = escaped_message.find('"', pos)) != std::string::npos) {
+        escaped_message.replace(pos, 1, "\\\"");
+        pos += 2;
+    }
+    
+    // Also escape backslashes
+    pos = 0;
+    while ((pos = escaped_message.find('\\', pos)) != std::string::npos) {
+        if (pos + 1 < escaped_message.length() && escaped_message[pos + 1] != '"') {
+            escaped_message.replace(pos, 1, "\\\\");
+            pos += 2;
+        } else {
+            pos++;
+        }
+    }
+    
+    res.body() = "{\"error\":\"" + escaped_message + "\",\"status\":\"error\"}";
     res.prepare_payload();
     return res;
 }
