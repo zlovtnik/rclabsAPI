@@ -5,6 +5,7 @@
 #include <memory>
 #include <unordered_map>
 #include "input_validator.hpp"
+#include "exceptions.hpp"
 
 namespace http = boost::beast::http;
 
@@ -40,6 +41,7 @@ private:
     
     // Response creation methods
     http::response<http::string_body> createErrorResponse(http::status status, const std::string& message);
+    http::response<http::string_body> createExceptionResponse(const ETLPlus::Exceptions::BaseException& ex);
     http::response<http::string_body> createValidationErrorResponse(const InputValidator::ValidationResult& result);
     http::response<http::string_body> createSuccessResponse(const std::string& data);
 };

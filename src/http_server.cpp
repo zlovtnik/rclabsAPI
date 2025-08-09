@@ -224,6 +224,8 @@ private:
         if (ec) {
             HTTP_LOG_ERROR("Listener::onAccept() - Error: " + ec.message());
             fail(ec, "accept");
+            // Don't continue accepting if there's an error
+            return;
         } else {
             HTTP_LOG_INFO("Listener::onAccept() - New connection accepted");
             if (!handler_) {
@@ -234,6 +236,7 @@ private:
             }
         }
 
+        // Only continue accepting if there was no error
         doAccept();
     }
 };
