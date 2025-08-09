@@ -122,3 +122,17 @@ add_executable(test_job_monitoring_models scripts/test_job_monitoring_models.cpp
 
 target_include_directories(test_job_monitoring_models PRIVATE include)
 target_link_libraries(test_job_monitoring_models ${Boost_LIBRARIES} pthread)
+
+# ETL Job Manager Monitoring Test Executable
+add_executable(test_etl_job_manager_monitoring scripts/test_etl_job_manager_monitoring.cpp 
+    src/etl_job_manager.cpp
+    src/database_manager.cpp
+    src/data_transformer.cpp
+    src/logger.cpp 
+    src/config_manager.cpp
+    src/exceptions.cpp
+    src/exception_handler.cpp
+)
+
+target_include_directories(test_etl_job_manager_monitoring PRIVATE include)
+target_link_libraries(test_etl_job_manager_monitoring ${Boost_LIBRARIES} pthread)

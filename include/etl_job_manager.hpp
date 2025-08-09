@@ -42,6 +42,7 @@ struct ETLJob {
 
 class DataTransformer;
 class DatabaseManager;
+class JobMonitorService;
 
 class ETLJobManager {
 public:
@@ -65,9 +66,15 @@ public:
   void stop();
   bool isRunning() const;
 
+  // Job monitoring integration
+  void setJobMonitorService(std::shared_ptr<JobMonitorService> monitor);
+  void publishJobStatusUpdate(const std::string& jobId, JobStatus status);
+  void publishJobProgress(const std::string& jobId, int progress, const std::string& step);
+
 private:
   std::shared_ptr<DatabaseManager> dbManager_;
   std::shared_ptr<DataTransformer> transformer_;
+  std::shared_ptr<JobMonitorService> monitorService_;
 
   std::queue<std::shared_ptr<ETLJob>> jobQueue_;
   std::vector<std::shared_ptr<ETLJob>> jobs_;
@@ -79,10 +86,15 @@ private:
 
   void workerLoop();
   void executeJob(std::shared_ptr<ETLJob> job);
+  void executeJobWithMonitoring(std::shared_ptr<ETLJob> job);
   void executeExtractJob(std::shared_ptr<ETLJob> job);
   void executeTransformJob(std::shared_ptr<ETLJob> job);
   void executeLoadJob(std::shared_ptr<ETLJob> job);
   void executeFullETLJob(std::shared_ptr<ETLJob> job);
+  
+  // Helper methods for progress tracking
+  void updateJobProgress(std::shared_ptr<ETLJob> job, int progress, const std::string& step);
+  void updateJobStatus(std::shared_ptr<ETLJob> job, JobStatus newStatus);
 
   std::string generateJobId();
 };
