@@ -1,0 +1,70 @@
+services:
+  # ETL Plus Backend Service
+  - type: web
+    name: etl-plus-backend
+    runtime: docker
+    plan: starter  # Use the smallest plan available
+    region: oregon  # Choose closest region
+    branch: main
+    rootDir: .
+    dockerfilePath: ./Dockerfile.render
+    dockerCommand: ./ETLPlusBackend
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: DATABASE_HOST
+        fromService:
+          type: pserv
+          name: etl-plus-db
+          property: host
+      - key: DATABASE_PORT
+        fromService:
+          type: pserv
+          name: etl-plus-db
+          property: port
+      - key: DATABASE_NAME
+        value: etlplus
+      - key: DATABASE_USERNAME
+        fromService:
+          type: pserv
+          name: etl-plus-db
+          property: user
+      - key: DATABASE_PASSWORD
+        fromService:
+          type: pserv
+          name: etl-plus-db
+          property: password
+      - key: JWT_SECRET
+        generateValue: true
+    healthCheckPath: /api/health
+    autoDeploy: true
+    disk:
+      name: etl-plus-disk
+      mountPath: /app/logs
+      sizeGB: 1  # Minimal disk size for logs
+    buildFilter:
+      paths:
+        - src/**
+        - include/**
+        - config/**
+        - CMakeLists.txt
+        - Dockerfile.render
+      ignoredPaths:
+        - build/**
+        - "*.md"
+        - "*.pdf"
+        - k8s/**
+        - oracle-init/**
+        - docker-compose.yml
+        - Dockerfile
+
+  # PostgreSQL Database (Oracle not available on Render)
+  - type: pserv
+    name: etl-plus-db
+    runtime: postgresql
+    plan: starter  # Minimal database plan
+    region: oregon
+    databaseName: etlplus
+    databaseUser: etlplus
+    ipAllowList: []  # Allow all connections from Render services
+    disk: 1  # Minimal 1GB disk for database

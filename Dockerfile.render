@@ -1,0 +1,69 @@
+# Optimized Dockerfile for Render.com deployment
+# Multi-stage build to minimize final image size
+FROM ubuntu:22.04 AS builder
+
+# Install minimal build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    libboost-filesystem-dev \
+    libboost-system-dev \
+    libpqxx-dev \
+    libssl-dev \
+    pkg-config \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /tmp/* /var/tmp/*
+
+WORKDIR /app
+
+# Copy only necessary files for build
+COPY CMakeLists.txt .
+COPY src/ src/
+COPY include/ include/
+COPY config/ config/
+
+# Build with size optimization
+RUN cmake -B build \
+    -DCMAKE_BUILD_TYPE=MinSizeRel \
+    -DCMAKE_CXX_FLAGS="-Os -s -DNDEBUG" \
+    -DCMAKE_EXE_LINKER_FLAGS="-s" \
+    && cmake --build build --parallel 2 \
+    && strip build/bin/ETLPlusBackend
+
+# Minimal runtime stage
+FROM ubuntu:22.04 AS runtime
+
+# Install only essential runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    libboost-filesystem1.74.0 \
+    libboost-system1.74.0 \
+    libpqxx-6.4 \
+    libssl3 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /tmp/* /var/tmp/* \
+    && groupadd -r etlplus \
+    && useradd -r -g etlplus -d /app etlplus
+
+WORKDIR /app
+
+# Copy minimal files
+COPY --from=builder /app/build/bin/ETLPlusBackend ./
+COPY --from=builder /app/config/ ./config/
+
+# Create logs directory
+RUN mkdir -p logs && chown -R etlplus:etlplus /app
+
+USER etlplus
+
+# Use PORT environment variable from Render
+EXPOSE ${PORT:-8080}
+
+# Minimal health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=2 \
+    CMD curl -f http://localhost:${PORT:-8080}/api/health || exit 1
+
+CMD ["./ETLPlusBackend"]
