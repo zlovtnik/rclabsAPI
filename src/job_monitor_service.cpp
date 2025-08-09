@@ -52,7 +52,7 @@ void JobMonitorService::start() {
     // Initialize monitoring data for any existing jobs
     if (etlManager_) {
         auto existingJobs = etlManager_->getAllJobs();
-        std::lock_guard<std::mutex> lock(jobDataMutex_);
+        std::scoped_lock lock(jobDataMutex_);
         
         for (const auto& job : existingJobs) {
             JobMonitoringData monitoringData;
@@ -94,7 +94,7 @@ void JobMonitorService::stop() {
     running_ = false;
     
     // Clear monitoring data
-    std::lock_guard<std::mutex> lock(jobDataMutex_);
+    std::scoped_lock lock(jobDataMutex_);
     activeJobs_.clear();
     completedJobs_.clear();
 
@@ -338,7 +338,7 @@ void JobMonitorService::broadcastJobMetrics(const std::string& jobId, const JobM
 }
 
 size_t JobMonitorService::getActiveJobCount() const {
-    std::lock_guard<std::mutex> lock(jobDataMutex_);
+    std::scoped_lock lock(jobDataMutex_);
     return activeJobs_.size();
 }
 
@@ -356,7 +356,7 @@ std::vector<std::string> JobMonitorService::getActiveJobIds() const {
 }
 
 bool JobMonitorService::isJobActive(const std::string& jobId) const {
-    std::lock_guard<std::mutex> lock(jobDataMutex_);
+    std::scoped_lock lock(jobDataMutex_);
     return activeJobs_.find(jobId) != activeJobs_.end();
 }
 
@@ -406,7 +406,7 @@ void JobMonitorService::enableNotifications(bool enabled) {
 // Private helper methods
 
 void JobMonitorService::createJobMonitoringData(const std::string& jobId) {
-    std::lock_guard<std::mutex> lock(jobDataMutex_);
+    std::scoped_lock lock(jobDataMutex_);
     
     if (activeJobs_.find(jobId) != activeJobs_.end()) {
         return; // Already exists
@@ -443,7 +443,7 @@ void JobMonitorService::createJobMonitoringData(const std::string& jobId) {
 
 void JobMonitorService::updateJobMonitoringData(const std::string& jobId, 
                                               std::function<void(JobMonitoringData&)> updater) {
-    std::lock_guard<std::mutex> lock(jobDataMutex_);
+    std::scoped_lock lock(jobDataMutex_);
     
     auto activeIt = activeJobs_.find(jobId);
     if (activeIt != activeJobs_.end()) {
@@ -460,7 +460,7 @@ void JobMonitorService::updateJobMonitoringData(const std::string& jobId,
 }
 
 void JobMonitorService::moveJobToCompleted(const std::string& jobId) {
-    std::lock_guard<std::mutex> lock(jobDataMutex_);
+    std::scoped_lock lock(jobDataMutex_);
     
     auto activeIt = activeJobs_.find(jobId);
     if (activeIt != activeJobs_.end()) {
@@ -553,7 +553,7 @@ void JobMonitorService::sendJobTimeoutWarning(const std::string& jobId, std::chr
 }
 
 bool JobMonitorService::shouldUpdateProgress(const std::string& jobId, int newProgress) {
-    std::lock_guard<std::mutex> lock(jobDataMutex_);
+    std::scoped_lock lock(jobDataMutex_);
     
     auto activeIt = activeJobs_.find(jobId);
     if (activeIt == activeJobs_.end()) {
@@ -576,7 +576,7 @@ void JobMonitorService::addLogToJob(const std::string& jobId, const std::string&
 }
 
 void JobMonitorService::cleanupOldJobs() {
-    std::lock_guard<std::mutex> lock(jobDataMutex_);
+    std::scoped_lock lock(jobDataMutex_);
     
     auto now = std::chrono::system_clock::now();
     auto cutoffTime = now - std::chrono::hours(24); // Keep jobs for 24 hours
@@ -592,6 +592,6 @@ void JobMonitorService::cleanupOldJobs() {
 }
 
 void JobMonitorService::withJobDataLock(std::function<void()> operation) const {
-    std::lock_guard<std::mutex> lock(jobDataMutex_);
+    std::scoped_lock lock(jobDataMutex_);
     operation();
 }
