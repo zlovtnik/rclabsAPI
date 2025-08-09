@@ -1,4 +1,5 @@
 #include "job_monitor_service.hpp"
+#include "notification_service.hpp"
 #include "etl_job_manager.hpp"
 #include "websocket_manager.hpp"
 #include "database_manager.hpp"

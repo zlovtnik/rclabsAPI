@@ -1,5 +1,6 @@
 #include "job_monitor_service.hpp"
 #include "websocket_manager.hpp"
+#include "notification_service.hpp"
 #include "logger.hpp"
 #include <algorithm>
 #include <chrono>

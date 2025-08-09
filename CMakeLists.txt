@@ -8,6 +8,82 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(Boost REQUIRED COMPONENTS system filesystem)
 find_package(Threads REQUIRED)
 
+# Try to find libcurl
+find_package(CURL QUIET)
+if(NOT CURL_FOUND)
+    message(STATUS "libcurl not found via find_package, trying pkg-config")
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(CURL QUIET libcurl)
+    endif()
+    
+    if(NOT CURL_FOUND)
+        message(STATUS "libcurl not found, will build without webhook support")
+        set(CURL_LIBRARIES "")
+        set(CURL_INCLUDE_DIRS "")
+    endif()
+else()
+    message(STATUS "Found libcurl: ${CURL_LIBRARIES}")
+endif()
+
+# Try to find jsoncpp
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(JSONCPP QUIET jsoncpp)
+endif()
+
+if(NOT JSONCPP_FOUND)
+    message(STATUS "jsoncpp not found via pkg-config, trying manual search")
+    
+    # First, try to find jsoncpp installed via Homebrew
+    find_path(JSONCPP_INCLUDE_DIR json/json.h 
+        PATHS 
+            /opt/homebrew/Cellar/jsoncpp/1.9.6/include
+            /opt/homebrew/include
+            /usr/local/include
+            /usr/include/jsoncpp 
+            /usr/include
+        NO_DEFAULT_PATH
+    )
+    find_library(JSONCPP_LIBRARIES 
+        NAMES jsoncpp
+        PATHS 
+            /opt/homebrew/Cellar/jsoncpp/1.9.6/lib
+            /opt/homebrew/lib
+            /usr/local/lib
+            /usr/lib
+        NO_DEFAULT_PATH
+    )
+    
+    if(JSONCPP_INCLUDE_DIR AND JSONCPP_LIBRARIES)
+        set(JSONCPP_FOUND TRUE)
+        message(STATUS "Found jsoncpp manually: ${JSONCPP_LIBRARIES}")
+        message(STATUS "jsoncpp include dir: ${JSONCPP_INCLUDE_DIR}")
+    else()
+        message(STATUS "jsoncpp not found, will build without JSON support")
+        set(JSONCPP_LIBRARIES "")
+        set(JSONCPP_INCLUDE_DIRS "")
+    endif()
+else()
+    message(STATUS "Found jsoncpp via pkg-config: ${JSONCPP_LIBRARIES}")
+    # Extract the actual library path for linking
+    if(JSONCPP_LIBRARIES MATCHES "jsoncpp")
+        set(JSONCPP_LIBRARIES "/opt/homebrew/Cellar/jsoncpp/1.9.6/lib/libjsoncpp.dylib")
+        message(STATUS "Using jsoncpp library path: ${JSONCPP_LIBRARIES}")
+    endif()
+endif()
+
+# Include directories
+if(JSONCPP_INCLUDE_DIR)
+    include_directories(${JSONCPP_INCLUDE_DIR})
+endif()
+if(JSONCPP_INCLUDE_DIRS)
+    include_directories(${JSONCPP_INCLUDE_DIRS})
+endif()
+if(CURL_INCLUDE_DIRS)
+    include_directories(${CURL_INCLUDE_DIRS})
+endif()
+
 # Include directories
 include_directories(include)
 
@@ -29,6 +105,7 @@ set(SOURCES
     src/exception_handler.cpp
     src/job_monitoring_models.cpp
     src/job_monitor_service.cpp
+    src/notification_service.cpp
 )
 
 # Create executable
@@ -38,6 +115,8 @@ add_executable(ETLPlusBackend ${SOURCES})
 target_link_libraries(ETLPlusBackend 
     ${Boost_LIBRARIES}
     Threads::Threads
+    ${CURL_LIBRARIES}
+    ${JSONCPP_LIBRARIES}
 )
 
 # Set output directory
@@ -231,3 +310,75 @@ add_executable(test_enhanced_rest_endpoints_simple scripts/test_enhanced_rest_en
 
 target_include_directories(test_enhanced_rest_endpoints_simple PRIVATE include)
 target_link_libraries(test_enhanced_rest_endpoints_simple ${Boost_LIBRARIES} pthread)
+
+# Configuration Management Test Executable (Requires GoogleTest - commented out until GoogleTest is available)
+# add_executable(test_config_management scripts/test_config_management.cpp 
+#     src/config_manager.cpp
+#     src/logger.cpp 
+# )
+
+# target_include_directories(test_config_management PRIVATE include)
+# target_link_libraries(test_config_management 
+#     ${Boost_LIBRARIES} 
+#     pthread
+#     gtest 
+#     gtest_main
+#     gmock
+# )
+
+# Configuration Management Demo Test Executable
+add_executable(test_config_management_demo scripts/test_config_management_demo.cpp 
+    src/config_manager.cpp
+    src/logger.cpp 
+    src/websocket_manager.cpp
+    src/websocket_connection.cpp
+    src/job_monitoring_models.cpp
+)
+
+target_include_directories(test_config_management_demo PRIVATE include)
+target_link_libraries(test_config_management_demo ${Boost_LIBRARIES} pthread)
+
+# Simple Configuration Test Executable
+add_executable(test_config_simple scripts/test_config_simple.cpp 
+    src/config_manager.cpp
+    src/logger.cpp 
+    src/websocket_manager.cpp
+    src/websocket_connection.cpp
+    src/job_monitoring_models.cpp
+)
+
+target_include_directories(test_config_simple PRIVATE include)
+target_link_libraries(test_config_simple ${Boost_LIBRARIES} pthread)
+
+# Notification Service Test Executable (Requires GoogleTest - commented out)
+# add_executable(test_notification_service scripts/test_notification_service.cpp 
+#     src/notification_service.cpp
+#     src/logger.cpp 
+#     src/config_manager.cpp
+# )
+
+# target_include_directories(test_notification_service PRIVATE include)
+# target_link_libraries(test_notification_service 
+#     ${Boost_LIBRARIES} 
+#     ${CURL_LIBRARIES}
+#     ${JSONCPP_LIBRARIES}
+#     pthread
+#     gtest 
+#     gtest_main
+#     gmock
+# )
+
+# Notification Service Integration Demo (commented out due to missing WebSocketManager dependencies)
+# add_executable(test_notification_service_integration scripts/test_notification_service_integration.cpp 
+#     src/notification_service.cpp
+#     src/logger.cpp 
+#     src/config_manager.cpp
+# )
+
+# target_include_directories(test_notification_service_integration PRIVATE include)
+# target_link_libraries(test_notification_service_integration 
+#     ${Boost_LIBRARIES} 
+#     ${CURL_LIBRARIES}
+#     ${JSONCPP_LIBRARIES}
+#     pthread
+# )
