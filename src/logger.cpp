@@ -17,7 +17,7 @@ Logger::~Logger() {
 }
 
 void Logger::configure(const LogConfig& config) {
-    std::lock_guard<std::mutex> lock(configMutex_);
+    std::scoped_lock lock(configMutex_);
     config_ = config;
     
     // Apply configuration directly without additional locks (we already have configMutex_)
