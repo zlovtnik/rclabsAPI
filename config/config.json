@@ -22,7 +22,7 @@
     "job_timeout": 1800
   },
   "logging": {
-    "level": "INFO",
+    "level": "DEBUG",
     "format": "TEXT",
     "console_output": true,
     "file_output": true,
@@ -38,9 +38,43 @@
   "monitoring": {
     "websocket": {
       "enabled": true,
+      "port": 8081,
       "max_connections": 100,
       "heartbeat_interval": 30,
       "message_queue_size": 1000
+    },
+    "job_tracking": {
+      "progress_update_interval": 5,
+      "log_streaming_enabled": true,
+      "metrics_collection_enabled": true,
+      "timeout_warning_threshold": 25
+    },
+    "notifications": {
+      "enabled": true,
+      "job_failure_alerts": true,
+      "timeout_warnings": true,
+      "resource_alerts": true,
+      "retry_attempts": 3,
+      "retry_delay": 5000,
+      "memory_threshold": 0.85,
+      "cpu_threshold": 0.90,
+      "disk_threshold": 0.90,
+      "email": {
+        "smtp_server": "",
+        "smtp_port": 587,
+        "username": "",
+        "password": "",
+        "recipients": []
+      },
+      "webhook": {
+        "url": "",
+        "secret": "",
+        "timeout": 30000
+      },
+      "slack": {
+        "webhook_url": "",
+        "channel": "#alerts"
+      }
     }
   }
 }

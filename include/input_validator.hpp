@@ -74,6 +74,10 @@ public:
   // Monitoring endpoint validation
   static ValidationResult validateMonitoringParams(
       const std::unordered_map<std::string, std::string> &params);
+  
+  // Metrics endpoint validation
+  static ValidationResult validateMetricsParams(
+      const std::unordered_map<std::string, std::string> &params);
 
   // URL and path validation
   static ValidationResult validateEndpointPath(const std::string &path);

@@ -8,6 +8,8 @@
 #include "logger.hpp"
 #include <iostream>
 #include <sstream>
+#include <iomanip>
+#include <ctime>
 
 RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
                                std::shared_ptr<AuthManager> authManager,
@@ -125,15 +127,15 @@ http::response<http::string_body> RequestHandler::validateAndHandleRequest(
   }
 
   // Step 3: Route requests with endpoint-specific validation
-  if (target.starts_with("/api/auth")) {
+  if (target.find("/api/auth") == 0) {
     REQ_LOG_DEBUG(
         "RequestHandler::validateAndHandleRequest() - Routing to auth handler");
     return handleAuth(req);
-  } else if (target.starts_with("/api/jobs")) {
+  } else if (target.find("/api/jobs") == 0) {
     REQ_LOG_DEBUG("RequestHandler::validateAndHandleRequest() - Routing to ETL "
                   "jobs handler");
     return handleETLJobs(req);
-  } else if (target.starts_with("/api/monitor")) {
+  } else if (target.find("/api/monitor") == 0) {
     REQ_LOG_DEBUG("RequestHandler::validateAndHandleRequest() - Routing to "
                   "monitoring handler");
     return handleMonitoring(req);
@@ -344,6 +346,93 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) {
                                "Method not allowed for jobs endpoint");
   }
 
+  // Handle GET /api/jobs/{id}/status - detailed job status
+  if (req.method() == http::verb::get && target.find("/api/jobs/") == 0 && 
+      target.length() > 7 && target.substr(target.length() - 7) == "/status") {
+    std::string jobId = extractJobIdFromPath(target, "/api/jobs/", "/status");
+    if (!InputValidator::isValidJobId(jobId)) {
+      return createErrorResponse(http::status::bad_request, "Invalid job ID format");
+    }
+
+    auto job = etlManager_->getJob(jobId);
+    if (!job) {
+      return createErrorResponse(http::status::not_found, "Job not found");
+    }
+
+    // Create detailed job status response
+    std::ostringstream json;
+    json << "{"
+         << "\"jobId\":\"" << job->jobId << "\","
+         << "\"type\":\"" << jobTypeToString(job->type) << "\","
+         << "\"status\":\"" << jobStatusToString(job->status) << "\","
+         << "\"createdAt\":\"" << formatTimestamp(job->createdAt) << "\","
+         << "\"startedAt\":\"" << formatTimestamp(job->startedAt) << "\","
+         << "\"completedAt\":\"" << formatTimestamp(job->completedAt) << "\","
+         << "\"recordsProcessed\":" << job->recordsProcessed << ","
+         << "\"recordsSuccessful\":" << job->recordsSuccessful << ","
+         << "\"recordsFailed\":" << job->recordsFailed;
+    
+    if (!job->errorMessage.empty()) {
+      json << ",\"errorMessage\":\"" << InputValidator::sanitizeString(job->errorMessage) << "\"";
+    }
+    
+    // Calculate execution time
+    auto executionTime = std::chrono::duration_cast<std::chrono::milliseconds>(
+      job->completedAt - job->startedAt);
+    if (job->status == JobStatus::RUNNING) {
+      executionTime = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now() - job->startedAt);
+    }
+    json << ",\"executionTimeMs\":" << executionTime.count();
+    
+    json << "}";
+    return createSuccessResponse(json.str());
+  }
+
+  // Handle GET /api/jobs/{id}/metrics - job execution metrics
+  if (req.method() == http::verb::get && target.find("/api/jobs/") == 0 && 
+      target.length() > 8 && target.substr(target.length() - 8) == "/metrics") {
+    std::string jobId = extractJobIdFromPath(target, "/api/jobs/", "/metrics");
+    if (!InputValidator::isValidJobId(jobId)) {
+      return createErrorResponse(http::status::bad_request, "Invalid job ID format");
+    }
+
+    auto job = etlManager_->getJob(jobId);
+    if (!job) {
+      return createErrorResponse(http::status::not_found, "Job not found");
+    }
+
+    // Calculate metrics
+    auto executionTime = std::chrono::duration_cast<std::chrono::milliseconds>(
+      job->status == JobStatus::RUNNING ? 
+        std::chrono::system_clock::now() - job->startedAt :
+        job->completedAt - job->startedAt);
+    
+    double processingRate = 0.0;
+    if (executionTime.count() > 0) {
+      processingRate = (double)job->recordsProcessed / (executionTime.count() / 1000.0);
+    }
+
+    double successRate = 0.0;
+    if (job->recordsProcessed > 0) {
+      successRate = (double)job->recordsSuccessful / job->recordsProcessed * 100.0;
+    }
+
+    std::ostringstream json;
+    json << "{"
+         << "\"jobId\":\"" << job->jobId << "\","
+         << "\"recordsProcessed\":" << job->recordsProcessed << ","
+         << "\"recordsSuccessful\":" << job->recordsSuccessful << ","
+         << "\"recordsFailed\":" << job->recordsFailed << ","
+         << "\"processingRate\":" << processingRate << ","
+         << "\"successRate\":" << successRate << ","
+         << "\"executionTimeMs\":" << executionTime.count() << ","
+         << "\"status\":\"" << jobStatusToString(job->status) << "\""
+         << "}";
+    
+    return createSuccessResponse(json.str());
+  }
+
   if (req.method() == http::verb::get && target == "/api/jobs") {
     // Validate query parameters
     auto queryParams = extractQueryParams(target);
@@ -416,7 +505,7 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) {
     }
 
   } else if (req.method() == http::verb::put &&
-             target.starts_with("/api/jobs/")) {
+             target.find("/api/jobs/") == 0) {
     // Extract job ID from path
     std::string jobId = target.substr(11); // Remove "/api/jobs/"
     if (!InputValidator::isValidJobId(jobId)) {
@@ -464,6 +553,127 @@ RequestHandler::handleMonitoring(const http::request<http::string_body> &req) {
                                "Method not allowed for monitoring endpoint");
   }
 
+  // Handle GET /api/monitor/jobs - filtered job monitoring
+  if (req.method() == http::verb::get && target.starts_with("/api/monitor/jobs")) {
+    auto queryParams = extractQueryParams(target);
+    auto queryValidation = InputValidator::validateMonitoringParams(queryParams);
+    if (!queryValidation.isValid) {
+      REQ_LOG_WARN("RequestHandler::handleMonitoring() - Jobs query validation failed");
+      return createValidationErrorResponse(queryValidation);
+    }
+
+    // Get all jobs from ETL manager
+    auto allJobs = etlManager_->getAllJobs();
+    
+    // Apply filters
+    std::vector<std::shared_ptr<ETLJob>> filteredJobs;
+    
+    // Filter by status if specified
+    auto statusIt = queryParams.find("status");
+    if (statusIt != queryParams.end()) {
+      JobStatus filterStatus = stringToJobStatus(statusIt->second);
+      for (const auto& job : allJobs) {
+        if (job->status == filterStatus) {
+          filteredJobs.push_back(job);
+        }
+      }
+    } else {
+      filteredJobs = allJobs;
+    }
+
+    // Filter by job type if specified
+    auto typeIt = queryParams.find("type");
+    if (typeIt != queryParams.end()) {
+      JobType filterType = stringToJobType(typeIt->second);
+      std::vector<std::shared_ptr<ETLJob>> typeFiltered;
+      for (const auto& job : filteredJobs) {
+        if (job->type == filterType) {
+          typeFiltered.push_back(job);
+        }
+      }
+      filteredJobs = typeFiltered;
+    }
+
+    // Filter by date range if specified
+    auto fromIt = queryParams.find("from");
+    auto toIt = queryParams.find("to");
+    if (fromIt != queryParams.end() || toIt != queryParams.end()) {
+      std::vector<std::shared_ptr<ETLJob>> dateFiltered;
+      
+      std::chrono::system_clock::time_point fromTime = std::chrono::system_clock::time_point::min();
+      std::chrono::system_clock::time_point toTime = std::chrono::system_clock::time_point::max();
+      
+      if (fromIt != queryParams.end()) {
+        fromTime = parseTimestamp(fromIt->second);
+      }
+      if (toIt != queryParams.end()) {
+        toTime = parseTimestamp(toIt->second);
+      }
+      
+      for (const auto& job : filteredJobs) {
+        if (job->createdAt >= fromTime && job->createdAt <= toTime) {
+          dateFiltered.push_back(job);
+        }
+      }
+      filteredJobs = dateFiltered;
+    }
+
+    // Apply limit if specified
+    auto limitIt = queryParams.find("limit");
+    if (limitIt != queryParams.end()) {
+      try {
+        size_t limit = std::stoull(limitIt->second);
+        if (filteredJobs.size() > limit) {
+          filteredJobs.resize(limit);
+        }
+      } catch (const std::exception&) {
+        return createErrorResponse(http::status::bad_request, "Invalid limit parameter");
+      }
+    }
+
+    // Build JSON response
+    std::ostringstream json;
+    json << "{\"jobs\":[";
+    for (size_t i = 0; i < filteredJobs.size(); ++i) {
+      if (i > 0) json << ",";
+      
+      const auto& job = filteredJobs[i];
+      
+      // Calculate execution time
+      auto executionTime = std::chrono::duration_cast<std::chrono::milliseconds>(
+        job->status == JobStatus::RUNNING ? 
+          std::chrono::system_clock::now() - job->startedAt :
+          job->completedAt - job->startedAt);
+      
+      double processingRate = 0.0;
+      if (executionTime.count() > 0) {
+        processingRate = (double)job->recordsProcessed / (executionTime.count() / 1000.0);
+      }
+
+      json << "{"
+           << "\"jobId\":\"" << job->jobId << "\","
+           << "\"type\":\"" << jobTypeToString(job->type) << "\","
+           << "\"status\":\"" << jobStatusToString(job->status) << "\","
+           << "\"createdAt\":\"" << formatTimestamp(job->createdAt) << "\","
+           << "\"startedAt\":\"" << formatTimestamp(job->startedAt) << "\","
+           << "\"completedAt\":\"" << formatTimestamp(job->completedAt) << "\","
+           << "\"recordsProcessed\":" << job->recordsProcessed << ","
+           << "\"recordsSuccessful\":" << job->recordsSuccessful << ","
+           << "\"recordsFailed\":" << job->recordsFailed << ","
+           << "\"processingRate\":" << processingRate << ","
+           << "\"executionTimeMs\":" << executionTime.count();
+      
+      if (!job->errorMessage.empty()) {
+        json << ",\"errorMessage\":\"" << InputValidator::sanitizeString(job->errorMessage) << "\"";
+      }
+      
+      json << "}";
+    }
+    json << "],\"total\":" << filteredJobs.size() << "}";
+    
+    return createSuccessResponse(json.str());
+  }
+
   if (req.method() == http::verb::get && target == "/api/monitor/status") {
     return createSuccessResponse(
         "{\"server_status\":\"running\",\"db_connected\":" +
@@ -476,7 +686,7 @@ RequestHandler::handleMonitoring(const http::request<http::string_body> &req) {
     // Validate query parameters for metrics
     auto queryParams = extractQueryParams(target);
     auto queryValidation =
-        InputValidator::validateMonitoringParams(queryParams);
+        InputValidator::validateMetricsParams(queryParams);
     if (!queryValidation.isValid) {
       REQ_LOG_WARN("RequestHandler::handleMonitoring() - Metrics query "
                    "validation failed");
@@ -597,6 +807,85 @@ RequestHandler::createSuccessResponse(const std::string &data) {
   res.body() = data;
   res.prepare_payload();
   return res;
+}
+
+std::string RequestHandler::extractJobIdFromPath(const std::string& target, 
+                                                 const std::string& prefix, 
+                                                 const std::string& suffix) {
+  if (target.length() <= prefix.length() + suffix.length()) {
+    return "";
+  }
+  
+  size_t startPos = prefix.length();
+  size_t endPos = target.length() - suffix.length();
+  
+  if (startPos >= endPos) {
+    return "";
+  }
+  
+  return target.substr(startPos, endPos - startPos);
+}
+
+std::string RequestHandler::jobStatusToString(JobStatus status) {
+  switch (status) {
+    case JobStatus::PENDING: return "pending";
+    case JobStatus::RUNNING: return "running";
+    case JobStatus::COMPLETED: return "completed";
+    case JobStatus::FAILED: return "failed";
+    case JobStatus::CANCELLED: return "cancelled";
+    default: return "unknown";
+  }
+}
+
+JobStatus RequestHandler::stringToJobStatus(const std::string& statusStr) {
+  if (statusStr == "pending") return JobStatus::PENDING;
+  if (statusStr == "running") return JobStatus::RUNNING;
+  if (statusStr == "completed") return JobStatus::COMPLETED;
+  if (statusStr == "failed") return JobStatus::FAILED;
+  if (statusStr == "cancelled") return JobStatus::CANCELLED;
+  return JobStatus::PENDING; // default
+}
+
+std::string RequestHandler::jobTypeToString(JobType type) {
+  switch (type) {
+    case JobType::EXTRACT: return "extract";
+    case JobType::TRANSFORM: return "transform";
+    case JobType::LOAD: return "load";
+    case JobType::FULL_ETL: return "full_etl";
+    default: return "unknown";
+  }
+}
+
+JobType RequestHandler::stringToJobType(const std::string& typeStr) {
+  if (typeStr == "extract") return JobType::EXTRACT;
+  if (typeStr == "transform") return JobType::TRANSFORM;
+  if (typeStr == "load") return JobType::LOAD;
+  if (typeStr == "full_etl") return JobType::FULL_ETL;
+  return JobType::FULL_ETL; // default
+}
+
+std::string RequestHandler::formatTimestamp(const std::chrono::system_clock::time_point& timePoint) {
+  auto time_t = std::chrono::system_clock::to_time_t(timePoint);
+  auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+    timePoint.time_since_epoch()) % 1000;
+  
+  std::ostringstream oss;
+  oss << std::put_time(std::gmtime(&time_t), "%Y-%m-%dT%H:%M:%S");
+  oss << '.' << std::setfill('0') << std::setw(3) << ms.count() << 'Z';
+  return oss.str();
+}
+
+std::chrono::system_clock::time_point RequestHandler::parseTimestamp(const std::string& timestampStr) {
+  std::tm tm = {};
+  std::istringstream ss(timestampStr);
+  
+  // Try to parse ISO 8601 format: YYYY-MM-DDTHH:MM:SS.sssZ
+  if (ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S")) {
+    return std::chrono::system_clock::from_time_t(std::mktime(&tm));
+  }
+  
+  // If parsing fails, return current time
+  return std::chrono::system_clock::now();
 }
 
 // Explicit template instantiation

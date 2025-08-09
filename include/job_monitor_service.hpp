@@ -11,14 +11,7 @@
 
 // Forward declarations
 class WebSocketManager;
-
-// NotificationService interface
-class NotificationService {
-public:
-    virtual ~NotificationService() = default;
-    virtual void sendJobFailureAlert(const std::string& jobId, const std::string& error) = 0;
-    virtual void sendJobTimeoutWarning(const std::string& jobId, int executionTimeMinutes) = 0;
-};
+class NotificationService;  // Forward declaration - full definition in notification_service.hpp
 
 // Forward declaration to match ETL Job Manager's interface
 class JobMonitorServiceInterface {

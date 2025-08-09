@@ -283,7 +283,7 @@ InputValidator::ValidationResult InputValidator::validateJobQueryParams(const st
     return result;
 }
 
-InputValidator::ValidationResult InputValidator::validateMonitoringParams(const std::unordered_map<std::string, std::string>& params) {
+InputValidator::ValidationResult InputValidator::validateMetricsParams(const std::unordered_map<std::string, std::string>& params) {
     ValidationResult result;
     
     for (const auto& [key, value] : params) {
@@ -603,4 +603,71 @@ bool InputValidator::containsXss(const std::string& input) {
     }
     
     return false;
+}
+InputValidator::ValidationResult InputValidator::validateMonitoringParams(
+    const std::unordered_map<std::string, std::string>& params) {
+    ValidationResult result;
+    
+    // Validate status parameter if present
+    auto statusIt = params.find("status");
+    if (statusIt != params.end()) {
+        const std::string& status = statusIt->second;
+        if (status != "pending" && status != "running" && status != "completed" && 
+            status != "failed" && status != "cancelled") {
+            result.addError("status", "Invalid job status value", "INVALID_STATUS");
+        }
+    }
+    
+    // Validate type parameter if present
+    auto typeIt = params.find("type");
+    if (typeIt != params.end()) {
+        const std::string& type = typeIt->second;
+        if (type != "extract" && type != "transform" && type != "load" && type != "full_etl") {
+            result.addError("type", "Invalid job type value", "INVALID_TYPE");
+        }
+    }
+    
+    // Validate limit parameter if present
+    auto limitIt = params.find("limit");
+    if (limitIt != params.end()) {
+        try {
+            int limit = std::stoi(limitIt->second);
+            if (limit < 1 || limit > 1000) {
+                result.addError("limit", "Limit must be between 1 and 1000", "INVALID_LIMIT");
+            }
+        } catch (const std::exception&) {
+            result.addError("limit", "Limit must be a valid integer", "INVALID_LIMIT");
+        }
+    }
+    
+    // Validate from/to timestamp parameters if present
+    auto fromIt = params.find("from");
+    if (fromIt != params.end()) {
+        const std::string& from = fromIt->second;
+        // Basic ISO 8601 format validation
+        std::regex timestampPattern(R"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z?)");
+        if (!std::regex_match(from, timestampPattern)) {
+            result.addError("from", "Invalid timestamp format, expected ISO 8601", "INVALID_TIMESTAMP");
+        }
+    }
+    
+    auto toIt = params.find("to");
+    if (toIt != params.end()) {
+        const std::string& to = toIt->second;
+        // Basic ISO 8601 format validation
+        std::regex timestampPattern(R"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z?)");
+        if (!std::regex_match(to, timestampPattern)) {
+            result.addError("to", "Invalid timestamp format, expected ISO 8601", "INVALID_TIMESTAMP");
+        }
+    }
+    
+    // Validate that from is before to if both are present
+    if (fromIt != params.end() && toIt != params.end()) {
+        // This is a simplified check - in a real implementation you'd parse the timestamps
+        if (fromIt->second > toIt->second) {
+            result.addError("from", "From timestamp must be before to timestamp", "INVALID_RANGE");
+        }
+    }
+    
+    return result;
 }
