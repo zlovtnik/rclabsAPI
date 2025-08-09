@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     git \
     libboost-all-dev \
-    libnlohmann-json3-dev \
+    nlohmann-json3-dev \
     libpqxx-dev \
     libspdlog-dev \
     libssl-dev \
