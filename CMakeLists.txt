@@ -91,6 +91,7 @@ set(COMMON_SOURCES
     src/database_manager.cpp
     src/websocket_connection.cpp
     src/websocket_manager.cpp
+    src/websocket_filter_manager.cpp
     src/data_transformer.cpp
     src/auth_manager.cpp
     src/etl_job_manager.cpp
@@ -176,6 +177,7 @@ create_test_executable(test_websocket_basic scripts/test_websocket_basic.cpp)
 create_test_executable(test_websocket_integration scripts/test_websocket_integration.cpp)
 create_test_executable(test_websocket_manager_enhanced scripts/test_websocket_manager_enhanced.cpp)
 create_test_executable(test_websocket_filtering_demo scripts/test_websocket_filtering_demo.cpp)
+create_test_executable(test_websocket_filtering_unit scripts/test_websocket_filtering_unit.cpp)
 create_test_executable(test_job_monitoring_models scripts/test_job_monitoring_models.cpp)
 create_test_executable(test_etl_job_manager_monitoring scripts/test_etl_job_manager_monitoring.cpp)
 create_test_executable(test_job_monitor_service scripts/test_job_monitor_service.cpp)

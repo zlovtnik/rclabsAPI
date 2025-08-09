@@ -3,6 +3,9 @@
 #include "exceptions.hpp"
 #include "input_validator.hpp"
 #include "etl_job_manager.hpp"
+#include "websocket_manager.hpp"
+#include "job_monitoring_models.hpp"
+#include "transparent_string_hash.hpp"
 #include <boost/beast/http.hpp>
 #include <memory>
 #include <string>
@@ -35,9 +38,9 @@ private:
   validateAndHandleRequest(const http::request<http::string_body> &req);
   InputValidator::ValidationResult
   validateRequestBasics(const http::request<http::string_body> &req);
-  std::unordered_map<std::string, std::string>
+  std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>
   extractHeaders(const http::request<http::string_body> &req);
-  std::unordered_map<std::string, std::string>
+  std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>
   extractQueryParams(const std::string &target);
 
   // Request handlers with validation
@@ -68,4 +71,37 @@ private:
   JobType stringToJobType(const std::string& typeStr);
   std::string formatTimestamp(const std::chrono::system_clock::time_point& timePoint);
   std::chrono::system_clock::time_point parseTimestamp(const std::string& timestampStr);
+  
+  // WebSocket filter management methods
+  http::response<http::string_body>
+  handleGetConnectionFilters(const std::string& connectionId);
+  http::response<http::string_body>
+  handleSetConnectionFilters(const std::string& connectionId, const std::string& requestBody);
+  http::response<http::string_body>
+  handleUpdateConnectionFilters(const std::string& connectionId, const std::string& requestBody);
+  http::response<http::string_body>
+  handleAddJobFilter(const std::string& connectionId, const std::string& jobId);
+  http::response<http::string_body>
+  handleRemoveJobFilter(const std::string& connectionId, const std::string& jobId);
+  http::response<http::string_body>
+  handleAddMessageTypeFilter(const std::string& connectionId, const std::string& messageType);
+  http::response<http::string_body>
+  handleRemoveMessageTypeFilter(const std::string& connectionId, const std::string& messageType);
+  http::response<http::string_body>
+  handleAddLogLevelFilter(const std::string& connectionId, const std::string& logLevel);
+  http::response<http::string_body>
+  handleRemoveLogLevelFilter(const std::string& connectionId, const std::string& logLevel);
+  http::response<http::string_body>
+  handleClearConnectionFilters(const std::string& connectionId);
+  http::response<http::string_body>
+  handleGetConnectionStats();
+  http::response<http::string_body>
+  handleTestConnectionFilter(const std::string& connectionId, const std::string& requestBody);
+  
+  // Utility methods for WebSocket filter management
+  std::string extractConnectionIdFromPath(const std::string& target, const std::string& prefix);
+  ConnectionFilters parseConnectionFiltersFromJson(const std::string& json);
+  WebSocketMessage parseWebSocketMessageFromJson(const std::string& json);
+  std::string connectionFiltersToJson(const ConnectionFilters& filters);
+  std::string connectionStatsToJson() const;
 };

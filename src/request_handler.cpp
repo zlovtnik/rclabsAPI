@@ -2,6 +2,7 @@
 #include "auth_manager.hpp"
 #include "database_manager.hpp"
 #include "etl_job_manager.hpp"
+#include "websocket_filter_manager.hpp"
 #include "exception_handler.hpp"
 #include "exceptions.hpp"
 #include "input_validator.hpp"
@@ -10,6 +11,7 @@
 #include <sstream>
 #include <iomanip>
 #include <ctime>
+#include <regex>
 
 RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
                                std::shared_ptr<AuthManager> authManager,
@@ -191,7 +193,14 @@ InputValidator::ValidationResult RequestHandler::validateRequestBasics(
 
   // Validate request headers
   auto headers = extractHeaders(req);
-  auto headerValidation = InputValidator::validateRequestHeaders(headers);
+  
+  // Convert to standard unordered_map for InputValidator
+  std::unordered_map<std::string, std::string> standardHeaders;
+  for (const auto& [key, value] : headers) {
+    standardHeaders[key] = value;
+  }
+  
+  auto headerValidation = InputValidator::validateRequestHeaders(standardHeaders);
   if (!headerValidation.isValid) {
     result.errors.insert(result.errors.end(), headerValidation.errors.begin(),
                          headerValidation.errors.end());
@@ -218,21 +227,20 @@ InputValidator::ValidationResult RequestHandler::validateRequestBasics(
   return result;
 }
 
-std::unordered_map<std::string, std::string>
+std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>
 RequestHandler::extractHeaders(const http::request<http::string_body> &req) {
-  std::unordered_map<std::string, std::string> headers;
-
-  for (auto const &field : req) {
-    std::string key = std::string(field.name_string());
+  std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> headers;
+  
+  for (const auto &field : req) {
+    std::string name = std::string(field.name_string());
     std::string value = std::string(field.value());
-    std::transform(key.begin(), key.end(), key.begin(), ::tolower);
-    headers[key] = value;
+    headers[name] = value;
   }
-
+  
   return headers;
 }
 
-std::unordered_map<std::string, std::string>
+std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>
 RequestHandler::extractQueryParams(const std::string &target) {
   size_t queryPos = target.find('?');
   if (queryPos == std::string::npos) {
@@ -240,7 +248,15 @@ RequestHandler::extractQueryParams(const std::string &target) {
   }
 
   std::string queryString = target.substr(queryPos + 1);
-  return InputValidator::parseQueryString(queryString);
+  auto standardParams = InputValidator::parseQueryString(queryString);
+  
+  // Convert to TransparentStringHash map
+  std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> result;
+  for (const auto& [key, value] : standardParams) {
+    result[key] = value;
+  }
+  
+  return result;
 }
 
 http::response<http::string_body>
@@ -436,7 +452,14 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) {
   if (req.method() == http::verb::get && target == "/api/jobs") {
     // Validate query parameters
     auto queryParams = extractQueryParams(target);
-    auto queryValidation = InputValidator::validateJobQueryParams(queryParams);
+    
+    // Convert to standard unordered_map for InputValidator
+    std::unordered_map<std::string, std::string> standardParams;
+    for (const auto& [key, value] : queryParams) {
+      standardParams[key] = value;
+    }
+    
+    auto queryValidation = InputValidator::validateJobQueryParams(standardParams);
     if (!queryValidation.isValid) {
       REQ_LOG_WARN("RequestHandler::handleETLJobs() - Query parameter "
                    "validation failed");
@@ -556,7 +579,14 @@ RequestHandler::handleMonitoring(const http::request<http::string_body> &req) {
   // Handle GET /api/monitor/jobs - filtered job monitoring
   if (req.method() == http::verb::get && target.starts_with("/api/monitor/jobs")) {
     auto queryParams = extractQueryParams(target);
-    auto queryValidation = InputValidator::validateMonitoringParams(queryParams);
+    
+    // Convert to standard unordered_map for InputValidator
+    std::unordered_map<std::string, std::string> standardParams;
+    for (const auto& [key, value] : queryParams) {
+      standardParams[key] = value;
+    }
+    
+    auto queryValidation = InputValidator::validateMonitoringParams(standardParams);
     if (!queryValidation.isValid) {
       REQ_LOG_WARN("RequestHandler::handleMonitoring() - Jobs query validation failed");
       return createValidationErrorResponse(queryValidation);
@@ -685,8 +715,15 @@ RequestHandler::handleMonitoring(const http::request<http::string_body> &req) {
              target == "/api/monitor/metrics") {
     // Validate query parameters for metrics
     auto queryParams = extractQueryParams(target);
+    
+    // Convert to standard unordered_map for InputValidator
+    std::unordered_map<std::string, std::string> standardParams;
+    for (const auto& [key, value] : queryParams) {
+      standardParams[key] = value;
+    }
+    
     auto queryValidation =
-        InputValidator::validateMetricsParams(queryParams);
+        InputValidator::validateMetricsParams(standardParams);
     if (!queryValidation.isValid) {
       REQ_LOG_WARN("RequestHandler::handleMonitoring() - Metrics query "
                    "validation failed");
