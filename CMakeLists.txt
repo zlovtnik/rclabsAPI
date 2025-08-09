@@ -18,6 +18,8 @@ set(SOURCES
     src/config_manager.cpp
     src/database_manager.cpp
     src/http_server.cpp
+    src/websocket_connection.cpp
+    src/websocket_manager.cpp
     src/data_transformer.cpp
     src/auth_manager.cpp
     src/etl_job_manager.cpp
@@ -66,32 +68,24 @@ foreach(CONFIG_FILE ${CONFIG_FILES})
     )
 endforeach()
 
-# Enhanced Logging Test Executable
-add_executable(test_enhanced_logging test_enhanced_logging.cpp 
+# WebSocket Basic Test Executable
+add_executable(test_websocket_basic test_websocket_basic.cpp 
+    src/websocket_connection.cpp
+    src/websocket_manager.cpp
     src/logger.cpp 
     src/config_manager.cpp
 )
 
-target_include_directories(test_enhanced_logging PRIVATE include)
-target_link_libraries(test_enhanced_logging ${Boost_LIBRARIES} pthread)
+target_include_directories(test_websocket_basic PRIVATE include)
+target_link_libraries(test_websocket_basic ${Boost_LIBRARIES} pthread)
 
-# Copy config files for the test
-add_dependencies(test_enhanced_logging copy_configs)
-
-# JSON Logging Test Executable
-add_executable(test_json_logging test_json_logging.cpp 
+# WebSocket Integration Test Executable
+add_executable(test_websocket_integration test_websocket_integration.cpp 
+    src/websocket_connection.cpp
+    src/websocket_manager.cpp
     src/logger.cpp 
     src/config_manager.cpp
 )
 
-target_include_directories(test_json_logging PRIVATE include)
-target_link_libraries(test_json_logging ${Boost_LIBRARIES} pthread)
-
-# Async Logging Test Executable
-add_executable(test_async_logging test_async_logging.cpp 
-    src/logger.cpp 
-    src/config_manager.cpp
-)
-
-target_include_directories(test_async_logging PRIVATE include)
-target_link_libraries(test_async_logging ${Boost_LIBRARIES} pthread)
+target_include_directories(test_websocket_integration PRIVATE include)
+target_link_libraries(test_websocket_integration ${Boost_LIBRARIES} pthread)

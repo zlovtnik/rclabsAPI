@@ -9,6 +9,7 @@
 #include "config_manager.hpp"
 #include "database_manager.hpp"
 #include "http_server.hpp"
+#include "websocket_manager.hpp"
 #include "request_handler.hpp"
 #include "auth_manager.hpp"
 #include "etl_job_manager.hpp"
@@ -88,6 +89,12 @@ int main() {
         LOG_INFO("Main", "Creating request handler...");
         auto requestHandler = std::make_shared<RequestHandler>(dbManager, authManager, etlManager);
         
+        // Initialize WebSocket manager
+        LOG_INFO("Main", "Initializing WebSocket manager...");
+        auto wsManager = std::make_shared<WebSocketManager>();
+        wsManager->start();
+        LOG_INFO("Main", "WebSocket manager started successfully");
+        
         // Create and configure HTTP server
         std::string address = config.getString("server.address", "0.0.0.0");
         int port = config.getInt("server.port", 8080);
@@ -96,6 +103,7 @@ int main() {
         LOG_INFO("Main", "Initializing HTTP server on " + address + ":" + std::to_string(port) + " with " + std::to_string(threads) + " threads");
         server = std::make_unique<HttpServer>(address, static_cast<unsigned short>(port), threads);
         server->setRequestHandler(requestHandler);
+        server->setWebSocketManager(wsManager);
         
         // Start the server
         LOG_INFO("Main", "Starting HTTP server...");
