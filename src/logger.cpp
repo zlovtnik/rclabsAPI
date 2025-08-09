@@ -69,9 +69,13 @@ void Logger::configure(const LogConfig& config) {
                 fileStream_.flush();
                 currentFileSize_ += startupMsg.length() + 1;
 
-                // Index current log file if indexing is enabled
+                // Index current log file if indexing is enabled - INLINE to avoid deadlock
                 if (config_.enableLogIndexing) {
-                    indexLogFile(currentLogFile_);
+                    // Create or open the index file (we already hold fileMutex_)
+                    std::ofstream indexFile(config_.archiveDirectory + "/log_index.txt", std::ios::app);
+                    if (indexFile.is_open()) {
+                        indexFile << currentLogFile_ << " " << formatTimestamp() << std::endl;
+                    }
                 }
             }
         }
@@ -95,14 +99,17 @@ void Logger::configure(const LogConfig& config) {
         asyncThread_ = std::thread(&Logger::asyncWorker, this);
     }
     
-    // Handle real-time streaming initialization
+    // Handle real-time streaming initialization - INLINE to avoid deadlock
     config_.enableRealTimeStreaming = config.enableRealTimeStreaming;
     config_.streamingQueueSize = config.streamingQueueSize;
     config_.streamAllLevels = config.streamAllLevels;
     config_.streamingJobFilter = config.streamingJobFilter;
     
+    // Initialize streaming directly without calling enableRealTimeStreaming to avoid deadlock
     if (config.enableRealTimeStreaming && !streamingStarted_) {
-        enableRealTimeStreaming(true);
+        stopStreaming_ = false;
+        streamingStarted_ = true;
+        streamingThread_ = std::thread(&Logger::streamingWorker, this);
     }
 }
 
