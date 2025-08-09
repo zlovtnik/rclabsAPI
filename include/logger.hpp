@@ -202,7 +202,7 @@ private:
   void writeLogAsync(const std::string &formattedMessage);
   void asyncWorker();
   void rotateLogFile();
-  bool shouldLog(LogLevel level, const std::string &component);
+  bool shouldLog(LogLevel level, const std::string &component) const;
   std::string escapeJson(const std::string &str);
   
   // Real-time streaming helpers

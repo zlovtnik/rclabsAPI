@@ -2,6 +2,7 @@
 
 #include "job_monitoring_models.hpp"
 #include "logger.hpp"
+#include "notification_service_recovery.hpp"
 #include <string>
 #include <vector>
 #include <queue>
@@ -145,7 +146,7 @@ public:
 // Concrete delivery implementations
 class LogNotificationDelivery : public NotificationDelivery {
 public:
-    LogNotificationDelivery(Logger* logger);
+    explicit LogNotificationDelivery(Logger* logger);
     bool deliver(const NotificationMessage& message) override;
     NotificationMethod getMethod() const override { return NotificationMethod::LOG_ONLY; }
     bool isConfigured() const override { return logger_ != nullptr; }
@@ -156,7 +157,7 @@ private:
 
 class EmailNotificationDelivery : public NotificationDelivery {
 public:
-    EmailNotificationDelivery(const NotificationConfig& config);
+    explicit EmailNotificationDelivery(const NotificationConfig& config);
     bool deliver(const NotificationMessage& message) override;
     NotificationMethod getMethod() const override { return NotificationMethod::EMAIL; }
     bool isConfigured() const override;
@@ -168,7 +169,7 @@ private:
 
 class WebhookNotificationDelivery : public NotificationDelivery {
 public:
-    WebhookNotificationDelivery(const NotificationConfig& config);
+    explicit WebhookNotificationDelivery(const NotificationConfig& config);
     bool deliver(const NotificationMessage& message) override;
     NotificationMethod getMethod() const override { return NotificationMethod::WEBHOOK; }
     bool isConfigured() const override;
@@ -184,6 +185,7 @@ public:
     virtual ~NotificationService() = default;
     virtual void sendJobFailureAlert(const std::string& jobId, const std::string& error) = 0;
     virtual void sendJobTimeoutWarning(const std::string& jobId, int executionTimeMinutes) = 0;
+    virtual bool isRunning() const = 0;
 };
 
 /**
@@ -208,7 +210,15 @@ public:
     void configure(const NotificationConfig& config);
     void start();
     void stop();
-    bool isRunning() const;
+    bool isRunning() const override;
+    
+    // Error handling and recovery
+    bool isHealthy() const;
+    void setRetryConfig(const notification_recovery::RetryConfig& config);
+    const notification_recovery::RetryConfig& getRetryConfig() const { return retryConfig_; }
+    const notification_recovery::ServiceRecoveryState& getRecoveryState() const { return recoveryState_; }
+    void performHealthCheck();
+    void attemptRecovery();
 
     // NotificationService interface implementation
     void sendJobFailureAlert(const std::string& jobId, const std::string& error) override;
@@ -243,16 +253,22 @@ private:
     std::atomic<bool> running_;
     std::atomic<bool> testMode_;
 
+    // Error handling and recovery
+    notification_recovery::RetryConfig retryConfig_;
+    notification_recovery::ServiceRecoveryState recoveryState_;
+    notification_recovery::NotificationCircuitBreaker circuitBreaker_;
+    notification_recovery::RetryQueueManager retryManager_;
+
     // Statistics
     std::atomic<size_t> processedCount_;
     std::atomic<size_t> failedCount_;
 
     // Notification queue and processing
     std::queue<NotificationMessage> notificationQueue_;
-    std::queue<NotificationMessage> retryQueue_;
     mutable std::mutex queueMutex_;
     std::condition_variable queueCondition_;
     std::thread processingThread_;
+    std::thread retryThread_;
 
     // Recent notifications for debugging
     std::vector<NotificationMessage> recentNotifications_;
@@ -269,10 +285,17 @@ private:
     void processNotifications();
     void processRetries();
     bool deliverNotification(const NotificationMessage& message);
-    void scheduleRetry(const NotificationMessage& message);
+    void handleDeliveryFailure(const NotificationMessage& message, const std::string& reason, NotificationMethod failedMethod);
+    void scheduleRetry(const NotificationMessage& message, const std::string& reason, NotificationMethod failedMethod);
     void addToRecentNotifications(const NotificationMessage& message);
     bool shouldSendResourceAlert(ResourceAlertType type);
     void recordResourceAlert(ResourceAlertType type);
+    
+    // Error handling methods
+    void handleServiceError(const std::string& operation, const std::exception& e);
+    bool tryDeliveryWithCircuitBreaker(const NotificationMessage& message, NotificationMethod method);
+    void onDeliverySuccess();
+    void onDeliveryFailure();
 
     // Notification creation helpers
     NotificationMessage createJobFailureNotification(const std::string& jobId, const std::string& error);

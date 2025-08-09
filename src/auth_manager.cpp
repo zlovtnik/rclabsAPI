@@ -5,6 +5,9 @@
 #include <sstream>
 #include <iomanip>
 #include <algorithm>
+#include <string_view>
+#include <format>
+#include <ranges>
 
 AuthManager::AuthManager() {
     AUTH_LOG_INFO("Initializing authentication manager");
@@ -38,7 +41,7 @@ bool AuthManager::createUser(const std::string& username, const std::string& ema
     return true;
 }
 
-bool AuthManager::authenticateUser(const std::string& username, const std::string& password) {
+bool AuthManager::authenticateUser(std::string_view username) const {
     for (const auto& [id, user] : users_) {
         if (user->username == username && user->isActive) {
             // For simplicity, we're not implementing proper password hashing/verification
@@ -53,8 +56,7 @@ bool AuthManager::authenticateUser(const std::string& username, const std::strin
 }
 
 bool AuthManager::updateUser(const std::string& userId, const User& updatedUser) {
-    auto it = users_.find(userId);
-    if (it != users_.end()) {
+    if (auto it = users_.find(userId); it != users_.end()) {
         *it->second = updatedUser;
         std::cout << "Updated user: " << userId << std::endl;
         return true;
@@ -63,8 +65,7 @@ bool AuthManager::updateUser(const std::string& userId, const User& updatedUser)
 }
 
 bool AuthManager::deleteUser(const std::string& userId) {
-    auto it = users_.find(userId);
-    if (it != users_.end()) {
+    if (auto it = users_.find(userId); it != users_.end()) {
         it->second->isActive = false; // Soft delete
         std::cout << "Deleted user: " << userId << std::endl;
         return true;
@@ -72,14 +73,13 @@ bool AuthManager::deleteUser(const std::string& userId) {
     return false;
 }
 
-std::shared_ptr<User> AuthManager::getUser(const std::string& userId) {
+std::shared_ptr<User> AuthManager::getUser(const std::string& userId) const {
     auto it = users_.find(userId);
     return (it != users_.end()) ? it->second : nullptr;
 }
 
 std::string AuthManager::createSession(const std::string& userId) {
-    auto user = getUser(userId);
-    if (!user || !user->isActive) {
+    if (auto user = getUser(userId); !user || !user->isActive) {
         return "";
     }
     
@@ -96,8 +96,7 @@ std::string AuthManager::createSession(const std::string& userId) {
 }
 
 bool AuthManager::validateSession(const std::string& sessionId) {
-    auto it = sessions_.find(sessionId);
-    if (it != sessions_.end()) {
+    if (auto it = sessions_.find(sessionId); it != sessions_.end()) {
         auto session = it->second;
         if (session->isValid && std::chrono::system_clock::now() < session->expiresAt) {
             return true;
@@ -118,71 +117,63 @@ void AuthManager::revokeSession(const std::string& sessionId) {
 
 void AuthManager::cleanupExpiredSessions() {
     auto now = std::chrono::system_clock::now();
-    for (auto& [id, session] : sessions_) {
+    for (const auto& [id, session] : sessions_) {
         if (now >= session->expiresAt) {
             session->isValid = false;
         }
     }
     
     // Remove expired sessions
-    for (auto it = sessions_.begin(); it != sessions_.end();) {
-        if (!it->second->isValid) {
-            it = sessions_.erase(it);
-        } else {
-            ++it;
-        }
-    }
+    std::erase_if(sessions_, [](const auto& pair) {
+        return !pair.second->isValid;
+    });
 }
 
-bool AuthManager::hasPermission(const std::string& userId, const std::string& resource, const std::string& action) {
-    auto user = getUser(userId);
+bool AuthManager::hasPermission(std::string_view userId, std::string_view resource, std::string_view action) const {
+    auto user = getUser(std::string(userId));
     if (!user || !user->isActive) {
         return false;
     }
     
     // Simple role-based permissions
-    for (const auto& role : user->roles) {
+    return std::ranges::any_of(user->roles, [&](std::string_view role) {
         if (role == "admin") {
             return true; // Admin has all permissions
         } else if (role == "user" && resource == "jobs" && (action == "read" || action == "create")) {
             return true;
         }
-    }
-    
-    return false;
+        return false;
+    });
 }
 
 void AuthManager::assignRole(const std::string& userId, const std::string& role) {
-    auto user = getUser(userId);
-    if (user) {
-        if (std::find(user->roles.begin(), user->roles.end(), role) == user->roles.end()) {
-            user->roles.push_back(role);
-            std::cout << "Assigned role '" << role << "' to user: " << userId << std::endl;
-        }
+    if (auto user = getUser(userId); user && std::ranges::find(user->roles, role) == user->roles.end()) {
+        user->roles.push_back(role);
+        std::cout << "Assigned role '" << role << "' to user: " << userId << std::endl;
     }
 }
 
 void AuthManager::revokeRole(const std::string& userId, const std::string& role) {
     auto user = getUser(userId);
     if (user) {
-        user->roles.erase(std::remove(user->roles.begin(), user->roles.end(), role), user->roles.end());
+        std::erase(user->roles, role);
         std::cout << "Revoked role '" << role << "' from user: " << userId << std::endl;
     }
 }
 
-std::string AuthManager::hashPassword(const std::string& password, const std::string& salt) {
+std::string AuthManager::hashPassword(std::string_view password, std::string_view salt) const {
     // Simple hash implementation (not secure - use bcrypt in production)
-    return password + "_hashed_with_" + salt;
+    return std::string(password) + "_hashed_with_" + std::string(salt);
 }
 
-std::string AuthManager::generateSalt() {
-    return "salt_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
+std::string AuthManager::generateSalt() const {
+    return std::format("salt_{}", std::chrono::system_clock::now().time_since_epoch().count());
 }
 
-std::string AuthManager::generateSessionId() {
+std::string AuthManager::generateSessionId() const {
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dis(0, 15);
+    std::uniform_int_distribution dis(0, 15);
     
     std::stringstream ss;
     for (int i = 0; i < 32; ++i) {
@@ -192,6 +183,6 @@ std::string AuthManager::generateSessionId() {
     return ss.str();
 }
 
-bool AuthManager::verifyPassword(const std::string& password, const std::string& hash, const std::string& salt) {
+bool AuthManager::verifyPassword(std::string_view password, std::string_view hash, std::string_view salt) const {
     return hashPassword(password, salt) == hash;
 }

@@ -23,7 +23,7 @@ void DataTransformer::clearRules() {
     rules_.clear();
 }
 
-std::vector<DataRecord> DataTransformer::transform(const std::vector<DataRecord>& inputData) {
+std::vector<DataRecord> DataTransformer::transform(const std::vector<DataRecord>& inputData) const {
     std::vector<DataRecord> result;
     result.reserve(inputData.size());
     
@@ -34,7 +34,7 @@ std::vector<DataRecord> DataTransformer::transform(const std::vector<DataRecord>
     return result;
 }
 
-DataRecord DataTransformer::transformRecord(const DataRecord& record) {
+DataRecord DataTransformer::transformRecord(const DataRecord& record) const {
     DataRecord result = record; // Start with original data
     
     for (const auto& rule : rules_) {
@@ -48,7 +48,7 @@ DataRecord DataTransformer::transformRecord(const DataRecord& record) {
     return result;
 }
 
-bool DataTransformer::validateData(const std::vector<DataRecord>& data) {
+bool DataTransformer::validateData(const std::vector<DataRecord>& data) const {
     for (const auto& record : data) {
         auto errors = getValidationErrors(record);
         if (!errors.empty()) {
@@ -58,7 +58,7 @@ bool DataTransformer::validateData(const std::vector<DataRecord>& data) {
     return true;
 }
 
-std::vector<std::string> DataTransformer::getValidationErrors(const DataRecord& record) {
+std::vector<std::string> DataTransformer::getValidationErrors(const DataRecord& record) const {
     std::vector<std::string> errors;
     
     // Basic validation - check for empty required fields
@@ -74,7 +74,7 @@ std::vector<std::string> DataTransformer::getValidationErrors(const DataRecord& 
     return errors;
 }
 
-std::string DataTransformer::applyTransformation(const std::string& value, const TransformationRule& rule) {
+std::string DataTransformer::applyTransformation(const std::string& value, const TransformationRule& rule) const {
     if (rule.transformationType == "uppercase") {
         return applyStringTransformation(value, "uppercase", rule.parameters);
     } else if (rule.transformationType == "lowercase") {
@@ -91,7 +91,7 @@ std::string DataTransformer::applyTransformation(const std::string& value, const
 }
 
 std::string DataTransformer::applyStringTransformation(const std::string& value, const std::string& type,
-                                                     const std::unordered_map<std::string, std::string>& params) {
+                                                     const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& params) const {
     if (type == "uppercase") {
         std::string result = value;
         std::transform(result.begin(), result.end(), result.begin(), ::toupper);
@@ -110,7 +110,7 @@ std::string DataTransformer::applyStringTransformation(const std::string& value,
 }
 
 std::string DataTransformer::applyNumericTransformation(const std::string& value, const std::string& type,
-                                                       const std::unordered_map<std::string, std::string>& params) {
+                                                       const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& params) const {
     try {
         double numValue = std::stod(value);
         

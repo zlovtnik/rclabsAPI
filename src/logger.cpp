@@ -17,7 +17,7 @@ Logger::~Logger() {
 }
 
 void Logger::configure(const LogConfig& config) {
-    std::lock_guard<std::mutex> lock(configMutex_);
+    std::scoped_lock lock(configMutex_);
     config_ = config;
     
     // Apply configuration directly without additional locks (we already have configMutex_)
@@ -415,7 +415,7 @@ void Logger::writeLogAsync(const std::string& formattedMessage) {
     std::lock_guard<std::mutex> lock(asyncMutex_);
     
     // Check queue size to prevent memory issues
-    if (messageQueue_.size() > 10000) {
+    if (constexpr size_t MAX_QUEUE_SIZE = 10000; messageQueue_.size() > MAX_QUEUE_SIZE) {
         metrics_.droppedMessages++;
         return;
     }
@@ -486,13 +486,13 @@ void Logger::rotateLogFile() {
     }
 }
 
-bool Logger::shouldLog(LogLevel level, const std::string& component) {
+bool Logger::shouldLog(LogLevel level, const std::string& component) const {
     if (level < config_.level) {
         return false;
     }
     
     if (!config_.componentFilter.empty() && 
-        config_.componentFilter.find(component) == config_.componentFilter.end()) {
+        !config_.componentFilter.contains(component)) {
         return false;
     }
     

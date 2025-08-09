@@ -529,6 +529,118 @@ bool ConnectionFilters::shouldReceiveMessageType(MessageType type) const {
     return messageTypes.empty() || std::find(messageTypes.begin(), messageTypes.end(), type) != messageTypes.end();
 }
 
+void ConnectionFilters::addJobId(const std::string& jobId) {
+    if (std::find(jobIds.begin(), jobIds.end(), jobId) == jobIds.end()) {
+        jobIds.push_back(jobId);
+    }
+}
+
+void ConnectionFilters::removeJobId(const std::string& jobId) {
+    auto it = std::find(jobIds.begin(), jobIds.end(), jobId);
+    if (it != jobIds.end()) {
+        jobIds.erase(it);
+    }
+}
+
+void ConnectionFilters::addMessageType(MessageType messageType) {
+    if (std::find(messageTypes.begin(), messageTypes.end(), messageType) == messageTypes.end()) {
+        messageTypes.push_back(messageType);
+    }
+}
+
+void ConnectionFilters::removeMessageType(MessageType messageType) {
+    auto it = std::find(messageTypes.begin(), messageTypes.end(), messageType);
+    if (it != messageTypes.end()) {
+        messageTypes.erase(it);
+    }
+}
+
+void ConnectionFilters::addLogLevel(const std::string& logLevel) {
+    if (std::find(logLevels.begin(), logLevels.end(), logLevel) == logLevels.end()) {
+        logLevels.push_back(logLevel);
+    }
+}
+
+void ConnectionFilters::removeLogLevel(const std::string& logLevel) {
+    auto it = std::find(logLevels.begin(), logLevels.end(), logLevel);
+    if (it != logLevels.end()) {
+        logLevels.erase(it);
+    }
+}
+
+void ConnectionFilters::clear() {
+    jobIds.clear();
+    messageTypes.clear();
+    logLevels.clear();
+    includeSystemNotifications = true;
+}
+
+bool ConnectionFilters::hasFilters() const {
+    return !jobIds.empty() || !messageTypes.empty() || !logLevels.empty();
+}
+
+bool ConnectionFilters::hasJobFilters() const {
+    return !jobIds.empty();
+}
+
+bool ConnectionFilters::hasMessageTypeFilters() const {
+    return !messageTypes.empty();
+}
+
+bool ConnectionFilters::hasLogLevelFilters() const {
+    return !logLevels.empty();
+}
+
+size_t ConnectionFilters::getTotalFilterCount() const {
+    return jobIds.size() + messageTypes.size() + logLevels.size();
+}
+
+bool ConnectionFilters::isValid() const {
+    // Validate job IDs
+    for (const auto& jobId : jobIds) {
+        if (!validateJobId(jobId)) {
+            return false;
+        }
+    }
+    
+    // Validate log levels
+    for (const auto& level : logLevels) {
+        if (!validateLogLevel(level)) {
+            return false;
+        }
+    }
+    
+    // Message types are enum values, so they're inherently valid
+    return true;
+}
+
+std::string ConnectionFilters::getValidationErrors() const {
+    std::vector<std::string> errors;
+    
+    // Check job IDs
+    for (const auto& jobId : jobIds) {
+        if (!validateJobId(jobId)) {
+            errors.push_back("Invalid job ID: " + jobId);
+        }
+    }
+    
+    // Check log levels
+    for (const auto& level : logLevels) {
+        if (!validateLogLevel(level)) {
+            errors.push_back("Invalid log level: " + level);
+        }
+    }
+    
+    // Join errors with semicolons
+    std::string result;
+    for (size_t i = 0; i < errors.size(); ++i) {
+        if (i > 0) result += "; ";
+        result += errors[i];
+    }
+    
+    return result;
+}
+
 // Utility functions for message type conversion
 std::string messageTypeToString(MessageType type) {
     switch (type) {

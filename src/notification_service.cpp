@@ -6,6 +6,19 @@
 #include <algorithm>
 #include <chrono>
 
+// Static member definition for RetryQueueManager
+const notification_recovery::RetryConfig notification_recovery::RetryQueueManager::defaultConfig_{
+    true,                                         // enableRetry
+    3,                                           // maxRetryAttempts
+    std::chrono::milliseconds(5000),             // baseRetryDelay (5 seconds)
+    std::chrono::milliseconds(300000),           // maxRetryDelay (5 minutes)
+    2.0,                                         // backoffMultiplier
+    std::chrono::milliseconds(30000),            // deliveryTimeout (30 seconds)
+    5,                                           // maxConcurrentRetries
+    true,                                        // enableBulkRetry
+    std::chrono::minutes(10)                     // bulkRetryInterval
+};
+
 // Only include curl and json if they are available
 #ifdef CURL_FOUND
 #include <curl/curl.h>
@@ -139,11 +152,12 @@ bool NotificationMessage::shouldRetry() const {
 
 std::chrono::milliseconds NotificationMessage::getRetryDelay() const {
     // Exponential backoff: base_delay * 2^retry_count (capped at max)
-    const int baseDelayMs = 5000; // 5 seconds
-    const int maxDelayMs = 300000; // 5 minutes
+    constexpr int BASE_DELAY_MS = 5000; // 5 seconds
+    constexpr int MAX_DELAY_MS = 300000; // 5 minutes
+    constexpr int MAX_RETRY_EXPONENT = 6; // Cap at 2^6 = 64
     
-    int delay = baseDelayMs * (1 << std::min(retryCount, 6)); // Cap at 2^6 = 64
-    delay = std::min(delay, maxDelayMs);
+    int delay = BASE_DELAY_MS * (1 << std::min(retryCount, MAX_RETRY_EXPONENT));
+    delay = std::min(delay, MAX_DELAY_MS);
     
     return std::chrono::milliseconds(delay);
 }
@@ -561,8 +575,8 @@ void NotificationServiceImpl::queueNotification(const NotificationMessage& messa
 }
 
 size_t NotificationServiceImpl::getQueueSize() const {
-    std::lock_guard<std::mutex> lock(queueMutex_);
-    return notificationQueue_.size() + retryQueue_.size();
+    std::scoped_lock lock(queueMutex_);
+    return notificationQueue_.size() + retryManager_.getQueueSize();
 }
 
 size_t NotificationServiceImpl::getProcessedCount() const {
@@ -649,9 +663,7 @@ void NotificationServiceImpl::clearQueue() {
     while (!notificationQueue_.empty()) {
         notificationQueue_.pop();
     }
-    while (!retryQueue_.empty()) {
-        retryQueue_.pop();
-    }
+    retryManager_.clearQueue();
 }
 
 void NotificationServiceImpl::setTestMode(bool enabled) {
@@ -669,7 +681,7 @@ void NotificationServiceImpl::processNotifications() {
         
         // Wait for notifications or stop signal
         queueCondition_.wait(lock, [this] { 
-            return !running_.load() || !notificationQueue_.empty() || !retryQueue_.empty(); 
+            return !running_.load() || !notificationQueue_.empty() || (retryManager_.getQueueSize() > 0); 
         });
         
         if (!running_.load()) break;
@@ -679,18 +691,7 @@ void NotificationServiceImpl::processNotifications() {
         currentQueue.swap(notificationQueue_);
         
         // Process retry queue
-        std::queue<NotificationMessage> currentRetryQueue;
-        auto now = std::chrono::system_clock::now();
-        while (!retryQueue_.empty()) {
-            auto& msg = retryQueue_.front();
-            if (msg.scheduledFor <= now) {
-                currentRetryQueue.push(msg);
-                retryQueue_.pop();
-            } else {
-                break; // Retry queue is time-ordered
-            }
-        }
-        
+        auto readyForRetry = retryManager_.getReadyForRetry();
         lock.unlock();
         
         // Process notifications outside of lock
@@ -703,20 +704,24 @@ void NotificationServiceImpl::processNotifications() {
                 addToRecentNotifications(message);
             } else {
                 failedCount_++;
-                scheduleRetry(message);
+                scheduleRetry(message, "delivery_failed", NotificationMethod::LOG_ONLY);
             }
         }
         
-        while (!currentRetryQueue.empty()) {
-            auto message = currentRetryQueue.front();
-            currentRetryQueue.pop();
+        // Process failed notifications ready for retry
+        for (const auto& failedNotif : readyForRetry) {
+            // Convert FailedNotification back to NotificationMessage for delivery
+            NotificationMessage retryMessage;
+            retryMessage.id = failedNotif.notificationId;
+            retryMessage.message = failedNotif.content;
+            retryMessage.retryCount = failedNotif.retryCount;
             
-            if (deliverNotification(message)) {
+            if (deliverNotification(retryMessage)) {
                 processedCount_++;
-                addToRecentNotifications(message);
+                addToRecentNotifications(retryMessage);
             } else {
                 failedCount_++;
-                scheduleRetry(message);
+                scheduleRetry(retryMessage, failedNotif.failureReason, static_cast<NotificationMethod>(failedNotif.failedMethodIndex));
             }
         }
         
@@ -764,7 +769,7 @@ bool NotificationServiceImpl::deliverNotification(const NotificationMessage& mes
     return anySuccess;
 }
 
-void NotificationServiceImpl::scheduleRetry(const NotificationMessage& message) {
+void NotificationServiceImpl::scheduleRetry(const NotificationMessage& message, const std::string& reason, NotificationMethod failedMethod) {
     if (!message.shouldRetry()) {
         if (logger_) {
             logger_->warn("NotificationService", 
@@ -774,16 +779,18 @@ void NotificationServiceImpl::scheduleRetry(const NotificationMessage& message) 
         return;
     }
     
-    NotificationMessage retryMessage = message;
-    retryMessage.incrementRetry();
-    
-    std::lock_guard<std::mutex> lock(queueMutex_);
-    retryQueue_.push(retryMessage);
+    retryManager_.addFailedNotification(
+        message.id,
+        "recipient",  // Would need to extract from message
+        message.message,
+        reason,
+        static_cast<int>(failedMethod)
+    );
     
     if (logger_) {
         logger_->info("NotificationService", 
             "Scheduled retry for notification " + message.id + " (attempt " + 
-            std::to_string(retryMessage.retryCount) + "/" + std::to_string(retryMessage.maxRetries) + ")");
+            std::to_string(message.retryCount + 1) + "/" + std::to_string(message.maxRetries) + ")");
     }
 }
 

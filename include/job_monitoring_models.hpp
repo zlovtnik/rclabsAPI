@@ -142,6 +142,26 @@ struct ConnectionFilters {
     bool shouldReceiveJob(const std::string& jobId) const;
     bool shouldReceiveLogLevel(const std::string& level) const;
     bool shouldReceiveMessageType(MessageType type) const;
+    
+    // Enhanced filtering methods
+    void addJobId(const std::string& jobId);
+    void removeJobId(const std::string& jobId);
+    void addMessageType(MessageType messageType);
+    void removeMessageType(MessageType messageType);
+    void addLogLevel(const std::string& logLevel);
+    void removeLogLevel(const std::string& logLevel);
+    void clear();
+    
+    // Filter information
+    bool hasFilters() const;
+    bool hasJobFilters() const;
+    bool hasMessageTypeFilters() const;
+    bool hasLogLevelFilters() const;
+    size_t getTotalFilterCount() const;
+    
+    // Filter validation
+    bool isValid() const;
+    std::string getValidationErrors() const;
 };
 
 // Utility functions for message type conversion

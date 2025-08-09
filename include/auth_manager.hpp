@@ -3,7 +3,9 @@
 #include <chrono>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
+#include <vector>
 
 struct User {
   std::string id;
@@ -30,11 +32,10 @@ public:
   // User management
   bool createUser(const std::string &username, const std::string &email,
                   const std::string &password);
-  bool authenticateUser(const std::string &username,
-                        const std::string &password);
+  bool authenticateUser(std::string_view username) const;
   bool updateUser(const std::string &userId, const User &updatedUser);
   bool deleteUser(const std::string &userId);
-  std::shared_ptr<User> getUser(const std::string &userId);
+  std::shared_ptr<User> getUser(const std::string &userId) const;
 
   // Session management
   std::string createSession(const std::string &userId);
@@ -43,8 +44,8 @@ public:
   void cleanupExpiredSessions();
 
   // Authorization
-  bool hasPermission(const std::string &userId, const std::string &resource,
-                     const std::string &action);
+  bool hasPermission(std::string_view userId, std::string_view resource,
+                     std::string_view action) const;
   void assignRole(const std::string &userId, const std::string &role);
   void revokeRole(const std::string &userId, const std::string &role);
 
@@ -52,10 +53,10 @@ private:
   std::unordered_map<std::string, std::shared_ptr<User>> users_;
   std::unordered_map<std::string, std::shared_ptr<Session>> sessions_;
 
-  std::string hashPassword(const std::string &password,
-                           const std::string &salt);
-  std::string generateSalt();
-  std::string generateSessionId();
-  bool verifyPassword(const std::string &password, const std::string &hash,
-                      const std::string &salt);
+  std::string hashPassword(std::string_view password,
+                           std::string_view salt) const;
+  std::string generateSalt() const;
+  std::string generateSessionId() const;
+  bool verifyPassword(std::string_view password, std::string_view hash,
+                      std::string_view salt) const;
 };

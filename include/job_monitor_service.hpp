@@ -1,6 +1,7 @@
 #pragma once
 
 #include "job_monitoring_models.hpp"
+#include "job_monitor_service_recovery.hpp"
 #include "etl_job_manager.hpp"
 #include <memory>
 #include <unordered_map>
@@ -8,6 +9,8 @@
 #include <vector>
 #include <functional>
 #include <chrono>
+#include <thread>
+#include <atomic>
 
 // Forward declarations
 class WebSocketManager;
@@ -38,10 +41,19 @@ public:
     void start();
     void stop();
     bool isRunning() const;
+    
+    // Health and recovery management
+    bool isHealthy() const;
+    void setRecoveryConfig(const job_monitoring_recovery::ServiceRecoveryConfig& config);
+    const job_monitoring_recovery::ServiceRecoveryConfig& getRecoveryConfig() const { return recoveryConfig_; }
+    const job_monitoring_recovery::ServiceRecoveryState& getRecoveryState() const { return recoveryState_; }
+    void performHealthCheck();
+    void attemptRecovery();
+    std::shared_ptr<NotificationService> getNotificationService() { return notifier_; }
 
     // Event handling methods (called by ETL Job Manager)
-    void onJobStatusChanged(const std::string& jobId, JobStatus oldStatus, JobStatus newStatus);
-    void onJobProgressUpdated(const std::string& jobId, int progressPercent, const std::string& currentStep);
+    void onJobStatusChanged(const std::string& jobId, JobStatus oldStatus, JobStatus newStatus) override;
+    void onJobProgressUpdated(const std::string& jobId, int progressPercent, const std::string& currentStep) override;
     void onJobLogGenerated(const std::string& jobId, const LogMessage& logMessage);
 
     // Job data access methods
@@ -71,57 +83,77 @@ public:
     void enableNotifications(bool enabled);
 
 private:
-    // Core dependencies
+    // Core components
     std::shared_ptr<ETLJobManager> etlManager_;
     std::shared_ptr<WebSocketManager> wsManager_;
     std::shared_ptr<NotificationService> notifier_;
-
-    // Job monitoring data storage
-    mutable std::mutex jobDataMutex_;
+    
+    // Job data storage
     std::unordered_map<std::string, JobMonitoringData> activeJobs_;
     std::unordered_map<std::string, JobMonitoringData> completedJobs_;
-
+    mutable std::mutex jobDataMutex_;
+    
+    // Service state
+    std::atomic<bool> running_{false};
+    std::atomic<bool> notificationsEnabled_{true};
+    
     // Configuration
-    size_t maxRecentLogs_ = 50;
-    int progressUpdateThreshold_ = 5; // Minimum progress change to trigger update
-    bool notificationsEnabled_ = true;
-    bool running_ = false;
-
-    // Internal helper methods
-    void createJobMonitoringData(const std::string& jobId);
-    void updateJobMonitoringData(const std::string& jobId, 
-                               std::function<void(JobMonitoringData&)> updater);
+    int maxRecentLogs_ = 50;
+    int progressUpdateThreshold_ = 5;  // Only send updates if progress changed by at least this much
+    
+    // Error handling and recovery
+    job_monitoring_recovery::ServiceRecoveryConfig recoveryConfig_;
+    job_monitoring_recovery::ServiceRecoveryState recoveryState_;
+    job_monitoring_recovery::ServiceCircuitBreaker circuitBreaker_;
+    
+    // Degraded mode operations
+    job_monitoring_recovery::DegradedModeEventQueue<JobStatusUpdate> pendingStatusUpdates_;
+    job_monitoring_recovery::DegradedModeEventQueue<WebSocketMessage> pendingProgressUpdates_;
+    
+    // Health monitoring
+    std::unique_ptr<std::thread> healthCheckThread_;
+    std::atomic<bool> healthCheckRunning_{false};
+    
+    // Core business logic methods
     void moveJobToCompleted(const std::string& jobId);
-    
-    // Message creation helpers
-    JobStatusUpdate createJobStatusUpdate(const std::string& jobId, 
-                                        JobStatus oldStatus, 
-                                        JobStatus newStatus);
-    WebSocketMessage createProgressMessage(const std::string& jobId, 
-                                         int progressPercent, 
-                                         const std::string& currentStep);
-    
-    // Notification helpers
-    void checkAndSendNotifications(const std::string& jobId, 
-                                 JobStatus oldStatus, 
-                                 JobStatus newStatus);
+    JobStatusUpdate createJobStatusUpdate(const std::string& jobId, JobStatus oldStatus, JobStatus newStatus);
+    WebSocketMessage createProgressMessage(const std::string& jobId, int progressPercent, const std::string& currentStep);
+    void checkAndSendNotifications(const std::string& jobId, JobStatus oldStatus, JobStatus newStatus);
     void sendJobFailureNotification(const std::string& jobId, const std::string& errorMessage);
     void sendJobTimeoutWarning(const std::string& jobId, std::chrono::milliseconds executionTime);
-
-    // Utility methods
     bool shouldUpdateProgress(const std::string& jobId, int newProgress);
-    void addLogToJob(const std::string& jobId, const std::string& logEntry);
-    void cleanupOldJobs();
     
-    // Thread safety helpers
+    // Error handling methods
+    void handleServiceError(const std::string& operation, const std::exception& e);
+    void enterDegradedMode();
+    void exitDegradedMode();
+    void processQueuedEvents();
+    bool tryOperation(const std::function<void()>& operation, const std::string& operationName);
+    
+    // Health monitoring methods
+    void startHealthMonitoring();
+    void stopHealthMonitoring();
+    void healthCheckLoop();
+    bool performComponentHealthChecks();
+    bool checkETLManagerHealth();
+    bool checkWebSocketManagerHealth();
+    bool checkNotificationServiceHealth();
+    
+    // Thread safety helper
     template<typename T>
     T withJobDataLock(std::function<T()> operation) const;
     void withJobDataLock(std::function<void()> operation) const;
+    
+    // Private helper methods
+    void createJobMonitoringData(const std::string& jobId);
+    void updateJobMonitoringData(const std::string& jobId, const std::function<void(JobMonitoringData&)>& updateFunc);
+    void addLogToJob(const std::string& jobId, const std::string& logEntry);
+    void cleanupOldJobs();
 };
 
-// Template implementation for thread safety helper
+// Template implementation for thread safety helper  
 template<typename T>
 T JobMonitorService::withJobDataLock(std::function<T()> operation) const {
-    std::lock_guard<std::mutex> lock(jobDataMutex_);
+    std::scoped_lock lock(jobDataMutex_);
     return operation();
 }

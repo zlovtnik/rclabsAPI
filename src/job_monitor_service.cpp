@@ -5,10 +5,24 @@
 #include <algorithm>
 #include <chrono>
 
-// NotificationService is now defined in the header file
-
-JobMonitorService::JobMonitorService() {
-    JOB_LOG_DEBUG("Job Monitor Service created");
+JobMonitorService::JobMonitorService() 
+    : circuitBreaker_(5, std::chrono::seconds(60), 3)
+    , pendingStatusUpdates_(10000)
+    , pendingProgressUpdates_(10000) {
+    
+    // Initialize recovery configuration
+    recoveryConfig_.enableGracefulDegradation = true;
+    recoveryConfig_.enableAutoRecovery = true;
+    recoveryConfig_.maxRecoveryAttempts = 3;
+    recoveryConfig_.baseRecoveryDelay = std::chrono::milliseconds(5000);
+    recoveryConfig_.maxRecoveryDelay = std::chrono::milliseconds(60000);
+    recoveryConfig_.backoffMultiplier = 2.0;
+    recoveryConfig_.eventQueueMaxSize = 10000;
+    recoveryConfig_.healthCheckInterval = std::chrono::seconds(30);
+    recoveryConfig_.enableHealthChecks = true;
+    recoveryConfig_.maxFailedHealthChecks = 3;
+    
+    JOB_LOG_DEBUG("Job Monitor Service created with error handling and recovery capabilities");
 }
 
 JobMonitorService::~JobMonitorService() {
@@ -52,7 +66,7 @@ void JobMonitorService::start() {
     // Initialize monitoring data for any existing jobs
     if (etlManager_) {
         auto existingJobs = etlManager_->getAllJobs();
-        std::lock_guard<std::mutex> lock(jobDataMutex_);
+        std::scoped_lock lock(jobDataMutex_);
         
         for (const auto& job : existingJobs) {
             JobMonitoringData monitoringData;
@@ -94,7 +108,7 @@ void JobMonitorService::stop() {
     running_ = false;
     
     // Clear monitoring data
-    std::lock_guard<std::mutex> lock(jobDataMutex_);
+    std::scoped_lock lock(jobDataMutex_);
     activeJobs_.clear();
     completedJobs_.clear();
 
@@ -338,7 +352,7 @@ void JobMonitorService::broadcastJobMetrics(const std::string& jobId, const JobM
 }
 
 size_t JobMonitorService::getActiveJobCount() const {
-    std::lock_guard<std::mutex> lock(jobDataMutex_);
+    std::scoped_lock lock(jobDataMutex_);
     return activeJobs_.size();
 }
 
@@ -356,7 +370,7 @@ std::vector<std::string> JobMonitorService::getActiveJobIds() const {
 }
 
 bool JobMonitorService::isJobActive(const std::string& jobId) const {
-    std::lock_guard<std::mutex> lock(jobDataMutex_);
+    std::scoped_lock lock(jobDataMutex_);
     return activeJobs_.find(jobId) != activeJobs_.end();
 }
 
@@ -406,7 +420,7 @@ void JobMonitorService::enableNotifications(bool enabled) {
 // Private helper methods
 
 void JobMonitorService::createJobMonitoringData(const std::string& jobId) {
-    std::lock_guard<std::mutex> lock(jobDataMutex_);
+    std::scoped_lock lock(jobDataMutex_);
     
     if (activeJobs_.find(jobId) != activeJobs_.end()) {
         return; // Already exists
@@ -442,8 +456,8 @@ void JobMonitorService::createJobMonitoringData(const std::string& jobId) {
 }
 
 void JobMonitorService::updateJobMonitoringData(const std::string& jobId, 
-                                              std::function<void(JobMonitoringData&)> updater) {
-    std::lock_guard<std::mutex> lock(jobDataMutex_);
+                                              const std::function<void(JobMonitoringData&)>& updater) {
+    std::scoped_lock lock(jobDataMutex_);
     
     auto activeIt = activeJobs_.find(jobId);
     if (activeIt != activeJobs_.end()) {
@@ -460,7 +474,7 @@ void JobMonitorService::updateJobMonitoringData(const std::string& jobId,
 }
 
 void JobMonitorService::moveJobToCompleted(const std::string& jobId) {
-    std::lock_guard<std::mutex> lock(jobDataMutex_);
+    std::scoped_lock lock(jobDataMutex_);
     
     auto activeIt = activeJobs_.find(jobId);
     if (activeIt != activeJobs_.end()) {
@@ -553,7 +567,7 @@ void JobMonitorService::sendJobTimeoutWarning(const std::string& jobId, std::chr
 }
 
 bool JobMonitorService::shouldUpdateProgress(const std::string& jobId, int newProgress) {
-    std::lock_guard<std::mutex> lock(jobDataMutex_);
+    std::scoped_lock lock(jobDataMutex_);
     
     auto activeIt = activeJobs_.find(jobId);
     if (activeIt == activeJobs_.end()) {
@@ -576,7 +590,7 @@ void JobMonitorService::addLogToJob(const std::string& jobId, const std::string&
 }
 
 void JobMonitorService::cleanupOldJobs() {
-    std::lock_guard<std::mutex> lock(jobDataMutex_);
+    std::scoped_lock lock(jobDataMutex_);
     
     auto now = std::chrono::system_clock::now();
     auto cutoffTime = now - std::chrono::hours(24); // Keep jobs for 24 hours
@@ -592,6 +606,261 @@ void JobMonitorService::cleanupOldJobs() {
 }
 
 void JobMonitorService::withJobDataLock(std::function<void()> operation) const {
-    std::lock_guard<std::mutex> lock(jobDataMutex_);
+    std::scoped_lock lock(jobDataMutex_);
     operation();
+}
+
+// Error handling and recovery methods
+bool JobMonitorService::isHealthy() const {
+    return recoveryState_.isHealthy.load() && 
+           circuitBreaker_.getState() != job_monitoring_recovery::ServiceCircuitBreaker::State::OPEN;
+}
+
+void JobMonitorService::setRecoveryConfig(const job_monitoring_recovery::ServiceRecoveryConfig& config) {
+    recoveryConfig_ = config;
+    
+    if (recoveryConfig_.enableHealthChecks && running_.load() && !healthCheckRunning_.load()) {
+        startHealthMonitoring();
+    } else if (!recoveryConfig_.enableHealthChecks && healthCheckRunning_.load()) {
+        stopHealthMonitoring();
+    }
+}
+
+void JobMonitorService::performHealthCheck() {
+    try {
+        bool isHealthy = performComponentHealthChecks();
+        
+        if (isHealthy) {
+            recoveryState_.failedHealthChecks.store(0);
+            if (!recoveryState_.isHealthy.load()) {
+                JOB_LOG_INFO("Job Monitor Service health restored");
+                recoveryState_.isHealthy.store(true);
+                circuitBreaker_.onSuccess();
+                
+                if (circuitBreaker_.isInDegradedMode()) {
+                    exitDegradedMode();
+                }
+            }
+        } else {
+            recoveryState_.failedHealthChecks++;
+            
+            if (recoveryState_.failedHealthChecks.load() >= recoveryConfig_.maxFailedHealthChecks) {
+                JOB_LOG_ERROR("Job Monitor Service health check failed " + 
+                             std::to_string(recoveryState_.failedHealthChecks.load()) + " times, marking as unhealthy");
+                recoveryState_.isHealthy.store(false);
+                circuitBreaker_.onFailure();
+                
+                if (recoveryConfig_.enableGracefulDegradation) {
+                    enterDegradedMode();
+                }
+            }
+        }
+        
+        recoveryState_.lastHealthCheck = std::chrono::system_clock::now();
+        
+    } catch (const std::exception& e) {
+        handleServiceError("health_check", e);
+    }
+}
+
+void JobMonitorService::attemptRecovery() {
+    if (!recoveryState_.shouldAttemptRecovery(recoveryConfig_)) {
+        return;
+    }
+    
+    if (recoveryState_.isRecovering.load()) {
+        return; // Already attempting recovery
+    }
+    
+    recoveryState_.isRecovering.store(true);
+    recoveryState_.recoveryAttempts++;
+    recoveryState_.lastRecoveryAttempt = std::chrono::system_clock::now();
+    
+    JOB_LOG_INFO("Attempting Job Monitor Service recovery (attempt " + 
+                 std::to_string(recoveryState_.recoveryAttempts.load()) + 
+                 "/" + std::to_string(recoveryConfig_.maxRecoveryAttempts) + ")");
+    
+    try {
+        // Try to reinitialize components
+        if (etlManager_ && wsManager_) {
+            initialize(etlManager_, wsManager_, notifier_);
+        }
+        
+        // Perform health check
+        bool isHealthy = performComponentHealthChecks();
+        
+        if (isHealthy) {
+            JOB_LOG_INFO("Job Monitor Service recovery successful");
+            recoveryState_.reset();
+            circuitBreaker_.onSuccess();
+            
+            // Process any queued events
+            processQueuedEvents();
+        } else {
+            JOB_LOG_WARN("Job Monitor Service recovery attempt failed");
+            circuitBreaker_.onFailure();
+        }
+        
+    } catch (const std::exception& e) {
+        JOB_LOG_ERROR("Job Monitor Service recovery attempt failed with exception: " + std::string(e.what()));
+        circuitBreaker_.onFailure();
+    }
+    
+    recoveryState_.isRecovering.store(false);
+}
+
+void JobMonitorService::handleServiceError(const std::string& operation, const std::exception& e) {
+    JOB_LOG_ERROR("Job Monitor Service error in " + operation + ": " + e.what());
+    
+    circuitBreaker_.onFailure();
+    
+    if (recoveryConfig_.enableGracefulDegradation && !circuitBreaker_.isInDegradedMode()) {
+        enterDegradedMode();
+    }
+    
+    if (recoveryConfig_.enableAutoRecovery && recoveryState_.shouldAttemptRecovery(recoveryConfig_)) {
+        // Schedule recovery attempt
+        std::thread([this]() {
+            auto delay = recoveryState_.calculateBackoffDelay(recoveryConfig_);
+            std::this_thread::sleep_for(delay);
+            attemptRecovery();
+        }).detach();
+    }
+}
+
+void JobMonitorService::enterDegradedMode() {
+    JOB_LOG_WARN("Job Monitor Service entering degraded mode - basic functionality only");
+    
+    // In degraded mode, we still track job data but don't send real-time updates
+    // Updates will be queued and sent when service recovers
+}
+
+void JobMonitorService::exitDegradedMode() {
+    JOB_LOG_INFO("Job Monitor Service exiting degraded mode - full functionality restored");
+    
+    // Process any queued events that accumulated during degraded mode
+    processQueuedEvents();
+}
+
+void JobMonitorService::processQueuedEvents() {
+    try {
+        // Process queued status updates
+        auto statusUpdates = pendingStatusUpdates_.dequeueAll();
+        for (const auto& update : statusUpdates) {
+            if (wsManager_ && circuitBreaker_.allowOperation()) {
+                std::string message = update.toJson();
+                wsManager_->broadcastJobUpdate(message, update.jobId);
+            }
+        }
+        
+        // Process queued progress updates
+        auto progressUpdates = pendingProgressUpdates_.dequeueAll();
+        for (const auto& update : progressUpdates) {
+            if (wsManager_ && circuitBreaker_.allowOperation()) {
+                std::string message = update.toJson();
+                wsManager_->broadcastMessage(message);
+            }
+        }
+        
+        if (!statusUpdates.empty() || !progressUpdates.empty()) {
+            JOB_LOG_INFO("Processed " + std::to_string(statusUpdates.size()) + 
+                        " status updates and " + std::to_string(progressUpdates.size()) + 
+                        " progress updates from degraded mode queue");
+        }
+        
+    } catch (const std::exception& e) {
+        JOB_LOG_ERROR("Error processing queued events: " + std::string(e.what()));
+    }
+}
+
+bool JobMonitorService::tryOperation(const std::function<void()>& operation, const std::string& operationName) {
+    if (!circuitBreaker_.allowOperation()) {
+        JOB_LOG_WARN("Circuit breaker open, skipping operation: " + operationName);
+        return false;
+    }
+    
+    try {
+        operation();
+        circuitBreaker_.onSuccess();
+        return true;
+    } catch (const std::exception& e) {
+        handleServiceError(operationName, e);
+        return false;
+    }
+}
+
+void JobMonitorService::startHealthMonitoring() {
+    if (healthCheckRunning_.load()) return;
+    
+    healthCheckRunning_.store(true);
+    healthCheckThread_ = std::make_unique<std::thread>(&JobMonitorService::healthCheckLoop, this);
+    
+    JOB_LOG_INFO("Health monitoring started for Job Monitor Service");
+}
+
+void JobMonitorService::stopHealthMonitoring() {
+    if (!healthCheckRunning_.load()) return;
+    
+    healthCheckRunning_.store(false);
+    
+    if (healthCheckThread_ && healthCheckThread_->joinable()) {
+        healthCheckThread_->join();
+    }
+    
+    JOB_LOG_INFO("Health monitoring stopped for Job Monitor Service");
+}
+
+void JobMonitorService::healthCheckLoop() {
+    while (healthCheckRunning_.load()) {
+        performHealthCheck();
+        
+        // Sleep for the configured interval
+        std::this_thread::sleep_for(recoveryConfig_.healthCheckInterval);
+    }
+}
+
+bool JobMonitorService::performComponentHealthChecks() {
+    bool etlHealthy = checkETLManagerHealth();
+    bool wsHealthy = checkWebSocketManagerHealth();
+    bool notificationHealthy = checkNotificationServiceHealth();
+    
+    return etlHealthy && wsHealthy && notificationHealthy;
+}
+
+bool JobMonitorService::checkETLManagerHealth() {
+    if (!etlManager_) return false;
+    
+    try {
+        // Try to get job list to verify ETL manager is responsive
+        auto jobs = etlManager_->getAllJobs();
+        return true;
+    } catch (const std::exception& e) {
+        JOB_LOG_WARN("ETL Manager health check failed: " + std::string(e.what()));
+        return false;
+    }
+}
+
+bool JobMonitorService::checkWebSocketManagerHealth() {
+    if (!wsManager_) return false;
+    
+    try {
+        // Check if WebSocket manager is responsive
+        auto connectionCount = wsManager_->getConnectionCount();
+        return true;
+    } catch (const std::exception& e) {
+        JOB_LOG_WARN("WebSocket Manager health check failed: " + std::string(e.what()));
+        return false;
+    }
+}
+
+bool JobMonitorService::checkNotificationServiceHealth() {
+    if (!notifier_) return true; // Optional component
+    
+    try {
+        // Check if notification service is responsive
+        return notifier_->isRunning();
+    } catch (const std::exception& e) {
+        JOB_LOG_WARN("Notification Service health check failed: " + std::string(e.what()));
+        return false;
+    }
 }
