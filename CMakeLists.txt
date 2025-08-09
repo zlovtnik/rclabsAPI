@@ -27,6 +27,7 @@ set(SOURCES
     src/input_validator.cpp
     src/exceptions.cpp
     src/exception_handler.cpp
+    src/job_monitoring_models.cpp
 )
 
 # Create executable
@@ -111,3 +112,13 @@ add_executable(test_websocket_filtering_demo scripts/test_websocket_filtering_de
 
 target_include_directories(test_websocket_filtering_demo PRIVATE include)
 target_link_libraries(test_websocket_filtering_demo ${Boost_LIBRARIES} pthread)
+
+# Job Monitoring Models Test Executable
+add_executable(test_job_monitoring_models scripts/test_job_monitoring_models.cpp 
+    src/job_monitoring_models.cpp
+    src/logger.cpp 
+    src/config_manager.cpp
+)
+
+target_include_directories(test_job_monitoring_models PRIVATE include)
+target_link_libraries(test_job_monitoring_models ${Boost_LIBRARIES} pthread)
