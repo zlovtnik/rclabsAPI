@@ -39,6 +39,29 @@ public:
     // Connection filter management
     void setConnectionFilters(const std::string& connectionId, const ConnectionFilters& filters);
     ConnectionFilters getConnectionFilters(const std::string& connectionId) const;
+    void updateConnectionFilters(const std::string& connectionId, const ConnectionFilters& filters);
+    
+    // Enhanced filter management
+    void addJobFilterToConnection(const std::string& connectionId, const std::string& jobId);
+    void removeJobFilterFromConnection(const std::string& connectionId, const std::string& jobId);
+    void addMessageTypeFilterToConnection(const std::string& connectionId, MessageType messageType);
+    void removeMessageTypeFilterFromConnection(const std::string& connectionId, MessageType messageType);
+    void addLogLevelFilterToConnection(const std::string& connectionId, const std::string& logLevel);
+    void removeLogLevelFilterFromConnection(const std::string& connectionId, const std::string& logLevel);
+    void clearConnectionFilters(const std::string& connectionId);
+    
+    // Connection analysis and statistics
+    std::vector<std::string> getConnectionsForJob(const std::string& jobId) const;
+    std::vector<std::string> getConnectionsForMessageType(MessageType messageType) const;
+    std::vector<std::string> getConnectionsForLogLevel(const std::string& logLevel) const;
+    size_t getFilteredConnectionCount() const;
+    size_t getUnfilteredConnectionCount() const;
+    
+    // Advanced message routing
+    void broadcastWithAdvancedRouting(const WebSocketMessage& message);
+    void sendToMatchingConnections(const WebSocketMessage& message, 
+                                 std::function<bool(const ConnectionFilters&, const WebSocketMessage&)> customMatcher);
+    bool testConnectionFilter(const std::string& connectionId, const WebSocketMessage& testMessage) const;
 
 private:
     mutable std::mutex connectionsMutex_;
