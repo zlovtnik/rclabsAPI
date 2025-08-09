@@ -14,6 +14,11 @@
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <functional>
+
+// Forward declarations for real-time log streaming
+class WebSocketManager;
+struct LogMessage;
 
 enum class LogLevel { DEBUG = 0, INFO = 1, WARN = 2, ERROR = 3, FATAL = 4 };
 
@@ -32,6 +37,12 @@ struct LogConfig {
   std::unordered_set<std::string> componentFilter; // Empty = all components
   bool includeMetrics = false;
   int flushInterval = 1000; // milliseconds
+  
+  // Real-time streaming configuration
+  bool enableRealTimeStreaming = false;
+  size_t streamingQueueSize = 1000;
+  bool streamAllLevels = true;
+  std::unordered_set<std::string> streamingJobFilter; // Empty = all jobs
 };
 
 struct LogMetrics {
@@ -63,6 +74,8 @@ struct LogMetrics {
     return *this;
   }
 };
+
+
 
 class Logger {
 public:
@@ -107,6 +120,34 @@ public:
   void flush();
   void shutdown();
 
+  // Real-time log streaming methods
+  void setWebSocketManager(std::shared_ptr<WebSocketManager> wsManager);
+  void enableRealTimeStreaming(bool enable);
+  void setStreamingJobFilter(const std::unordered_set<std::string>& jobIds);
+  void addStreamingJobFilter(const std::string& jobId);
+  void removeStreamingJobFilter(const std::string& jobId);
+  void clearStreamingJobFilter();
+  
+  // Job-specific logging methods
+  void logForJob(LogLevel level, const std::string& component, 
+                 const std::string& message, const std::string& jobId,
+                 const std::unordered_map<std::string, std::string>& context = {});
+  void debugForJob(const std::string& component, const std::string& message, 
+                   const std::string& jobId,
+                   const std::unordered_map<std::string, std::string>& context = {});
+  void infoForJob(const std::string& component, const std::string& message, 
+                  const std::string& jobId,
+                  const std::unordered_map<std::string, std::string>& context = {});
+  void warnForJob(const std::string& component, const std::string& message, 
+                  const std::string& jobId,
+                  const std::unordered_map<std::string, std::string>& context = {});
+  void errorForJob(const std::string& component, const std::string& message, 
+                   const std::string& jobId,
+                   const std::unordered_map<std::string, std::string>& context = {});
+  void fatalForJob(const std::string& component, const std::string& message, 
+                   const std::string& jobId,
+                   const std::unordered_map<std::string, std::string>& context = {});
+
 private:
   Logger() = default;
   ~Logger();
@@ -132,6 +173,15 @@ private:
   // Metrics
   LogMetrics metrics_;
 
+  // Real-time streaming
+  std::shared_ptr<WebSocketManager> wsManager_;
+  std::queue<std::shared_ptr<LogMessage>> streamingQueue_;
+  std::thread streamingThread_;
+  std::condition_variable streamingCondition_;
+  std::mutex streamingMutex_;
+  std::atomic<bool> stopStreaming_{false};
+  std::atomic<bool> streamingStarted_{false};
+
   // Helper methods
   std::string formatTimestamp();
   std::string levelToString(LogLevel level);
@@ -152,6 +202,14 @@ private:
   void rotateLogFile();
   bool shouldLog(LogLevel level, const std::string &component);
   std::string escapeJson(const std::string &str);
+  
+  // Real-time streaming helpers
+  void streamingWorker();
+  void broadcastLogMessage(const std::shared_ptr<LogMessage>& logMsg);
+  bool shouldStreamLog(LogLevel level, const std::string& jobId);
+  std::shared_ptr<LogMessage> createLogMessage(LogLevel level, const std::string& component,
+                                              const std::string& message, const std::string& jobId,
+                                              const std::unordered_map<std::string, std::string>& context);
 };
 
 // Convenience macros for logging (backward compatible)
@@ -256,3 +314,25 @@ private:
   LOG_WARN("JobMonitorService", message, ##__VA_ARGS__)
 #define JOB_LOG_ERROR(message, ...)                                            \
   LOG_ERROR("JobMonitorService", message, ##__VA_ARGS__)
+
+// Job-specific logging macros for real-time streaming
+#define LOG_DEBUG_JOB(component, message, jobId, ...)                          \
+  Logger::getInstance().debugForJob(component, message, jobId, ##__VA_ARGS__)
+#define LOG_INFO_JOB(component, message, jobId, ...)                           \
+  Logger::getInstance().infoForJob(component, message, jobId, ##__VA_ARGS__)
+#define LOG_WARN_JOB(component, message, jobId, ...)                           \
+  Logger::getInstance().warnForJob(component, message, jobId, ##__VA_ARGS__)
+#define LOG_ERROR_JOB(component, message, jobId, ...)                          \
+  Logger::getInstance().errorForJob(component, message, jobId, ##__VA_ARGS__)
+#define LOG_FATAL_JOB(component, message, jobId, ...)                          \
+  Logger::getInstance().fatalForJob(component, message, jobId, ##__VA_ARGS__)
+
+// ETL Job-specific logging macros
+#define ETL_LOG_DEBUG_JOB(message, jobId, ...)                                 \
+  LOG_DEBUG_JOB("ETLJobManager", message, jobId, ##__VA_ARGS__)
+#define ETL_LOG_INFO_JOB(message, jobId, ...)                                  \
+  LOG_INFO_JOB("ETLJobManager", message, jobId, ##__VA_ARGS__)
+#define ETL_LOG_WARN_JOB(message, jobId, ...)                                  \
+  LOG_WARN_JOB("ETLJobManager", message, jobId, ##__VA_ARGS__)
+#define ETL_LOG_ERROR_JOB(message, jobId, ...)                                 \
+  LOG_ERROR_JOB("ETLJobManager", message, jobId, ##__VA_ARGS__)

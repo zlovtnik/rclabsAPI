@@ -177,3 +177,39 @@ add_executable(test_job_monitor_service_simple scripts/test_job_monitor_service_
 
 target_include_directories(test_job_monitor_service_simple PRIVATE include)
 target_link_libraries(test_job_monitor_service_simple ${Boost_LIBRARIES} pthread)
+
+# Log Streaming Test Executable
+add_executable(test_log_streaming_simple scripts/test_log_streaming_simple.cpp 
+    src/job_monitoring_models.cpp
+    src/websocket_manager.cpp
+    src/websocket_connection.cpp
+    src/logger.cpp 
+    src/config_manager.cpp
+)
+
+target_include_directories(test_log_streaming_simple PRIVATE include)
+target_link_libraries(test_log_streaming_simple ${Boost_LIBRARIES} pthread)
+
+# Log Streaming Integration Test Executable
+add_executable(test_log_streaming_integration scripts/test_log_streaming_integration.cpp 
+    src/job_monitoring_models.cpp
+    src/websocket_manager.cpp
+    src/websocket_connection.cpp
+    src/logger.cpp 
+    src/config_manager.cpp
+)
+
+target_include_directories(test_log_streaming_integration PRIVATE include)
+target_link_libraries(test_log_streaming_integration ${Boost_LIBRARIES} pthread)
+
+# Log Streaming Demo Executable
+add_executable(test_log_streaming_demo scripts/test_log_streaming_demo.cpp 
+    src/job_monitoring_models.cpp
+    src/websocket_manager.cpp
+    src/websocket_connection.cpp
+    src/logger.cpp 
+    src/config_manager.cpp
+)
+
+target_include_directories(test_log_streaming_demo PRIVATE include)
+target_link_libraries(test_log_streaming_demo ${Boost_LIBRARIES} pthread)

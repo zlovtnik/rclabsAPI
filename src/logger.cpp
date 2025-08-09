@@ -1,4 +1,6 @@
 #include "logger.hpp"
+#include "job_monitoring_models.hpp"
+#include "websocket_manager.hpp"
 #include <iostream>
 #include <iomanip>
 #include <filesystem>
@@ -79,6 +81,16 @@ void Logger::configure(const LogConfig& config) {
         stopAsync_ = false;
         asyncStarted_ = true;
         asyncThread_ = std::thread(&Logger::asyncWorker, this);
+    }
+    
+    // Handle real-time streaming initialization
+    config_.enableRealTimeStreaming = config.enableRealTimeStreaming;
+    config_.streamingQueueSize = config.streamingQueueSize;
+    config_.streamAllLevels = config.streamAllLevels;
+    config_.streamingJobFilter = config.streamingJobFilter;
+    
+    if (config.enableRealTimeStreaming && !streamingStarted_) {
+        enableRealTimeStreaming(true);
     }
 }
 
@@ -255,6 +267,10 @@ void Logger::flush() {
 void Logger::shutdown() {
     if (asyncStarted_) {
         enableAsyncLogging(false);
+    }
+    
+    if (streamingStarted_) {
+        enableRealTimeStreaming(false);
     }
     
     std::lock_guard<std::mutex> lock(fileMutex_);
@@ -482,3 +498,179 @@ bool Logger::shouldLog(LogLevel level, const std::string& component) {
     
     return true;
 }
+
+// Real-time streaming methods implementation
+void Logger::setWebSocketManager(std::shared_ptr<WebSocketManager> wsManager) {
+    std::lock_guard<std::mutex> lock(configMutex_);
+    wsManager_ = wsManager;
+}
+
+void Logger::enableRealTimeStreaming(bool enable) {
+    std::lock_guard<std::mutex> lock(configMutex_);
+    
+    if (enable && !config_.enableRealTimeStreaming && !streamingStarted_) {
+        config_.enableRealTimeStreaming = true;
+        stopStreaming_ = false;
+        streamingStarted_ = true;
+        streamingThread_ = std::thread(&Logger::streamingWorker, this);
+    } else if (!enable && config_.enableRealTimeStreaming && streamingStarted_) {
+        config_.enableRealTimeStreaming = false;
+        stopStreaming_ = true;
+        streamingCondition_.notify_all();
+        if (streamingThread_.joinable()) {
+            streamingThread_.join();
+        }
+        streamingStarted_ = false;
+    }
+}
+
+void Logger::setStreamingJobFilter(const std::unordered_set<std::string>& jobIds) {
+    std::lock_guard<std::mutex> lock(configMutex_);
+    config_.streamingJobFilter = jobIds;
+}
+
+void Logger::addStreamingJobFilter(const std::string& jobId) {
+    std::lock_guard<std::mutex> lock(configMutex_);
+    config_.streamingJobFilter.insert(jobId);
+}
+
+void Logger::removeStreamingJobFilter(const std::string& jobId) {
+    std::lock_guard<std::mutex> lock(configMutex_);
+    config_.streamingJobFilter.erase(jobId);
+}
+
+void Logger::clearStreamingJobFilter() {
+    std::lock_guard<std::mutex> lock(configMutex_);
+    config_.streamingJobFilter.clear();
+}
+
+void Logger::logForJob(LogLevel level, const std::string& component, 
+                       const std::string& message, const std::string& jobId,
+                       const std::unordered_map<std::string, std::string>& context) {
+    // Regular logging
+    log(level, component, message, context);
+    
+    // Real-time streaming if enabled
+    if (config_.enableRealTimeStreaming && shouldStreamLog(level, jobId)) {
+        auto logMsg = createLogMessage(level, component, message, jobId, context);
+        
+        std::lock_guard<std::mutex> lock(streamingMutex_);
+        
+        // Check queue size to prevent memory issues
+        if (streamingQueue_.size() >= config_.streamingQueueSize) {
+            metrics_.droppedMessages++;
+            return;
+        }
+        
+        streamingQueue_.push(logMsg);
+        streamingCondition_.notify_one();
+    }
+}
+
+void Logger::debugForJob(const std::string& component, const std::string& message, 
+                         const std::string& jobId,
+                         const std::unordered_map<std::string, std::string>& context) {
+    logForJob(LogLevel::DEBUG, component, message, jobId, context);
+}
+
+void Logger::infoForJob(const std::string& component, const std::string& message, 
+                        const std::string& jobId,
+                        const std::unordered_map<std::string, std::string>& context) {
+    logForJob(LogLevel::INFO, component, message, jobId, context);
+}
+
+void Logger::warnForJob(const std::string& component, const std::string& message, 
+                        const std::string& jobId,
+                        const std::unordered_map<std::string, std::string>& context) {
+    logForJob(LogLevel::WARN, component, message, jobId, context);
+}
+
+void Logger::errorForJob(const std::string& component, const std::string& message, 
+                         const std::string& jobId,
+                         const std::unordered_map<std::string, std::string>& context) {
+    logForJob(LogLevel::ERROR, component, message, jobId, context);
+}
+
+void Logger::fatalForJob(const std::string& component, const std::string& message, 
+                         const std::string& jobId,
+                         const std::unordered_map<std::string, std::string>& context) {
+    logForJob(LogLevel::FATAL, component, message, jobId, context);
+}
+
+void Logger::streamingWorker() {
+    while (!stopStreaming_) {
+        std::unique_lock<std::mutex> lock(streamingMutex_);
+        
+        streamingCondition_.wait(lock, [this] { 
+            return !streamingQueue_.empty() || stopStreaming_; 
+        });
+        
+        // Process all messages in queue
+        while (!streamingQueue_.empty()) {
+            auto logMsg = streamingQueue_.front();
+            streamingQueue_.pop();
+            lock.unlock();
+            
+            broadcastLogMessage(logMsg);
+            
+            lock.lock();
+        }
+    }
+    
+    // Process remaining messages on shutdown
+    std::lock_guard<std::mutex> lock(streamingMutex_);
+    while (!streamingQueue_.empty()) {
+        broadcastLogMessage(streamingQueue_.front());
+        streamingQueue_.pop();
+    }
+}
+
+void Logger::broadcastLogMessage(const std::shared_ptr<LogMessage>& logMsg) {
+    if (!wsManager_ || !logMsg) {
+        return;
+    }
+    
+    try {
+        // Broadcast to WebSocket clients with filtering
+        wsManager_->broadcastLogMessage(logMsg->toJson(), logMsg->jobId, logMsg->level);
+    } catch (const std::exception& e) {
+        // Log error without causing recursion
+        std::cerr << "Failed to broadcast log message: " << e.what() << std::endl;
+    }
+}
+
+bool Logger::shouldStreamLog(LogLevel level, const std::string& jobId) {
+    // Check if streaming is enabled
+    if (!config_.enableRealTimeStreaming) {
+        return false;
+    }
+    
+    // Check log level filtering
+    if (!config_.streamAllLevels && level < config_.level) {
+        return false;
+    }
+    
+    // Check job ID filtering
+    if (!config_.streamingJobFilter.empty() && 
+        config_.streamingJobFilter.find(jobId) == config_.streamingJobFilter.end()) {
+        return false;
+    }
+    
+    return true;
+}
+
+std::shared_ptr<LogMessage> Logger::createLogMessage(LogLevel level, const std::string& component,
+                                                    const std::string& message, const std::string& jobId,
+                                                    const std::unordered_map<std::string, std::string>& context) {
+    auto logMsg = std::make_shared<LogMessage>();
+    logMsg->jobId = jobId;
+    logMsg->level = levelToString(level);
+    logMsg->component = component;
+    logMsg->message = message;
+    logMsg->timestamp = std::chrono::system_clock::now();
+    logMsg->context = context;
+    
+    return logMsg;
+}
+
+
