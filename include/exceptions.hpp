@@ -7,9 +7,9 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "transparent_string_hash.hpp"
 
-namespace ETLPlus {
-namespace Exceptions {
+namespace ETLPlus::Exceptions {
 
 // Error severity levels
 enum class ErrorSeverity {
@@ -101,7 +101,7 @@ struct ErrorContext {
   std::string operation;
   std::string component;
   std::chrono::system_clock::time_point timestamp;
-  std::unordered_map<std::string, std::string> additionalInfo;
+  std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> additionalInfo;
 
   ErrorContext();
   explicit ErrorContext(const std::string &operation);
@@ -275,5 +275,4 @@ chainException(std::shared_ptr<BaseException> cause, Args &&...args) {
   return exception;
 }
 
-} // namespace Exceptions
-} // namespace ETLPlus
+} // namespace ETLPlus::Exceptions
