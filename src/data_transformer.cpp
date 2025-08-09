@@ -91,7 +91,7 @@ std::string DataTransformer::applyTransformation(const std::string& value, const
 }
 
 std::string DataTransformer::applyStringTransformation(const std::string& value, const std::string& type,
-                                                     const std::unordered_map<std::string, std::string>& params) const {
+                                                     const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& params) const {
     if (type == "uppercase") {
         std::string result = value;
         std::transform(result.begin(), result.end(), result.begin(), ::toupper);
@@ -110,7 +110,7 @@ std::string DataTransformer::applyStringTransformation(const std::string& value,
 }
 
 std::string DataTransformer::applyNumericTransformation(const std::string& value, const std::string& type,
-                                                       const std::unordered_map<std::string, std::string>& params) const {
+                                                       const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& params) const {
     try {
         double numValue = std::stod(value);
         
