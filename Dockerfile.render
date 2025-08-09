@@ -8,9 +8,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     libboost-filesystem-dev \
     libboost-system-dev \
-    libnlohmann-json3-dev \
+    libboost-thread-dev \
     libpqxx-dev \
     libssl-dev \
+    nlohmann-json3-dev \
     pkg-config \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
@@ -41,6 +42,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     libboost-filesystem1.74.0 \
     libboost-system1.74.0 \
+    libboost-thread1.74.0 \
     libpqxx-6.4 \
     libssl3 \
     && apt-get clean \
