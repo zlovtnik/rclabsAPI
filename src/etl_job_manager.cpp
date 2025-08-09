@@ -76,7 +76,7 @@ bool ETLJobManager::resumeJob(const std::string& jobId) {
     return false;
 }
 
-std::shared_ptr<ETLJob> ETLJobManager::getJob(const std::string& jobId) {
+std::shared_ptr<ETLJob> ETLJobManager::getJob(const std::string& jobId) const {
     std::lock_guard<std::mutex> lock(jobMutex_);
     
     for (const auto& job : jobs_) {
@@ -88,12 +88,12 @@ std::shared_ptr<ETLJob> ETLJobManager::getJob(const std::string& jobId) {
     return nullptr;
 }
 
-std::vector<std::shared_ptr<ETLJob>> ETLJobManager::getAllJobs() {
+std::vector<std::shared_ptr<ETLJob>> ETLJobManager::getAllJobs() const {
     std::lock_guard<std::mutex> lock(jobMutex_);
     return jobs_;
 }
 
-std::vector<std::shared_ptr<ETLJob>> ETLJobManager::getJobsByStatus(JobStatus status) {
+std::vector<std::shared_ptr<ETLJob>> ETLJobManager::getJobsByStatus(JobStatus status) const {
     std::lock_guard<std::mutex> lock(jobMutex_);
     
     std::vector<std::shared_ptr<ETLJob>> result;

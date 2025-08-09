@@ -139,11 +139,12 @@ bool NotificationMessage::shouldRetry() const {
 
 std::chrono::milliseconds NotificationMessage::getRetryDelay() const {
     // Exponential backoff: base_delay * 2^retry_count (capped at max)
-    const int baseDelayMs = 5000; // 5 seconds
-    const int maxDelayMs = 300000; // 5 minutes
+    constexpr int BASE_DELAY_MS = 5000; // 5 seconds
+    constexpr int MAX_DELAY_MS = 300000; // 5 minutes
+    constexpr int MAX_RETRY_EXPONENT = 6; // Cap at 2^6 = 64
     
-    int delay = baseDelayMs * (1 << std::min(retryCount, 6)); // Cap at 2^6 = 64
-    delay = std::min(delay, maxDelayMs);
+    int delay = BASE_DELAY_MS * (1 << std::min(retryCount, MAX_RETRY_EXPONENT));
+    delay = std::min(delay, MAX_DELAY_MS);
     
     return std::chrono::milliseconds(delay);
 }

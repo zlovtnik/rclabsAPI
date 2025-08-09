@@ -57,9 +57,9 @@ public:
   bool resumeJob(const std::string &jobId);
 
   // Job monitoring
-  std::shared_ptr<ETLJob> getJob(const std::string &jobId);
-  std::vector<std::shared_ptr<ETLJob>> getAllJobs();
-  std::vector<std::shared_ptr<ETLJob>> getJobsByStatus(JobStatus status);
+  std::shared_ptr<ETLJob> getJob(const std::string &jobId) const;
+  std::vector<std::shared_ptr<ETLJob>> getAllJobs() const;
+  std::vector<std::shared_ptr<ETLJob>> getJobsByStatus(JobStatus status) const;
 
   // Job execution
   void start();
@@ -80,7 +80,7 @@ private:
   std::vector<std::shared_ptr<ETLJob>> jobs_;
 
   std::thread workerThread_;
-  std::mutex jobMutex_;
+  mutable std::mutex jobMutex_;
   std::condition_variable jobCondition_;
   bool running_;
 
