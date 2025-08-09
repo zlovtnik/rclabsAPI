@@ -20,5 +20,19 @@
   "etl": {
     "max_concurrent_jobs": 5,
     "job_timeout": 1800
+  },
+  "logging": {
+    "level": "INFO",
+    "format": "TEXT",
+    "console_output": true,
+    "file_output": true,
+    "async_logging": false,
+    "log_file": "logs/etlplus.log",
+    "max_file_size": 10485760,
+    "max_backup_files": 5,
+    "enable_rotation": true,
+    "component_filter": [],
+    "include_metrics": false,
+    "flush_interval": 1000
   }
 }

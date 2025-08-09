@@ -3,6 +3,7 @@
 #include <signal.h>
 #include <thread>
 #include <chrono>
+#include <unistd.h>
 
 #include "logger.hpp"
 #include "config_manager.hpp"
@@ -25,26 +26,30 @@ void signalHandler(int signal) {
 
 int main() {
     try {
-        // Initialize logging system
-        auto& logger = Logger::getInstance();
-        logger.setLogLevel(LogLevel::DEBUG);
-        logger.setLogFile("logs/etlplus.log");
-        logger.enableConsoleOutput(true);
-        logger.enableFileOutput(true);
+        // Load configuration first (with basic logging)
+        auto& config = ConfigManager::getInstance();
+        if (!config.loadConfig("config.json")) {
+            std::cerr << "Failed to load configuration" << std::endl;
+            return 1;
+        }
         
-        LOG_INFO("Main", "Starting ETL Plus Backend...");
+        std::cout << "Configuration loaded, initializing logger..." << std::endl;
+        
+        // Initialize enhanced logging system with configuration
+        auto& logger = Logger::getInstance();
+        LogConfig logConfig = config.getLoggingConfig();
+        
+        std::cout << "Logger config created, configuring logger..." << std::endl;
+        logger.configure(logConfig);
+        
+        std::cout << "Logger configured, starting application..." << std::endl;
+        
+        LOG_INFO("Main", "Starting ETL Plus Backend with enhanced logging...");
         
         // Set up signal handling
         signal(SIGINT, signalHandler);
         signal(SIGTERM, signalHandler);
         
-        // Load configuration
-        LOG_INFO("Main", "Loading configuration...");
-        auto& config = ConfigManager::getInstance();
-        if (!config.loadConfig("config.json")) {
-            LOG_ERROR("Main", "Failed to load configuration");
-            return 1;
-        }
         LOG_INFO("Main", "Configuration loaded successfully");
         
         // Initialize database manager
