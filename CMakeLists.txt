@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.16)
 project(ETLPlusBackend)
 
+# Silence Boost policy warning (CMP0167) by opting into NEW behavior
+if(POLICY CMP0167)
+    cmake_policy(SET CMP0167 NEW)
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
