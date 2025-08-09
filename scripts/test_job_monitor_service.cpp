@@ -16,15 +16,17 @@ class MockNotificationService : public NotificationService {
 public:
     virtual ~MockNotificationService() = default;
     
-    virtual void sendJobFailureAlert(const std::string& jobId, const std::string& error) {
+    virtual void sendJobFailureAlert(const std::string& jobId, const std::string& error) override {
         std::cout << "NOTIFICATION: Job failure alert for " << jobId << " - " << error << std::endl;
         failureAlerts.push_back({jobId, error});
     }
     
-    virtual void sendJobTimeoutWarning(const std::string& jobId, int executionTimeMinutes) {
+    virtual void sendJobTimeoutWarning(const std::string& jobId, int executionTimeMinutes) override {
         std::cout << "NOTIFICATION: Job timeout warning for " << jobId << " - " << executionTimeMinutes << " minutes" << std::endl;
         timeoutWarnings.push_back({jobId, executionTimeMinutes});
     }
+    
+    bool isRunning() const override { return true; }
     
     struct FailureAlert {
         std::string jobId;
