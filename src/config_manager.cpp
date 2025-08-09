@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <functional>
 #include <mutex>
+#include <stdexcept>
 
 static std::mutex configMutex;
 
@@ -15,7 +16,7 @@ ConfigManager& ConfigManager::getInstance() {
 }
 
 bool ConfigManager::loadConfig(const std::string& configPath) {
-    std::lock_guard<std::mutex> lock(configMutex);
+    std::scoped_lock lock(configMutex);
     std::cout << "Loading configuration from: " << configPath << std::endl;
     
     configFilePath = configPath;  // Store for reload functionality
@@ -29,19 +30,19 @@ bool ConfigManager::loadConfig(const std::string& configPath) {
 }
 
 std::string ConfigManager::getString(const std::string& key, const std::string& defaultValue) const {
-    auto it = configData.find(key);
-    if (it != configData.end()) {
+    if (auto it = configData.find(key); it != configData.end()) {
         return it->second;
     }
     return defaultValue;
 }
 
 int ConfigManager::getInt(const std::string& key, int defaultValue) const {
-    auto it = configData.find(key);
-    if (it != configData.end()) {
+    if (auto it = configData.find(key); it != configData.end()) {
         try {
             return std::stoi(it->second);
-        } catch (const std::exception&) {
+        } catch (const std::invalid_argument&) {
+            return defaultValue;
+        } catch (const std::out_of_range&) {
             return defaultValue;
         }
     }
@@ -49,8 +50,7 @@ int ConfigManager::getInt(const std::string& key, int defaultValue) const {
 }
 
 bool ConfigManager::getBool(const std::string& key, bool defaultValue) const {
-    auto it = configData.find(key);
-    if (it != configData.end()) {
+    if (auto it = configData.find(key); it != configData.end()) {
         std::string value = it->second;
         std::transform(value.begin(), value.end(), value.begin(), ::tolower);
         return value == "true" || value == "1" || value == "yes" || value == "on";
@@ -59,11 +59,12 @@ bool ConfigManager::getBool(const std::string& key, bool defaultValue) const {
 }
 
 double ConfigManager::getDouble(const std::string& key, double defaultValue) const {
-    auto it = configData.find(key);
-    if (it != configData.end()) {
+    if (auto it = configData.find(key); it != configData.end()) {
         try {
             return std::stod(it->second);
-        } catch (const std::exception&) {
+        } catch (const std::invalid_argument&) {
+            return defaultValue;
+        } catch (const std::out_of_range&) {
             return defaultValue;
         }
     }
@@ -72,8 +73,7 @@ double ConfigManager::getDouble(const std::string& key, double defaultValue) con
 
 std::unordered_set<std::string> ConfigManager::getStringSet(const std::string& key) const {
     std::unordered_set<std::string> result;
-    auto it = configData.find(key);
-    if (it != configData.end()) {
+    if (auto it = configData.find(key); it != configData.end()) {
         std::string value = it->second;
         if (!value.empty() && value.front() == '[' && value.back() == ']') {
             value = value.substr(1, value.length() - 2);
@@ -114,28 +114,28 @@ LogConfig ConfigManager::getLoggingConfig() const {
 // ===== Monitoring Configuration Implementation =====
 
 MonitoringConfig ConfigManager::getMonitoringConfig() const {
-    std::lock_guard<std::mutex> lock(configMutex);
+    std::scoped_lock lock(configMutex);
     return MonitoringConfig::fromConfig(*this);
 }
 
 WebSocketConfig ConfigManager::getWebSocketConfig() const {
-    std::lock_guard<std::mutex> lock(configMutex);
+    std::scoped_lock lock(configMutex);
     return WebSocketConfig::fromConfig(*this);
 }
 
 JobTrackingConfig ConfigManager::getJobTrackingConfig() const {
-    std::lock_guard<std::mutex> lock(configMutex);
+    std::scoped_lock lock(configMutex);
     return JobTrackingConfig::fromConfig(*this);
 }
 
 ConfigValidationResult ConfigManager::validateMonitoringConfig() const {
-    std::lock_guard<std::mutex> lock(configMutex);
+    std::scoped_lock lock(configMutex);
     auto config = MonitoringConfig::fromConfig(*this);
     return config.validate();
 }
 
 ConfigValidationResult ConfigManager::validateConfiguration() const {
-    std::lock_guard<std::mutex> lock(configMutex);
+    std::scoped_lock lock(configMutex);
     ConfigValidationResult result;
     
     // Validate monitoring configuration
@@ -150,11 +150,10 @@ ConfigValidationResult ConfigManager::validateConfiguration() const {
 }
 
 bool ConfigManager::updateMonitoringConfig(const MonitoringConfig& newConfig) {
-    std::lock_guard<std::mutex> lock(configMutex);
+    std::scoped_lock lock(configMutex);
     
     // Validate new configuration
-    auto validationResult = newConfig.validate();
-    if (!validationResult.isValid) {
+    if (auto validationResult = newConfig.validate(); !validationResult.isValid) {
         std::cerr << "Invalid monitoring configuration:" << std::endl;
         for (const auto& error : validationResult.errors) {
             std::cerr << "  Error: " << error << std::endl;
@@ -163,8 +162,7 @@ bool ConfigManager::updateMonitoringConfig(const MonitoringConfig& newConfig) {
     }
     
     // Convert config to map and update
-    auto configMap = configToMap(newConfig);
-    if (validateAndUpdateConfigData("monitoring", configMap)) {
+    if (auto configMap = configToMap(newConfig); validateAndUpdateConfigData("monitoring", configMap)) {
         notifyConfigChange("monitoring", newConfig);
         return true;
     }
@@ -173,11 +171,10 @@ bool ConfigManager::updateMonitoringConfig(const MonitoringConfig& newConfig) {
 }
 
 bool ConfigManager::updateWebSocketConfig(const WebSocketConfig& newConfig) {
-    std::lock_guard<std::mutex> lock(configMutex);
+    std::scoped_lock lock(configMutex);
     
     // Validate new configuration
-    auto validationResult = newConfig.validate();
-    if (!validationResult.isValid) {
+    if (auto validationResult = newConfig.validate(); !validationResult.isValid) {
         std::cerr << "Invalid WebSocket configuration:" << std::endl;
         for (const auto& error : validationResult.errors) {
             std::cerr << "  Error: " << error << std::endl;
@@ -186,8 +183,7 @@ bool ConfigManager::updateWebSocketConfig(const WebSocketConfig& newConfig) {
     }
     
     // Convert config to map and update
-    auto configMap = webSocketConfigToMap(newConfig);
-    if (validateAndUpdateConfigData("monitoring.websocket", configMap)) {
+    if (auto configMap = webSocketConfigToMap(newConfig); validateAndUpdateConfigData("monitoring.websocket", configMap)) {
         MonitoringConfig fullConfig = getMonitoringConfig();
         notifyConfigChange("websocket", fullConfig);
         return true;
@@ -197,11 +193,10 @@ bool ConfigManager::updateWebSocketConfig(const WebSocketConfig& newConfig) {
 }
 
 bool ConfigManager::updateJobTrackingConfig(const JobTrackingConfig& newConfig) {
-    std::lock_guard<std::mutex> lock(configMutex);
+    std::scoped_lock lock(configMutex);
     
     // Validate new configuration
-    auto validationResult = newConfig.validate();
-    if (!validationResult.isValid) {
+    if (auto validationResult = newConfig.validate(); !validationResult.isValid) {
         std::cerr << "Invalid job tracking configuration:" << std::endl;
         for (const auto& error : validationResult.errors) {
             std::cerr << "  Error: " << error << std::endl;
@@ -210,8 +205,7 @@ bool ConfigManager::updateJobTrackingConfig(const JobTrackingConfig& newConfig) 
     }
     
     // Convert config to map and update
-    auto configMap = jobTrackingConfigToMap(newConfig);
-    if (validateAndUpdateConfigData("monitoring.job_tracking", configMap)) {
+    if (auto configMap = jobTrackingConfigToMap(newConfig); validateAndUpdateConfigData("monitoring.job_tracking", configMap)) {
         MonitoringConfig fullConfig = getMonitoringConfig();
         notifyConfigChange("job_tracking", fullConfig);
         return true;
@@ -244,13 +238,13 @@ bool ConfigManager::reloadConfiguration() {
     return result;
 }
 
-void ConfigManager::registerConfigChangeCallback(const std::string& section, ConfigChangeCallback callback) {
-    std::lock_guard<std::mutex> lock(configMutex);
+void ConfigManager::registerConfigChangeCallback(const std::string& section, const ConfigChangeCallback& callback) {
+    std::scoped_lock lock(configMutex);
     changeCallbacks[section] = callback;
 }
 
 void ConfigManager::unregisterConfigChangeCallback(const std::string& section) {
-    std::lock_guard<std::mutex> lock(configMutex);
+    std::scoped_lock lock(configMutex);
     changeCallbacks.erase(section);
 }
 
@@ -260,8 +254,10 @@ void ConfigManager::notifyConfigChange(const std::string& section, const Monitor
     if (it != changeCallbacks.end() && it->second) {
         try {
             it->second(section, newConfig);
-        } catch (const std::exception& e) {
-            std::cerr << "Error in config change callback for section '" << section << "': " << e.what() << std::endl;
+        } catch (const std::runtime_error& e) {
+            std::cerr << "Runtime error in config change callback for section '" << section << "': " << e.what() << std::endl;
+        } catch (const std::logic_error& e) {
+            std::cerr << "Logic error in config change callback for section '" << section << "': " << e.what() << std::endl;
         }
     }
 }
@@ -275,8 +271,11 @@ bool ConfigManager::validateAndUpdateConfigData(const std::string& section,
             configData[key] = value;
         }
         return true;
-    } catch (const std::exception& e) {
-        std::cerr << "Error updating configuration data for section '" << section << "': " << e.what() << std::endl;
+    } catch (const std::runtime_error& e) {
+        std::cerr << "Runtime error updating configuration data for section '" << section << "': " << e.what() << std::endl;
+        return false;
+    } catch (const std::logic_error& e) {
+        std::cerr << "Logic error updating configuration data for section '" << section << "': " << e.what() << std::endl;
         return false;
     }
 }

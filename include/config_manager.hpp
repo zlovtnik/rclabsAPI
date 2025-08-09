@@ -98,7 +98,7 @@ public:
   bool reloadConfiguration();
   
   // Configuration change notifications
-  void registerConfigChangeCallback(const std::string& section, ConfigChangeCallback callback);
+  void registerConfigChangeCallback(const std::string& section, const ConfigChangeCallback& callback);
   void unregisterConfigChangeCallback(const std::string& section);
   
   // Configuration access with validation
