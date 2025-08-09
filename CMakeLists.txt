@@ -74,6 +74,7 @@ endforeach()
 add_executable(test_websocket_basic scripts/test_websocket_basic.cpp 
     src/websocket_connection.cpp
     src/websocket_manager.cpp
+    src/job_monitoring_models.cpp
     src/logger.cpp 
     src/config_manager.cpp
 )
@@ -85,6 +86,7 @@ target_link_libraries(test_websocket_basic ${Boost_LIBRARIES} pthread)
 add_executable(test_websocket_integration scripts/test_websocket_integration.cpp 
     src/websocket_connection.cpp
     src/websocket_manager.cpp
+    src/job_monitoring_models.cpp
     src/logger.cpp 
     src/config_manager.cpp
 )
@@ -96,6 +98,7 @@ target_link_libraries(test_websocket_integration ${Boost_LIBRARIES} pthread)
 add_executable(test_websocket_manager_enhanced scripts/test_websocket_manager_enhanced.cpp 
     src/websocket_connection.cpp
     src/websocket_manager.cpp
+    src/job_monitoring_models.cpp
     src/logger.cpp 
     src/config_manager.cpp
 )
@@ -107,6 +110,7 @@ target_link_libraries(test_websocket_manager_enhanced ${Boost_LIBRARIES} pthread
 add_executable(test_websocket_filtering_demo scripts/test_websocket_filtering_demo.cpp 
     src/websocket_connection.cpp
     src/websocket_manager.cpp
+    src/job_monitoring_models.cpp
     src/logger.cpp 
     src/config_manager.cpp
 )

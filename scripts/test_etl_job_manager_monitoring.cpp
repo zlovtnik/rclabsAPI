@@ -9,6 +9,14 @@
 #include "../include/data_transformer.hpp"
 #include "../include/logger.hpp"
 
+// JobMonitorServiceInterface definition for testing
+class JobMonitorServiceInterface {
+public:
+    virtual ~JobMonitorServiceInterface() = default;
+    virtual void onJobStatusChanged(const std::string& jobId, JobStatus oldStatus, JobStatus newStatus) = 0;
+    virtual void onJobProgressUpdated(const std::string& jobId, int progressPercent, const std::string& currentStep) = 0;
+};
+
 // Mock JobMonitorService for testing
 class MockJobMonitorService {
 public:
@@ -91,7 +99,7 @@ public:
     virtual void onJobProgressUpdated(const std::string& jobId, int progressPercent, const std::string& currentStep) = 0;
 };
 
-class MockJobMonitorServiceAdapter : public JobMonitorService {
+class MockJobMonitorServiceAdapter : public JobMonitorServiceInterface {
 private:
     std::shared_ptr<MockJobMonitorService> mock_;
     

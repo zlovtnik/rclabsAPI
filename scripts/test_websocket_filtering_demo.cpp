@@ -4,6 +4,7 @@
 #include <iostream>
 #include <memory>
 #include <cassert>
+#include <algorithm>
 
 class WebSocketFilteringDemo {
 public:
@@ -49,7 +50,7 @@ private:
                 "message": "Database connection failed"
             }
         })";
-        wsManager->broadcastByMessageType(logMsg, MessageType::LOG_MESSAGE, "job_123");
+        wsManager->broadcastByMessageType(logMsg, MessageType::JOB_LOG_MESSAGE, "job_123");
         std::cout << "  ✓ Log message broadcasted\n";
         
         // Notification
@@ -60,7 +61,7 @@ private:
                 "message": "Job execution time exceeded threshold"
             }
         })";
-        wsManager->broadcastByMessageType(notificationMsg, MessageType::NOTIFICATION);
+        wsManager->broadcastByMessageType(notificationMsg, MessageType::SYSTEM_NOTIFICATION);
         std::cout << "  ✓ Notification broadcasted\n";
         
         wsManager->stop();
@@ -122,9 +123,9 @@ private:
         
         // Filter for connections interested in critical messages only
         auto criticalOnlyFilter = [](const ConnectionFilters& filters) -> bool {
-            return filters.receiveAllLogLevels || 
-                   filters.logLevels.find("ERROR") != filters.logLevels.end() ||
-                   filters.logLevels.find("WARN") != filters.logLevels.end();
+            return filters.logLevels.empty() || 
+                   std::find(filters.logLevels.begin(), filters.logLevels.end(), "ERROR") != filters.logLevels.end() ||
+                   std::find(filters.logLevels.begin(), filters.logLevels.end(), "WARN") != filters.logLevels.end();
         };
         
         std::string criticalMsg = R"({
@@ -140,7 +141,7 @@ private:
         // Filter for connections monitoring specific job types
         auto etlJobsOnlyFilter = [](const ConnectionFilters& filters) -> bool {
             // In a real scenario, this could check for specific job patterns
-            return filters.receiveAllJobs || !filters.jobIds.empty();
+            return filters.jobIds.empty() || !filters.jobIds.empty();
         };
         
         std::string etlMsg = R"({
@@ -165,34 +166,28 @@ void demonstrateFilterConfiguration() {
     
     // Example 1: Monitor specific jobs only
     ConnectionFilters jobSpecificFilter;
-    jobSpecificFilter.receiveAllJobs = false;
-    jobSpecificFilter.jobIds.insert("critical_job_001");
-    jobSpecificFilter.jobIds.insert("critical_job_002");
+    jobSpecificFilter.jobIds.push_back("critical_job_001");
+    jobSpecificFilter.jobIds.push_back("critical_job_002");
     std::cout << "✓ Job-specific filter configured for " << jobSpecificFilter.jobIds.size() << " jobs\n";
     
     // Example 2: Error logs only
     ConnectionFilters errorOnlyFilter;
-    errorOnlyFilter.receiveAllLogLevels = false;
-    errorOnlyFilter.logLevels.insert("ERROR");
-    errorOnlyFilter.logLevels.insert("WARN");
+    errorOnlyFilter.logLevels.push_back("ERROR");
+    errorOnlyFilter.logLevels.push_back("WARN");
     std::cout << "✓ Error-only filter configured for " << errorOnlyFilter.logLevels.size() << " log levels\n";
     
     // Example 3: Job updates and notifications only
     ConnectionFilters statusOnlyFilter;
-    statusOnlyFilter.receiveAllMessageTypes = false;
-    statusOnlyFilter.messageTypes.insert(MessageType::JOB_STATUS_UPDATE);
-    statusOnlyFilter.messageTypes.insert(MessageType::NOTIFICATION);
+    statusOnlyFilter.messageTypes.push_back(MessageType::JOB_STATUS_UPDATE);
+    statusOnlyFilter.messageTypes.push_back(MessageType::SYSTEM_NOTIFICATION);
     std::cout << "✓ Status-only filter configured for " << statusOnlyFilter.messageTypes.size() << " message types\n";
     
     // Example 4: Combined filters
     ConnectionFilters combinedFilter;
-    combinedFilter.receiveAllJobs = false;
-    combinedFilter.jobIds.insert("important_job");
-    combinedFilter.receiveAllMessageTypes = false;
-    combinedFilter.messageTypes.insert(MessageType::JOB_STATUS_UPDATE);
-    combinedFilter.messageTypes.insert(MessageType::LOG_MESSAGE);
-    combinedFilter.receiveAllLogLevels = false;
-    combinedFilter.logLevels.insert("ERROR");
+    combinedFilter.jobIds.push_back("important_job");
+    combinedFilter.messageTypes.push_back(MessageType::JOB_STATUS_UPDATE);
+    combinedFilter.messageTypes.push_back(MessageType::JOB_LOG_MESSAGE);
+    combinedFilter.logLevels.push_back("ERROR");
     std::cout << "✓ Combined filter configured with job, message type, and log level restrictions\n";
 }
 

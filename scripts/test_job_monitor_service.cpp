@@ -10,14 +10,6 @@
 #include <chrono>
 #include <cassert>
 
-// NotificationService interface for testing
-class NotificationService {
-public:
-    virtual ~NotificationService() = default;
-    virtual void sendJobFailureAlert(const std::string& jobId, const std::string& error) = 0;
-    virtual void sendJobTimeoutWarning(const std::string& jobId, int executionTimeMinutes) = 0;
-};
-
 // Mock NotificationService for testing
 class MockNotificationService : public NotificationService {
 public:

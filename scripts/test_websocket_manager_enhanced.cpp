@@ -5,6 +5,7 @@
 #include <thread>
 #include <chrono>
 #include <cassert>
+#include <algorithm>
 
 class WebSocketManagerEnhancedTest {
 public:
@@ -31,21 +32,18 @@ private:
         
         // Test default filters
         ConnectionFilters defaultFilters;
-        assert(defaultFilters.receiveAllJobs == true);
-        assert(defaultFilters.receiveAllMessageTypes == true);
-        assert(defaultFilters.receiveAllLogLevels == true);
+        assert(defaultFilters.jobIds.empty() == true);  // Empty = all jobs
+        assert(defaultFilters.messageTypes.empty() == true);  // Empty = all types
+        assert(defaultFilters.logLevels.empty() == true);  // Empty = all levels
         std::cout << "✓ Default filters configured correctly\n";
         
         // Test custom filters
         ConnectionFilters customFilters;
-        customFilters.receiveAllJobs = false;
-        customFilters.jobIds.insert("job_123");
-        customFilters.jobIds.insert("job_456");
-        customFilters.receiveAllMessageTypes = false;
-        customFilters.messageTypes.insert(MessageType::JOB_STATUS_UPDATE);
-        customFilters.receiveAllLogLevels = false;
-        customFilters.logLevels.insert("ERROR");
-        customFilters.logLevels.insert("WARN");
+        customFilters.jobIds.push_back("job_123");
+        customFilters.jobIds.push_back("job_456");
+        customFilters.messageTypes.push_back(MessageType::JOB_STATUS_UPDATE);
+        customFilters.logLevels.push_back("ERROR");
+        customFilters.logLevels.push_back("WARN");
         
         assert(customFilters.jobIds.size() == 2);
         assert(customFilters.messageTypes.size() == 1);
@@ -63,12 +61,9 @@ private:
         
         // Test message filtering logic
         ConnectionFilters filters;
-        filters.receiveAllJobs = false;
-        filters.jobIds.insert("job_123");
-        filters.receiveAllMessageTypes = false;
-        filters.messageTypes.insert(MessageType::JOB_STATUS_UPDATE);
-        filters.receiveAllLogLevels = false;
-        filters.logLevels.insert("ERROR");
+        filters.jobIds.push_back("job_123");
+        filters.messageTypes.push_back(MessageType::JOB_STATUS_UPDATE);
+        filters.logLevels.push_back("ERROR");
         
         // Create a mock connection to test filtering logic
         // Note: In a real scenario, we would need actual socket connections
@@ -84,7 +79,7 @@ private:
         
         // Test message type filtering
         bool shouldReceive3 = true; // Would be connection->shouldReceiveMessage(MessageType::JOB_STATUS_UPDATE, "job_123");
-        bool shouldReceive4 = false; // Would be connection->shouldReceiveMessage(MessageType::LOG_MESSAGE, "job_123");
+        bool shouldReceive4 = false; // Would be connection->shouldReceiveMessage(MessageType::JOB_LOG_MESSAGE, "job_123");
         
         assert(shouldReceive3 == true);
         assert(shouldReceive4 == false);
@@ -164,9 +159,9 @@ private:
         std::vector<MessageType> messageTypes = {
             MessageType::JOB_STATUS_UPDATE,
             MessageType::JOB_PROGRESS_UPDATE,
-            MessageType::LOG_MESSAGE,
-            MessageType::NOTIFICATION,
-            MessageType::SYSTEM_MESSAGE
+            MessageType::JOB_LOG_MESSAGE,
+            MessageType::SYSTEM_NOTIFICATION,
+            MessageType::ERROR_MESSAGE
         };
         
         for (const auto& type : messageTypes) {
@@ -186,7 +181,7 @@ private:
         
         // Test custom filter predicate
         auto filterPredicate = [](const ConnectionFilters& filters) -> bool {
-            return filters.receiveAllJobs || filters.jobIds.find("job_123") != filters.jobIds.end();
+            return filters.jobIds.empty() || std::find(filters.jobIds.begin(), filters.jobIds.end(), "job_123") != filters.jobIds.end();
         };
         
         std::string message = R"({"type":"custom","data":"filtered message"})";
@@ -195,7 +190,7 @@ private:
         
         // Test multiple filter predicates
         auto errorOnlyFilter = [](const ConnectionFilters& filters) -> bool {
-            return filters.receiveAllLogLevels || filters.logLevels.find("ERROR") != filters.logLevels.end();
+            return filters.logLevels.empty() || std::find(filters.logLevels.begin(), filters.logLevels.end(), "ERROR") != filters.logLevels.end();
         };
         
         wsManager->broadcastToFilteredConnections(message, errorOnlyFilter);
@@ -212,15 +207,14 @@ private:
         
         // Test setting filters for non-existent connection
         ConnectionFilters testFilters;
-        testFilters.receiveAllJobs = false;
-        testFilters.jobIds.insert("job_123");
+        testFilters.jobIds.push_back("job_123");
         
         wsManager->setConnectionFilters("non-existent-id", testFilters);
         std::cout << "✓ Setting filters for non-existent connection handled gracefully\n";
         
         // Test getting filters for non-existent connection
         ConnectionFilters retrievedFilters = wsManager->getConnectionFilters("non-existent-id");
-        assert(retrievedFilters.receiveAllJobs == true); // Should return default filters
+        assert(retrievedFilters.jobIds.empty() == true); // Should return default filters
         std::cout << "✓ Getting filters for non-existent connection returns defaults\n";
         
         // Test connection count and IDs
