@@ -139,3 +139,114 @@ std::vector<std::string> WebSocketManager::getConnectionIds() const {
     
     return ids;
 }
+
+void WebSocketManager::broadcastJobUpdate(const std::string& message, const std::string& jobId) {
+    if (!running_.load()) {
+        WS_LOG_WARN("WebSocket manager not running, cannot broadcast job update");
+        return;
+    }
+
+    broadcastByMessageType(message, MessageType::JOB_STATUS_UPDATE, jobId);
+    WS_LOG_DEBUG("Job update broadcasted for job: " + jobId);
+}
+
+void WebSocketManager::broadcastLogMessage(const std::string& message, const std::string& jobId, const std::string& logLevel) {
+    if (!running_.load()) {
+        WS_LOG_WARN("WebSocket manager not running, cannot broadcast log message");
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    
+    int sentCount = 0;
+    for (auto it = connections_.begin(); it != connections_.end();) {
+        auto& connection = it->second;
+        if (connection && connection->isOpen()) {
+            if (connection->shouldReceiveMessage(MessageType::LOG_MESSAGE, jobId, logLevel)) {
+                connection->send(message);
+                sentCount++;
+            }
+            ++it;
+        } else {
+            WS_LOG_DEBUG("Removing inactive connection during log broadcast: " + it->first);
+            it = connections_.erase(it);
+        }
+    }
+    
+    WS_LOG_DEBUG("Log message broadcasted to " + std::to_string(sentCount) + " connections (job: " + jobId + ", level: " + logLevel + ")");
+}
+
+void WebSocketManager::broadcastByMessageType(const std::string& message, MessageType messageType, const std::string& jobId) {
+    if (!running_.load()) {
+        WS_LOG_WARN("WebSocket manager not running, cannot broadcast by message type");
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    
+    int sentCount = 0;
+    for (auto it = connections_.begin(); it != connections_.end();) {
+        auto& connection = it->second;
+        if (connection && connection->isOpen()) {
+            if (connection->shouldReceiveMessage(messageType, jobId)) {
+                connection->send(message);
+                sentCount++;
+            }
+            ++it;
+        } else {
+            WS_LOG_DEBUG("Removing inactive connection during type-filtered broadcast: " + it->first);
+            it = connections_.erase(it);
+        }
+    }
+    
+    WS_LOG_DEBUG("Message broadcasted to " + std::to_string(sentCount) + " connections by type");
+}
+
+void WebSocketManager::broadcastToFilteredConnections(const std::string& message, 
+                                                    std::function<bool(const ConnectionFilters&)> filterPredicate) {
+    if (!running_.load()) {
+        WS_LOG_WARN("WebSocket manager not running, cannot broadcast to filtered connections");
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    
+    int sentCount = 0;
+    for (auto it = connections_.begin(); it != connections_.end();) {
+        auto& connection = it->second;
+        if (connection && connection->isOpen()) {
+            if (filterPredicate(connection->getFilters())) {
+                connection->send(message);
+                sentCount++;
+            }
+            ++it;
+        } else {
+            WS_LOG_DEBUG("Removing inactive connection during filtered broadcast: " + it->first);
+            it = connections_.erase(it);
+        }
+    }
+    
+    WS_LOG_DEBUG("Message broadcasted to " + std::to_string(sentCount) + " filtered connections");
+}
+
+void WebSocketManager::setConnectionFilters(const std::string& connectionId, const ConnectionFilters& filters) {
+    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    auto it = connections_.find(connectionId);
+    if (it != connections_.end() && it->second && it->second->isOpen()) {
+        it->second->setFilters(filters);
+        WS_LOG_INFO("Filters set for connection: " + connectionId);
+    } else {
+        WS_LOG_WARN("Cannot set filters for connection (not found or inactive): " + connectionId);
+    }
+}
+
+ConnectionFilters WebSocketManager::getConnectionFilters(const std::string& connectionId) const {
+    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    auto it = connections_.find(connectionId);
+    if (it != connections_.end() && it->second && it->second->isOpen()) {
+        return it->second->getFilters();
+    } else {
+        WS_LOG_WARN("Cannot get filters for connection (not found or inactive): " + connectionId);
+        return ConnectionFilters{}; // Return default filters
+    }
+}

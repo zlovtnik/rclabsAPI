@@ -69,7 +69,7 @@ foreach(CONFIG_FILE ${CONFIG_FILES})
 endforeach()
 
 # WebSocket Basic Test Executable
-add_executable(test_websocket_basic test_websocket_basic.cpp 
+add_executable(test_websocket_basic scripts/test_websocket_basic.cpp 
     src/websocket_connection.cpp
     src/websocket_manager.cpp
     src/logger.cpp 
@@ -80,7 +80,7 @@ target_include_directories(test_websocket_basic PRIVATE include)
 target_link_libraries(test_websocket_basic ${Boost_LIBRARIES} pthread)
 
 # WebSocket Integration Test Executable
-add_executable(test_websocket_integration test_websocket_integration.cpp 
+add_executable(test_websocket_integration scripts/test_websocket_integration.cpp 
     src/websocket_connection.cpp
     src/websocket_manager.cpp
     src/logger.cpp 
@@ -89,3 +89,25 @@ add_executable(test_websocket_integration test_websocket_integration.cpp
 
 target_include_directories(test_websocket_integration PRIVATE include)
 target_link_libraries(test_websocket_integration ${Boost_LIBRARIES} pthread)
+
+# Enhanced WebSocket Manager Test Executable
+add_executable(test_websocket_manager_enhanced scripts/test_websocket_manager_enhanced.cpp 
+    src/websocket_connection.cpp
+    src/websocket_manager.cpp
+    src/logger.cpp 
+    src/config_manager.cpp
+)
+
+target_include_directories(test_websocket_manager_enhanced PRIVATE include)
+target_link_libraries(test_websocket_manager_enhanced ${Boost_LIBRARIES} pthread)
+
+# WebSocket Filtering Demo Executable
+add_executable(test_websocket_filtering_demo scripts/test_websocket_filtering_demo.cpp 
+    src/websocket_connection.cpp
+    src/websocket_manager.cpp
+    src/logger.cpp 
+    src/config_manager.cpp
+)
+
+target_include_directories(test_websocket_filtering_demo PRIVATE include)
+target_link_libraries(test_websocket_filtering_demo ${Boost_LIBRARIES} pthread)
