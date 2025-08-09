@@ -18,6 +18,7 @@ namespace http = boost::beast::http;
 class DatabaseManager;
 class AuthManager;
 class ETLJobManager;
+class JobMonitorService;
 
 class RequestHandler {
 public:
@@ -29,10 +30,15 @@ public:
   http::response<http::string_body>
   handleRequest(http::request<Body, http::basic_fields<Allocator>> req);
 
+  // Add getters for testing purposes
+  std::shared_ptr<ETLJobManager> getJobManager() { return etlManager_; }
+  std::shared_ptr<JobMonitorService> getJobMonitorService() { return monitorService_; }
+
 private:
   std::shared_ptr<DatabaseManager> dbManager_;
   std::shared_ptr<AuthManager> authManager_;
   std::shared_ptr<ETLJobManager> etlManager_;
+  std::shared_ptr<JobMonitorService> monitorService_; // Add this member
 
   // Enhanced validation methods
   http::response<http::string_body>

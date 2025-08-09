@@ -49,6 +49,7 @@ public:
     const job_monitoring_recovery::ServiceRecoveryState& getRecoveryState() const { return recoveryState_; }
     void performHealthCheck();
     void attemptRecovery();
+    std::shared_ptr<NotificationService> getNotificationService() { return notifier_; }
 
     // Event handling methods (called by ETL Job Manager)
     void onJobStatusChanged(const std::string& jobId, JobStatus oldStatus, JobStatus newStatus) override;

@@ -18,6 +18,8 @@ using tcp = boost::asio::ip::tcp;
 
 class RequestHandler;
 class WebSocketManager;
+class ETLJobManager;
+class JobMonitorService;
 
 class HttpServer {
 public:
@@ -30,6 +32,10 @@ public:
 
   void setRequestHandler(std::shared_ptr<RequestHandler> handler);
   void setWebSocketManager(std::shared_ptr<WebSocketManager> wsManager);
+
+  // Add getters for testing purposes
+  std::shared_ptr<ETLJobManager> getJobManager();
+  std::shared_ptr<JobMonitorService> getJobMonitorService();
 
 private:
   struct Impl;

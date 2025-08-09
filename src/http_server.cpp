@@ -365,6 +365,19 @@ void HttpServer::setRequestHandler(std::shared_ptr<RequestHandler> handler) {
 }
 
 void HttpServer::setWebSocketManager(std::shared_ptr<WebSocketManager> wsManager) {
-    HTTP_LOG_INFO("HttpServer::setWebSocketManager() - Setting WebSocket manager: " + std::string(wsManager ? "valid" : "null"));
     pImpl->wsManager = wsManager;
+}
+
+std::shared_ptr<ETLJobManager> HttpServer::getJobManager() {
+    if (pImpl && pImpl->handler) {
+        return pImpl->handler->getJobManager();
+    }
+    return nullptr;
+}
+
+std::shared_ptr<JobMonitorService> HttpServer::getJobMonitorService() {
+    if (pImpl && pImpl->handler) {
+        return pImpl->handler->getJobMonitorService();
+    }
+    return nullptr;
 }
