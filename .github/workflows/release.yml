@@ -76,7 +76,7 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
-        sudo apt-get install -y libboost-all-dev libnlohmann-json3-dev libspdlog-dev libpqxx-dev
+        sudo apt-get install -y libboost-all-dev nlohmann-json3-dev libspdlog-dev libpqxx-dev
 
     - name: 📦 Install dependencies (macOS)
       if: matrix.os == 'macos-latest'

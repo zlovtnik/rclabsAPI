@@ -117,7 +117,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y \
           libboost-all-dev \
-          libnlohmann-json3-dev \
+          nlohmann-json3-dev \
           libspdlog-dev \
           libpqxx-dev \
           libssl-dev \
