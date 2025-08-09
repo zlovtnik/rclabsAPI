@@ -77,3 +77,21 @@ target_link_libraries(test_enhanced_logging ${Boost_LIBRARIES} pthread)
 
 # Copy config files for the test
 add_dependencies(test_enhanced_logging copy_configs)
+
+# JSON Logging Test Executable
+add_executable(test_json_logging test_json_logging.cpp 
+    src/logger.cpp 
+    src/config_manager.cpp
+)
+
+target_include_directories(test_json_logging PRIVATE include)
+target_link_libraries(test_json_logging ${Boost_LIBRARIES} pthread)
+
+# Async Logging Test Executable
+add_executable(test_async_logging test_async_logging.cpp 
+    src/logger.cpp 
+    src/config_manager.cpp
+)
+
+target_include_directories(test_async_logging PRIVATE include)
+target_link_libraries(test_async_logging ${Boost_LIBRARIES} pthread)

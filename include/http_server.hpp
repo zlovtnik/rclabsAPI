@@ -1,10 +1,10 @@
 #pragma once
 
+#include <boost/asio/dispatch.hpp>
+#include <boost/asio/strand.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 #include <boost/beast/version.hpp>
-#include <boost/asio/dispatch.hpp>
-#include <boost/asio/strand.hpp>
 #include <boost/config.hpp>
 #include <memory>
 #include <string>
@@ -20,16 +20,16 @@ class RequestHandler;
 
 class HttpServer {
 public:
-    HttpServer(const std::string& address, unsigned short port, int threads = 1);
-    ~HttpServer();
-    
-    void start();
-    void stop();
-    bool isRunning() const;
-    
-    void setRequestHandler(std::shared_ptr<RequestHandler> handler);
-    
+  HttpServer(const std::string &address, unsigned short port, int threads = 1);
+  ~HttpServer();
+
+  void start();
+  void stop();
+  bool isRunning() const;
+
+  void setRequestHandler(std::shared_ptr<RequestHandler> handler);
+
 private:
-    struct Impl;
-    std::unique_ptr<Impl> pImpl;
+  struct Impl;
+  std::unique_ptr<Impl> pImpl;
 };
