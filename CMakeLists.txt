@@ -124,6 +124,7 @@ set(COMMON_SOURCES
     src/job_monitoring_models.cpp
     src/job_monitor_service.cpp
     src/notification_service.cpp
+    src/system_metrics.cpp
 )
 
 add_library(etl_common STATIC ${COMMON_SOURCES})

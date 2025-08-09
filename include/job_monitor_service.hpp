@@ -22,6 +22,7 @@ public:
     virtual ~JobMonitorServiceInterface() = default;
     virtual void onJobStatusChanged(const std::string& jobId, JobStatus oldStatus, JobStatus newStatus) = 0;
     virtual void onJobProgressUpdated(const std::string& jobId, int progressPercent, const std::string& currentStep) = 0;
+    virtual void updateJobMetrics(const std::string& jobId, const JobMetrics& metrics) = 0;
 };
 
 /**
@@ -75,7 +76,34 @@ public:
 
     // Job metrics and statistics
     JobMetrics getJobMetrics(const std::string& jobId) const;
-    void updateJobMetrics(const std::string& jobId, const JobMetrics& metrics);
+    void updateJobMetrics(const std::string& jobId, const JobMetrics& metrics) override;
+    
+    // Metrics aggregation and historical data
+    std::vector<JobMetrics> getJobMetricsHistory(const std::string& jobId, 
+                                                std::chrono::system_clock::time_point since = {}) const;
+    JobMetrics getAggregatedMetrics(const std::vector<std::string>& jobIds) const;
+    JobMetrics getAggregatedMetricsByType(JobType jobType) const;
+    JobMetrics getAggregatedMetricsByTimeRange(std::chrono::system_clock::time_point start,
+                                              std::chrono::system_clock::time_point end) const;
+    
+    // Performance analytics
+    double getAverageProcessingRate(JobType jobType = static_cast<JobType>(-1)) const;
+    double getAverageErrorRate(JobType jobType = static_cast<JobType>(-1)) const;
+    std::pair<JobMetrics, JobMetrics> getPerformanceBenchmarks() const; // returns min/max baseline metrics
+    void storeMetricsSnapshot(const std::string& jobId, const JobMetrics& metrics);
+    
+    // Resource utilization tracking
+    struct ResourceUtilization {
+        double averageMemoryUsage;
+        double peakMemoryUsage;
+        double averageCpuUsage;
+        double peakCpuUsage;
+        std::chrono::system_clock::time_point timestamp;
+    };
+    
+    ResourceUtilization getCurrentResourceUtilization() const;
+    std::vector<ResourceUtilization> getResourceUtilizationHistory(
+        std::chrono::system_clock::time_point since = {}) const;
 
     // Configuration and settings
     void setMaxRecentLogs(size_t maxLogs);
@@ -92,6 +120,16 @@ private:
     std::unordered_map<std::string, JobMonitoringData> activeJobs_;
     std::unordered_map<std::string, JobMonitoringData> completedJobs_;
     mutable std::mutex jobDataMutex_;
+    
+    // Metrics history storage
+    std::unordered_map<std::string, std::vector<JobMetrics>> metricsHistory_;
+    std::vector<ResourceUtilization> resourceHistory_;
+    mutable std::mutex metricsHistoryMutex_;
+    
+    // Configuration
+    size_t maxMetricsHistorySize_{1000}; // Maximum metrics snapshots per job
+    size_t maxResourceHistorySize_{10000}; // Maximum resource utilization snapshots
+    std::chrono::minutes metricsRetentionPeriod_{24 * 60}; // 24 hours default
     
     // Service state
     std::atomic<bool> running_{false};
@@ -149,6 +187,12 @@ private:
     void updateJobMonitoringData(const std::string& jobId, const std::function<void(JobMonitoringData&)>& updateFunc);
     void addLogToJob(const std::string& jobId, const std::string& logEntry);
     void cleanupOldJobs();
+    
+    // Metrics history management
+    void cleanupOldMetrics();
+    void cleanupOldResourceHistory();
+    JobMetrics aggregateMetrics(const std::vector<JobMetrics>& metricsCollection) const;
+    void updateResourceUtilization();
 };
 
 // Template implementation for thread safety helper  

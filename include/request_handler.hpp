@@ -6,6 +6,7 @@
 #include "websocket_manager.hpp"
 #include "job_monitoring_models.hpp"
 #include "transparent_string_hash.hpp"
+#include "logger.hpp"
 #include <boost/beast/http.hpp>
 #include <memory>
 #include <string>
@@ -54,6 +55,8 @@ private:
   http::response<http::string_body>
   handleAuth(const http::request<http::string_body> &req) const;
   http::response<http::string_body>
+  handleLogs(const http::request<http::string_body> &req) const;
+  http::response<http::string_body>
   handleETLJobs(const http::request<http::string_body> &req) const;
   http::response<http::string_body>
   handleMonitoring(const http::request<http::string_body> &req) const;
@@ -79,6 +82,10 @@ private:
   std::string formatTimestamp(const std::chrono::system_clock::time_point& timePoint) const;
   std::chrono::system_clock::time_point parseTimestamp(std::string_view timestampStr) const;
   
+  // Log level conversion helpers
+  LogLevel stringToLogLevel(const std::string& levelStr) const;
+  std::string levelToString(LogLevel level) const;
+
   // WebSocket filter management methods
   http::response<http::string_body>
   handleGetConnectionFilters(const std::string& connectionId);
