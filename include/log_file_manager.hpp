@@ -1263,6 +1263,7 @@ private:
 
     LogFileMetrics metrics_;
     mutable std::mutex metricsMutex_;
+    mutable std::chrono::system_clock::time_point lastMetricsCleanup_{};
 
     // Write buffering and caching
     std::unordered_map<std::string, std::string> writeBuffers_;
@@ -1322,6 +1323,7 @@ private:
     void performRotationMaintenance();
     void performArchiveMaintenance();
     void performCleanupMaintenance();
+    void cleanupOldMetrics() const;
     void performIndexMaintenance();
     void performIntegrityChecks();
     void performCacheOptimization();

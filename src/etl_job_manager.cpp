@@ -685,35 +685,35 @@ void ETLJobManager::setupMetricsCallback(std::shared_ptr<ETLJob> job) {
     }
     
     // Set up callback for real-time metrics updates
-    auto metricsCallback = [this, jobId = job->jobId](
-        const std::string& callbackJobId, 
+    auto metricsCallback = [this](
+        const std::string& callbackJobId,
         const ETLPlus::Metrics::JobMetricsCollector::MetricsSnapshot& snapshot) {
-        
-        // Find the job and update its metrics
-        std::scoped_lock lock(jobMutex_);
-        for (auto& jobPtr : jobs_) {
-            if (jobPtr->jobId == jobId) {
-                // Update metrics from snapshot
-                JobMetrics metrics = jobPtr->metrics;
-                metrics.recordsProcessed = snapshot.recordsProcessed;
-                metrics.recordsSuccessful = snapshot.recordsSuccessful;
-                metrics.recordsFailed = snapshot.recordsFailed;
-                metrics.processingRate = snapshot.processingRate;
-                metrics.executionTime = snapshot.executionTime;
-                metrics.memoryUsage = snapshot.memoryUsage;
-                metrics.cpuUsage = snapshot.cpuUsage;
-                metrics.lastUpdateTime = snapshot.timestamp;
-                
-                // Update performance indicators
-                metrics.updatePerformanceIndicators();
-                
-                // Store updated metrics
-                jobPtr->metrics = metrics;
-                
-                // Publish metrics update
-                publishJobMetrics(jobId, metrics);
-                break;
+        JobMetrics metricsCopy;
+        {
+            // Find the job and update its metrics
+            std::scoped_lock lock(jobMutex_);
+            for (auto& jobPtr : jobs_) {
+                if (jobPtr->jobId == callbackJobId) {
+                    // Update metrics from snapshot
+                    JobMetrics metrics = jobPtr->metrics;
+                    metrics.recordsProcessed = snapshot.recordsProcessed;
+                    metrics.recordsSuccessful = snapshot.recordsSuccessful;
+                    metrics.recordsFailed = snapshot.recordsFailed;
+                    metrics.processingRate = snapshot.processingRate;
+                    metrics.executionTime = snapshot.executionTime;
+                    metrics.memoryUsage = snapshot.memoryUsage;
+                    metrics.cpuUsage = snapshot.cpuUsage;
+                    metrics.lastUpdateTime = snapshot.timestamp;
+                    metrics.updatePerformanceIndicators();
+                    jobPtr->metrics = metrics;
+                    metricsCopy = metrics; // copy for publishing outside lock
+                    break;
+                }
             }
+        }
+        // Publish outside of lock to avoid deadlocks/re-entrancy
+        if (metricsCopy.lastUpdateTime.time_since_epoch().count() != 0) {
+            publishJobMetrics(callbackJobId, metricsCopy);
         }
     };
     

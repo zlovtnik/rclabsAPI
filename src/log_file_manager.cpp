@@ -342,6 +342,13 @@ size_t LogFileManager::closeAllFiles() {
 }
 
 LogFileMetrics LogFileManager::getMetrics() const {
+    // Cleanup old metrics periodically
+    auto now = std::chrono::system_clock::now();
+    if (now - lastMetricsCleanup_ > std::chrono::hours(1)) { // Cleanup every hour
+        cleanupOldMetrics();
+        lastMetricsCleanup_ = now;
+    }
+    
     std::lock_guard lock(metricsMutex_);
     return metrics_;
 }
@@ -537,6 +544,21 @@ void LogFileManager::performRotationMaintenance() {
 void LogFileManager::performCleanupMaintenance() {
     // Basic cleanup implementation
     cleanupTempFiles();
+}
+
+void LogFileManager::cleanupOldMetrics() const {
+    // This method would clean up old or outdated metrics data
+    // For now, it's a placeholder for metrics cleanup logic
+    std::lock_guard lock(metricsMutex_);
+    
+    // Example: Reset certain counters that shouldn't accumulate indefinitely
+    // This is a simplified implementation - in practice, you might want to:
+    // - Archive old metrics data
+    // - Clean up per-file metrics for deleted files
+    // - Reset accumulated counters that have reached certain thresholds
+    
+    // For demonstration, we'll just update the timestamp without changing metrics
+    // In a real implementation, you'd add specific cleanup logic here
 }
 
 size_t LogFileManager::cleanupTempFiles() {
