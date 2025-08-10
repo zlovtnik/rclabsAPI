@@ -45,8 +45,8 @@ void Logger::configure(const LogConfig& config) {
             std::filesystem::path logPath(config.logFile);
             std::filesystem::create_directories(logPath.parent_path());
             
-            // Create archive directory if historical access is enabled
-            if (config_.enableHistoricalAccess) {
+            // Create archive directory if historical access OR indexing is enabled
+            if (config_.enableHistoricalAccess || config_.enableLogIndexing) {
                 std::filesystem::create_directories(config_.archiveDirectory);
             }
 
@@ -63,8 +63,19 @@ void Logger::configure(const LogConfig& config) {
                     currentFileSize_ = 0;
                 }
                 
-                // Write simple startup message
-                std::string startupMsg = "[" + formatTimestamp() + "] [INFO ] [Logger] Enhanced logger initialized with historical access";
+                // Write conditional startup message based on enabled features
+                std::string features;
+                if (config_.enableHistoricalAccess && config_.enableLogIndexing) {
+                    features = "historical access and indexing";
+                } else if (config_.enableHistoricalAccess) {
+                    features = "historical access";
+                } else if (config_.enableLogIndexing) {
+                    features = "indexing";
+                } else {
+                    features = "standard logging";
+                }
+
+                std::string startupMsg = "[" + formatTimestamp() + "] [INFO ] [Logger] Enhanced logger initialized with " + features;
                 fileStream_ << startupMsg << std::endl;
                 fileStream_.flush();
                 currentFileSize_ += startupMsg.length() + 1;
@@ -304,8 +315,16 @@ std::string Logger::formatTimestamp() {
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         now.time_since_epoch()) % 1000;
     
+    // Use thread-safe localtime alternative
+    std::tm tm_buf{};
+#ifdef _WIN32
+    localtime_s(&tm_buf, &time_t);
+#else
+    localtime_r(&time_t, &tm_buf);
+#endif
+
     std::ostringstream oss;
-    oss << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S");
+    oss << std::put_time(&tm_buf, "%Y-%m-%d %H:%M:%S");
     oss << "." << std::setfill('0') << std::setw(3) << ms.count();
     return oss.str();
 }
@@ -697,10 +716,17 @@ void Logger::indexLogFile(const std::string& logFile) {
 
     std::lock_guard<std::mutex> lock(fileMutex_);
 
-    // Create or open the index file
-    std::ofstream indexFile(config_.archiveDirectory + "/log_index.txt", std::ios::app);
+    // Ensure archive directory exists and use proper path handling
+    namespace fs = std::filesystem;
+    const fs::path archiveDir{config_.archiveDirectory};
+    std::error_code ec;
+    fs::create_directories(archiveDir, ec); // ignore error; open() will validate
+
+    // Create or open the index file using proper path joining
+    const fs::path indexFilePath = archiveDir / "log_index.txt";
+    std::ofstream indexFile(indexFilePath.string(), std::ios::app);
     if (!indexFile.is_open()) {
-        std::cerr << "Failed to open index file: " << config_.archiveDirectory + "/log_index.txt" << std::endl;
+        std::cerr << "Failed to open index file: " << indexFilePath.string() << std::endl;
         return;
     }
 

@@ -484,8 +484,8 @@ void JobMetricsCollector::startCollection() {
     
     collecting_.store(true);
     startTime_ = std::chrono::system_clock::now();
-    lastRateUpdate_ = startTime_;
-    recordsAtLastUpdate_ = 0;
+    lastRateUpdate_.store(startTime_);
+    recordsAtLastUpdate_.store(0);
     
     // Start system metrics monitoring
     systemMetrics_->startMonitoring();
@@ -569,31 +569,35 @@ size_t JobMetricsCollector::getMemoryUsage() const {
     if (!systemMetrics_->isMonitoring()) {
         return 0;
     }
-    return systemMetrics_->getMemoryUsageDelta();
+    size_t currentMemory = systemMetrics_->getProcessMemoryUsage();
+    return currentMemory > baselineMemoryUsage_ ? currentMemory - baselineMemoryUsage_ : 0;
 }
 
 double JobMetricsCollector::getCpuUsage() const {
     if (!systemMetrics_->isMonitoring()) {
         return 0.0;
     }
-    return systemMetrics_->getCpuUsageDelta();
+    double currentCpu = systemMetrics_->getProcessCpuUsage();
+    return currentCpu > baselineCpuUsage_ ? currentCpu - baselineCpuUsage_ : 0.0;
 }
 
 void JobMetricsCollector::updateProcessingRate() {
     auto now = std::chrono::system_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastRateUpdate_);
-    
+    auto lastUpdate = lastRateUpdate_.load();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastUpdate);
+
     if (elapsed.count() > 1000) { // Update every second
         int currentRecords = recordsProcessed_.load();
-        int recordsDelta = currentRecords - recordsAtLastUpdate_;
-        
+        int lastRecords = recordsAtLastUpdate_.load();
+        int recordsDelta = currentRecords - lastRecords;
+
         if (elapsed.count() > 0) {
             double rate = static_cast<double>(recordsDelta) / (elapsed.count() / 1000.0);
             processingRate_.store(rate);
         }
         
-        lastRateUpdate_ = now;
-        recordsAtLastUpdate_ = currentRecords;
+        lastRateUpdate_.store(now);
+        recordsAtLastUpdate_.store(currentRecords);
     }
 }
 

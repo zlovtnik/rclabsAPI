@@ -36,8 +36,16 @@ std::string LogHandler::formatTimestamp(const std::chrono::system_clock::time_po
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         timestamp.time_since_epoch()) % 1000;
     
+    // Use thread-safe localtime alternative
+    std::tm tm_buf{};
+#ifdef _WIN32
+    localtime_s(&tm_buf, &time_t);
+#else
+    localtime_r(&time_t, &tm_buf);
+#endif
+
     std::stringstream ss;
-    ss << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S");
+    ss << std::put_time(&tm_buf, "%Y-%m-%d %H:%M:%S");
     ss << "." << std::setfill('0') << std::setw(3) << ms.count();
     return ss.str();
 }
@@ -57,8 +65,9 @@ std::string LogHandler::escapeJson(const std::string& str) const {
             case '\t': escaped += "\\t"; break;
             default:
                 if (c < 0x20) {
-                    escaped += "\\u";
-                    escaped += "0000" + std::to_string(static_cast<unsigned char>(c));
+                    std::ostringstream oss;
+                    oss << "\\u" << std::setfill('0') << std::setw(4) << std::hex << static_cast<int>(c);
+                    escaped += oss.str();
                 } else {
                     escaped += c;
                 }
