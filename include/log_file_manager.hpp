@@ -1215,10 +1215,10 @@ private:
     // ========================================================================
     // Configuration and State Management
     // ========================================================================
-    
+
     LogFileManagerConfig config_;
     mutable std::shared_mutex configMutex_;
-    
+
     // File management state
     std::unordered_map<std::string, std::unique_ptr<std::ofstream>> openFiles_;
     std::unordered_map<std::string, size_t> fileSizes_;
@@ -1226,14 +1226,14 @@ private:
     std::unordered_map<std::string, std::chrono::system_clock::time_point> lastAccessTimes_;
     std::unordered_map<std::string, std::chrono::system_clock::time_point> lastRotationTimes_;
     mutable std::shared_mutex filesMutex_;
-    
+
     std::string currentLogFile_;
     mutable std::shared_mutex currentFileMutex_;
 
     // ========================================================================
     // Utility Components
     // ========================================================================
-    
+
     std::unique_ptr<LogFileArchiver> archiver_;
     std::unique_ptr<LogFileIndexer> indexer_;
     std::unique_ptr<LogFileCompressor> compressor_;
