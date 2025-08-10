@@ -197,6 +197,22 @@ struct LogArchivePolicy {
 };
 
 /**
+ * @brief Result of compression operation
+ */
+struct CompressionResult {
+    bool success = false;
+    size_t originalSize = 0;
+    size_t compressedSize = 0;
+    double compressionRatio = 0.0;
+    std::chrono::milliseconds compressionTime{0};
+    std::string errorMessage;
+
+    CompressionResult() = default;
+    CompressionResult(bool s, size_t orig, size_t comp, double ratio, std::chrono::milliseconds time)
+        : success(s), originalSize(orig), compressedSize(comp), compressionRatio(ratio), compressionTime(time) {}
+};
+
+/**
  * @brief Advanced log file indexing configuration
  */
 struct LogIndexingPolicy {
@@ -1203,9 +1219,13 @@ private:
     std::atomic<bool> maintenanceRunning_{false};
     
     // Operation scheduling
+    std::unordered_map<std::string, std::chrono::system_clock::time_point> scheduledRotations_;
     std::priority_queue<std::pair<std::chrono::system_clock::time_point, std::function<void()>>> scheduledOperations_;
     std::mutex scheduleMutex_;
     
+    // Startup time for health status
+    std::chrono::steady_clock::time_point startTime_ = std::chrono::steady_clock::now();
+
     // ========================================================================
     // Performance and Metrics
     // ========================================================================

@@ -87,8 +87,8 @@ public:
                                               std::chrono::system_clock::time_point end) const;
     
     // Performance analytics
-    double getAverageProcessingRate(JobType jobType = static_cast<JobType>(-1)) const;
-    double getAverageErrorRate(JobType jobType = static_cast<JobType>(-1)) const;
+    double getAverageProcessingRate(std::optional<JobType> jobType = std::nullopt) const;
+    double getAverageErrorRate(std::optional<JobType> jobType = std::nullopt) const;
     std::pair<JobMetrics, JobMetrics> getPerformanceBenchmarks() const; // returns min/max baseline metrics
     void storeMetricsSnapshot(const std::string& jobId, const JobMetrics& metrics);
     
