@@ -6,6 +6,8 @@
 #include <type_traits>
 #include <unordered_map>
 #include <sstream>
+#include <functional>
+#include <utility>
 
 namespace etl {
 
@@ -332,12 +334,24 @@ private:
     // Helper function to convert any type to string for logging
     template<typename T>
     static void stream_value(std::stringstream& ss, T&& value) {
-        if constexpr (std::is_same_v<std::decay_t<T>, std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<void>>>) {
+        // Detect any unordered_map<std::string, std::string, H, E>
+        if constexpr (std::is_same_v<
+                          std::string,
+                          typename std::decay_t<T>::key_type> &&
+                      std::is_same_v<
+                          std::string,
+                          typename std::decay_t<T>::mapped_type> &&
+                      std::is_same_v<
+                          std::unordered_map<
+                              typename std::decay_t<T>::key_type,
+                              typename std::decay_t<T>::mapped_type,
+                              typename std::decay_t<T>::hasher,
+                              typename std::decay_t<T>::key_equal>,
+                          std::decay_t<T>>) {
             ss << to_string(value);
         } else if constexpr (std::is_arithmetic_v<std::decay_t<T>> || std::is_convertible_v<T, std::string>) {
             ss << std::forward<T>(value);
         } else {
-            // For other types, try to convert to string or provide a default representation
             ss << "[object]";
         }
     }

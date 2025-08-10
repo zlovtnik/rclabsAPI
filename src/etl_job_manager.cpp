@@ -2,7 +2,7 @@
 #include "data_transformer.hpp"
 #include "database_manager.hpp"
 #include "logger.hpp"
-#include "exceptions.hpp"
+#include "etl_exceptions.hpp"
 #include "exception_handler.hpp"
 #include "system_metrics.hpp"
 #include <iostream>
@@ -243,9 +243,10 @@ void ETLJobManager::executeJob(std::shared_ptr<ETLJob> job) {
     job->status = JobStatus::RUNNING;
     job->startedAt = std::chrono::system_clock::now();
     
-    ETLPlus::Exceptions::ErrorContext context("executeJob");
-    context.addInfo("job_id", job->jobId);
-    context.addInfo("job_type", std::to_string(static_cast<int>(job->type)));
+    etl::ErrorContext context;
+    context["job_id"] = job->jobId;
+    context["job_type"] = std::to_string(static_cast<int>(job->type));
+    context["operation"] = "executeJob";
     
     try {
         switch (job->type) {
@@ -266,7 +267,7 @@ void ETLJobManager::executeJob(std::shared_ptr<ETLJob> job) {
         job->status = JobStatus::COMPLETED;
         ETL_LOG_INFO("Job completed successfully: " + job->jobId);
         
-    } catch (const ETLPlus::Exceptions::BaseException& ex) {
+    } catch (const etl::ETLException& ex) {
         job->status = JobStatus::FAILED;
         job->errorMessage = ex.getMessage();
         ETL_LOG_ERROR("Job failed with ETL exception: " + job->jobId + " - " + ex.toLogString());
@@ -279,11 +280,10 @@ void ETLJobManager::executeJob(std::shared_ptr<ETLJob> job) {
         job->errorMessage = e.what();
         
         // Convert to ETL exception for consistent handling
-        auto etlEx = ETLPlus::Exceptions::ETLException(
-            ETLPlus::Exceptions::ErrorCode::JOB_EXECUTION_FAILED,
+        auto etlEx = etl::BusinessException(
+            etl::ErrorCode::PROCESSING_FAILED,
             "Job execution failed: " + std::string(e.what()),
-            context,
-            job->jobId);
+            "executeJob", context);
         
         ETL_LOG_ERROR("Job failed with standard exception: " + job->jobId + " - " + etlEx.toLogString());
         throw etlEx;
@@ -292,11 +292,10 @@ void ETLJobManager::executeJob(std::shared_ptr<ETLJob> job) {
         job->status = JobStatus::FAILED;
         job->errorMessage = "Unknown error occurred during job execution";
         
-        auto unknownEx = ETLPlus::Exceptions::ETLException(
-            ETLPlus::Exceptions::ErrorCode::JOB_EXECUTION_FAILED,
+        auto unknownEx = etl::BusinessException(
+            etl::ErrorCode::PROCESSING_FAILED,
             "Job execution failed with unknown error",
-            context,
-            job->jobId);
+            "executeJob", context);
         
         ETL_LOG_ERROR("Job failed with unknown exception: " + job->jobId + " - " + unknownEx.toLogString());
         throw unknownEx;
@@ -381,15 +380,16 @@ void ETLJobManager::executeTransformJob(std::shared_ptr<ETLJob> job) {
 void ETLJobManager::executeLoadJob(std::shared_ptr<ETLJob> job) {
     ETL_LOG_INFO("Starting load job for: " + job->targetConfig);
     
-    ETLPlus::Exceptions::ErrorContext context("executeLoadJob");
-    context.addInfo("job_id", job->jobId);
-    context.addInfo("target_config", job->targetConfig);
+    etl::ErrorContext context;
+    context["job_id"] = job->jobId;
+    context["target_config"] = job->targetConfig;
+    context["operation"] = "executeLoadJob";
     
     if (!dbManager_->isConnected()) {
-        throw ETLPlus::Exceptions::DatabaseException(
-            ETLPlus::Exceptions::ErrorCode::CONNECTION_FAILED,
+        throw etl::SystemException(
+            etl::ErrorCode::DATABASE_ERROR,
             "Database not connected for load operation",
-            context);
+            "ETLJobManager", context);
     }
 
     // Simulate data loading with metrics collection
@@ -398,7 +398,9 @@ void ETLJobManager::executeLoadJob(std::shared_ptr<ETLJob> job) {
     const size_t bytesPerRecord = 128; // Database records are more compact
     
     // Use transaction scope for safe database operations
-    WITH_DATABASE_TRANSACTION(dbManager_, "LoadJobData", {
+    try {
+        ETLPlus::ExceptionHandling::TransactionScope transaction(dbManager_, "LoadJobData");
+        
         ETL_LOG_DEBUG("Executing load operation within transaction");
         
         for (int processed = 0; processed < totalRecords; processed += batchSize) {
@@ -409,11 +411,10 @@ void ETLJobManager::executeLoadJob(std::shared_ptr<ETLJob> job) {
             
             // Simulate potential database operations that could fail
             if (!dbManager_->executeQuery("INSERT INTO processed_data VALUES (...)")) {
-                throw ETLPlus::Exceptions::DatabaseException(
-                    ETLPlus::Exceptions::ErrorCode::QUERY_FAILED,
+                throw etl::SystemException(
+                    etl::ErrorCode::DATABASE_ERROR,
                     "Failed to insert processed data",
-                    context,
-                    "INSERT INTO processed_data VALUES (...)");
+                    "ETLJobManager", context);
             }
             
             // Simulate success/failure rates (94% success rate for database operations)
@@ -422,10 +423,10 @@ void ETLJobManager::executeLoadJob(std::shared_ptr<ETLJob> job) {
             
             // Additional validation - simulate constraint check
             if (job->jobId.find("fail") != std::string::npos) {
-                throw ETLPlus::Exceptions::DatabaseException(
-                    ETLPlus::Exceptions::ErrorCode::CONSTRAINT_VIOLATION,
+                throw etl::SystemException(
+                    etl::ErrorCode::CONSTRAINT_VIOLATION,
                     "Simulated constraint violation during load",
-                    context);
+                    "ETLJobManager", context);
             }
             
             // Record metrics if collector is available
@@ -443,7 +444,12 @@ void ETLJobManager::executeLoadJob(std::shared_ptr<ETLJob> job) {
             job->recordsSuccessful += successful;
             job->recordsFailed += failed;
         }
-    });
+        
+        transaction.commit();
+    } catch (...) {
+        // Transaction will automatically rollback in destructor
+        throw;
+    }
     
     ETL_LOG_INFO("Load job completed successfully");
 }
@@ -476,9 +482,10 @@ void ETLJobManager::executeJobWithMonitoring(std::shared_ptr<ETLJob> job) {
     job->startedAt = std::chrono::system_clock::now();
     job->metrics.startTime = job->startedAt;
     
-    ETLPlus::Exceptions::ErrorContext context("executeJobWithMonitoring");
-    context.addInfo("job_id", job->jobId);
-    context.addInfo("job_type", std::to_string(static_cast<int>(job->type)));
+    etl::ErrorContext context;
+    context["job_id"] = job->jobId;
+    context["job_type"] = std::to_string(static_cast<int>(job->type));
+    context["operation"] = "executeJobWithMonitoring";
     
     try {
         switch (job->type) {
@@ -517,7 +524,7 @@ void ETLJobManager::executeJobWithMonitoring(std::shared_ptr<ETLJob> job) {
         updateJobStatus(job, JobStatus::COMPLETED);
         ETL_LOG_INFO("Job completed successfully with monitoring: " + job->jobId);
         
-    } catch (const ETLPlus::Exceptions::BaseException& ex) {
+    } catch (const etl::ETLException& ex) {
         updateJobStatus(job, JobStatus::FAILED);
         job->errorMessage = ex.getMessage();
         
@@ -540,11 +547,10 @@ void ETLJobManager::executeJobWithMonitoring(std::shared_ptr<ETLJob> job) {
             job->metrics.recordError();
         }
         
-        auto etlEx = ETLPlus::Exceptions::ETLException(
-            ETLPlus::Exceptions::ErrorCode::JOB_EXECUTION_FAILED,
+        auto etlEx = etl::BusinessException(
+            etl::ErrorCode::PROCESSING_FAILED,
             "Job execution failed: " + std::string(e.what()),
-            context,
-            job->jobId);
+            "executeJobWithMonitoring", context);
         
         ETL_LOG_ERROR("Job failed with standard exception: " + job->jobId + " - " + etlEx.toLogString());
         throw etlEx;
@@ -559,11 +565,10 @@ void ETLJobManager::executeJobWithMonitoring(std::shared_ptr<ETLJob> job) {
             job->metrics.recordError();
         }
         
-        auto unknownEx = ETLPlus::Exceptions::ETLException(
-            ETLPlus::Exceptions::ErrorCode::JOB_EXECUTION_FAILED,
+        auto unknownEx = etl::BusinessException(
+            etl::ErrorCode::PROCESSING_FAILED,
             "Job execution failed with unknown error",
-            context,
-            job->jobId);
+            "executeJobWithMonitoring", context);
         
         ETL_LOG_ERROR("Job failed with unknown exception: " + job->jobId + " - " + unknownEx.toLogString());
         throw unknownEx;

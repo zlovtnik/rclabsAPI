@@ -4,7 +4,7 @@
 #include "etl_job_manager.hpp"
 #include "websocket_filter_manager.hpp"
 #include "exception_handler.hpp"
-#include "exceptions.hpp"
+#include "etl_exceptions.hpp"
 #include "input_validator.hpp"
 #include "logger.hpp"
 #include <iostream>
@@ -58,7 +58,7 @@ http::response<http::string_body> RequestHandler::handleRequest(
     // Perform comprehensive validation and handle request
     return validateAndHandleRequest(string_req);
 
-  } catch (const ETLPlus::Exceptions::BaseException &ex) {
+  } catch (const etl::ETLException &ex) {
     REQ_LOG_ERROR("RequestHandler::handleRequest() - ETL Exception caught: " +
                   ex.toLogString());
     return createExceptionResponse(ex);
@@ -67,32 +67,28 @@ http::response<http::string_body> RequestHandler::handleRequest(
                   std::string(e.what()));
     auto convertedException =
         ETLPlus::ExceptionHandling::ExceptionHandler::convertException(
-            e, "handleRequest",
-            ETLPlus::Exceptions::ErrorContext("handleRequest"));
+            e, "handleRequest");
     return createExceptionResponse(*convertedException);
   } catch (const std::bad_alloc &e) {
     REQ_LOG_ERROR("RequestHandler::handleRequest() - bad_alloc: " +
                   std::string(e.what()));
     auto convertedException =
         ETLPlus::ExceptionHandling::ExceptionHandler::convertException(
-            e, "handleRequest",
-            ETLPlus::Exceptions::ErrorContext("handleRequest"));
+            e, "handleRequest");
     return createExceptionResponse(*convertedException);
   } catch (const std::logic_error &e) {
     REQ_LOG_ERROR("RequestHandler::handleRequest() - Logic exception: " +
                   std::string(e.what()));
     auto convertedException =
         ETLPlus::ExceptionHandling::ExceptionHandler::convertException(
-            e, "handleRequest",
-            ETLPlus::Exceptions::ErrorContext("handleRequest"));
+            e, "handleRequest");
     return createExceptionResponse(*convertedException);
   } catch (const std::exception &e) {
     REQ_LOG_ERROR("RequestHandler::handleRequest() - Standard exception: " +
                   std::string(e.what()));
     auto convertedException =
         ETLPlus::ExceptionHandling::ExceptionHandler::convertException(
-            e, "handleRequest",
-            ETLPlus::Exceptions::ErrorContext("handleRequest"));
+            e, "handleRequest");
     return createExceptionResponse(*convertedException);
   }
 }
@@ -103,10 +99,9 @@ http::response<http::string_body> RequestHandler::validateAndHandleRequest(
   if (auto basicValidation = validateRequestBasics(req); !basicValidation.isValid) {
     REQ_LOG_WARN(
         "RequestHandler::validateAndHandleRequest() - Basic validation failed");
-    throw ETLPlus::Exceptions::ValidationException(
-        ETLPlus::Exceptions::ErrorCode::INVALID_INPUT,
-        "Request validation failed",
-        ETLPlus::Exceptions::ErrorContext("validateAndHandleRequest"));
+    throw etl::ValidationException(
+        etl::ErrorCode::INVALID_INPUT,
+        "Request validation failed");
   }
 
   auto target = std::string(req.target());
@@ -120,28 +115,28 @@ http::response<http::string_body> RequestHandler::validateAndHandleRequest(
   if (!dbManager_) {
     REQ_LOG_ERROR("RequestHandler::validateAndHandleRequest() - Database "
                   "manager is null");
-    throw ETLPlus::Exceptions::SystemException(
-        ETLPlus::Exceptions::ErrorCode::COMPONENT_UNAVAILABLE,
+    throw etl::SystemException(
+        etl::ErrorCode::COMPONENT_UNAVAILABLE,
         "Database manager not available",
-        ETLPlus::Exceptions::ErrorContext("validateAndHandleRequest"));
+        "RequestHandler");
   }
 
   if (!authManager_) {
     REQ_LOG_ERROR(
         "RequestHandler::validateAndHandleRequest() - Auth manager is null");
-    throw ETLPlus::Exceptions::SystemException(
-        ETLPlus::Exceptions::ErrorCode::COMPONENT_UNAVAILABLE,
+    throw etl::SystemException(
+        etl::ErrorCode::COMPONENT_UNAVAILABLE,
         "Authentication manager not available",
-        ETLPlus::Exceptions::ErrorContext("validateAndHandleRequest"));
+        "RequestHandler");
   }
 
   if (!etlManager_) {
     REQ_LOG_ERROR(
         "RequestHandler::validateAndHandleRequest() - ETL manager is null");
-    throw ETLPlus::Exceptions::SystemException(
-        ETLPlus::Exceptions::ErrorCode::COMPONENT_UNAVAILABLE,
+    throw etl::SystemException(
+        etl::ErrorCode::COMPONENT_UNAVAILABLE,
         "ETL manager not available",
-        ETLPlus::Exceptions::ErrorContext("validateAndHandleRequest"));
+        "RequestHandler");
   }
 
   // Step 3: Route requests with endpoint-specific validation
@@ -172,10 +167,10 @@ http::response<http::string_body> RequestHandler::validateAndHandleRequest(
     REQ_LOG_WARN(
         "RequestHandler::validateAndHandleRequest() - Unknown endpoint: " +
         target);
-    throw ETLPlus::Exceptions::NetworkException(
-        ETLPlus::Exceptions::ErrorCode::INVALID_RESPONSE,
+    throw etl::SystemException(
+        etl::ErrorCode::NETWORK_ERROR,
         "Endpoint not found: " + target,
-        ETLPlus::Exceptions::ErrorContext("validateAndHandleRequest"), 404);
+        "RequestHandler");
   }
 }
 
@@ -589,7 +584,7 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
 
       std::string jobId = etlManager_->scheduleJob(config);
   return createSuccessResponse(std::format(R"({{"job_id":"{}","status":"scheduled"}})", jobId));
-    } catch (const ETLPlus::Exceptions::BaseException &e) {
+    } catch (const etl::ETLException &e) {
       REQ_LOG_ERROR(
           "RequestHandler::handleETLJobs() - Exception during job creation: " +
           std::string(e.what()));
@@ -821,49 +816,47 @@ RequestHandler::createErrorResponse(http::status status,
 }
 
 http::response<http::string_body> RequestHandler::createExceptionResponse(
-  const ETLPlus::Exceptions::BaseException &ex) const {
-  using enum ETLPlus::Exceptions::ErrorCode;
+  const etl::ETLException &ex) const {
+  using enum etl::ErrorCode;
   using enum http::status;
   // Note: Cannot use "using enum http::field" due to conflict with status::unknown
   http::status status = internal_server_error;
 
   // Map exception codes to HTTP status codes
-  switch (ex.getErrorCode()) {
+  switch (ex.getCode()) {
   case INVALID_INPUT:
-  case MISSING_REQUIRED_FIELD:
-  case INVALID_FORMAT:
-  case VALUE_OUT_OF_RANGE:
-  case INVALID_TYPE:
+  case MISSING_FIELD:
+  case INVALID_RANGE:
     status = bad_request;
     break;
 
-  case INVALID_CREDENTIALS:
+  case UNAUTHORIZED:
   case TOKEN_EXPIRED:
-  case TOKEN_INVALID:
     status = unauthorized;
     break;
 
-  case INSUFFICIENT_PERMISSIONS:
-  case ACCOUNT_LOCKED:
+  case FORBIDDEN:
+  case ACCESS_DENIED:
     status = forbidden;
     break;
 
   case JOB_NOT_FOUND:
-  case FILE_NOT_FOUND:
     status = not_found;
     break;
 
-  case REQUEST_TIMEOUT:
-  case CONNECTION_TIMEOUT:
-    status = request_timeout;
+  case CONSTRAINT_VIOLATION:
+  case JOB_ALREADY_RUNNING:
+  case INVALID_JOB_STATE:
+    status = conflict;
     break;
 
   case RATE_LIMIT_EXCEEDED:
     status = too_many_requests;
     break;
 
-  case SERVICE_UNAVAILABLE:
   case COMPONENT_UNAVAILABLE:
+  case MEMORY_ERROR:
+  case THREAD_POOL_EXHAUSTED:
     status = service_unavailable;
     break;
 

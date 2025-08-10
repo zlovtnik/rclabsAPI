@@ -2,6 +2,8 @@
 
 #include <string>
 #include <unordered_map>
+#include <type_traits>
+#include <functional> // Needed for std::hash
 
 namespace etl {
 
@@ -54,6 +56,20 @@ struct ErrorCodeInfo {
 // Error code information mapping
 const std::unordered_map<ErrorCode, ErrorCodeInfo>& getErrorCodeInfo();
 
+} // namespace etl
+
+// Hash support for ErrorCode keys in unordered_map
+namespace std {
+template<>
+struct hash<etl::ErrorCode> {
+    size_t operator()(const etl::ErrorCode code) const noexcept {
+        using Underlying = std::underlying_type_t<etl::ErrorCode>;
+        return std::hash<Underlying>{}(static_cast<Underlying>(code));
+    }
+};
+} // namespace std
+
+namespace etl {
 // Utility functions
 const char* getErrorCodeDescription(ErrorCode code);
 std::string getErrorCategory(ErrorCode code);

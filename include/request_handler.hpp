@@ -1,6 +1,6 @@
 #pragma once
 
-#include "exceptions.hpp"
+#include "etl_exceptions.hpp"
 #include "input_validator.hpp"
 #include "etl_job_manager.hpp"
 #include "websocket_manager.hpp"
@@ -65,7 +65,7 @@ private:
   http::response<http::string_body>
   createErrorResponse(http::status status, const std::string &message) const;
   http::response<http::string_body>
-  createExceptionResponse(const ETLPlus::Exceptions::BaseException &ex) const;
+  createExceptionResponse(const etl::ETLException &ex) const;
   http::response<http::string_body>
   createValidationErrorResponse(const InputValidator::ValidationResult &result) const;
   http::response<http::string_body>

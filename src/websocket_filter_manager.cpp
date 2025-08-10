@@ -1,5 +1,6 @@
 #include "websocket_filter_manager.hpp"
 #include "logger.hpp"
+#include "etl_exceptions.hpp"
 #include <regex>
 #include <sstream>
 #include <iomanip>
@@ -13,7 +14,9 @@
 WebSocketFilterManager::WebSocketFilterManager(std::shared_ptr<WebSocketManager> wsManager)
     : wsManager_(wsManager) {
     if (!wsManager_) {
-        throw std::invalid_argument("WebSocket manager cannot be null");
+        throw etl::ValidationException(etl::ErrorCode::INVALID_INPUT, 
+                                       "WebSocket manager cannot be null", 
+                                       "wsManager", "null");
     }
     
     initializeDefaultTemplates();

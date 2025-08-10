@@ -1238,37 +1238,37 @@ private:
     std::unique_ptr<LogFileIndexer> indexer_;
     std::unique_ptr<LogFileCompressor> compressor_;
     std::unique_ptr<LogFileValidator> validator_;
-    
+
     // ========================================================================
     // Background Operations and Threading
     // ========================================================================
-    
+
     std::thread maintenanceThread_;
     std::condition_variable maintenanceCondition_;
     std::mutex maintenanceMutex_;
     std::atomic<bool> stopMaintenance_{false};
     std::atomic<bool> maintenanceRunning_{false};
-    
+
     // Operation scheduling
     std::unordered_map<std::string, std::chrono::system_clock::time_point> scheduledRotations_;
     std::priority_queue<std::pair<std::chrono::system_clock::time_point, std::function<void()>>> scheduledOperations_;
     std::mutex scheduleMutex_;
-    
+
     // Startup time for health status
     std::chrono::steady_clock::time_point startTime_ = std::chrono::steady_clock::now();
 
     // ========================================================================
     // Performance and Metrics
     // ========================================================================
-    
+
     LogFileMetrics metrics_;
     mutable std::mutex metricsMutex_;
-    
+
     // Write buffering and caching
     std::unordered_map<std::string, std::string> writeBuffers_;
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> lastFlushTimes_;
     mutable std::mutex bufferMutex_;
-    
+
     // Read cache
     struct CacheEntry {
         std::string data;
@@ -1278,11 +1278,11 @@ private:
     std::unordered_map<std::string, CacheEntry> readCache_;
     mutable std::mutex cacheMutex_;
     size_t maxCacheSize_;
-    
+
     // ========================================================================
     // Helper Methods - File Operations
     // ========================================================================
-    
+
     bool createDirectoryStructure(const std::string& filePath);
     bool validateFilePath(const std::string& filePath) const;
     std::string generateBackupFileName(const std::string& baseFilename, int index) const;

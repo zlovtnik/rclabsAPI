@@ -2,6 +2,7 @@
 #include "websocket_manager.hpp"
 #include "notification_service.hpp"
 #include "logger.hpp"
+#include "etl_exceptions.hpp"
 #include <algorithm>
 #include <chrono>
 
@@ -34,10 +35,14 @@ void JobMonitorService::initialize(std::shared_ptr<ETLJobManager> etlManager,
                                  std::shared_ptr<WebSocketManager> wsManager,
                                  std::shared_ptr<NotificationService> notifier) {
     if (!etlManager) {
-        throw std::invalid_argument("ETL Job Manager cannot be null");
+        throw etl::ValidationException(etl::ErrorCode::INVALID_INPUT, 
+                                      "ETL Job Manager cannot be null", 
+                                      "etlManager", "null");
     }
     if (!wsManager) {
-        throw std::invalid_argument("WebSocket Manager cannot be null");
+        throw etl::ValidationException(etl::ErrorCode::INVALID_INPUT, 
+                                      "WebSocket Manager cannot be null", 
+                                      "wsManager", "null");
     }
 
     etlManager_ = etlManager;

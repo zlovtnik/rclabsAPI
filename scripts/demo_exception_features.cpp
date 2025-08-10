@@ -10,7 +10,7 @@ void demonstrateExceptionChaining() {
     try {
         try {
             // Simulate a database connection failure
-            throw DatabaseException(ErrorCode::CONNECTION_FAILED, "Database connection failed");
+            throw DatabaseException(ErrorCode::DATABASE_ERROR, "Database connection failed");
         } catch (const DatabaseException& db_ex) {
             // Wrap in a higher-level exception
             auto system_ex = SystemException(ErrorCode::INTERNAL_ERROR, "System initialization failed");
@@ -39,7 +39,7 @@ void demonstrateRetryLogic() {
                 attempts++;
                 std::cout << "Attempt " << attempts << std::endl;
                 if (attempts < 3) {
-                    throw NetworkException(ErrorCode::REQUEST_TIMEOUT, "Network timeout", 408);
+                    throw NetworkException(ErrorCode::NETWORK_ERROR, "Network timeout", 408);
                 }
                 std::cout << "Success on attempt " << attempts << std::endl;
                 break;
@@ -64,13 +64,13 @@ void demonstrateBasicExceptions() {
     }
     
     try {
-        throw AuthException(ErrorCode::INVALID_CREDENTIALS, "Authentication failed");
+        throw AuthException(ErrorCode::UNAUTHORIZED, "Authentication failed");
     } catch (const BaseException& ex) {
         std::cout << "AuthException: " << ex.toJsonString() << std::endl;
     }
     
     try {
-        throw ETLException(ErrorCode::JOB_EXECUTION_FAILED, "ETL job processing failed");
+        throw ETLException(ErrorCode::PROCESSING_FAILED, "ETL job processing failed");
     } catch (const BaseException& ex) {
         std::cout << "ETLException: " << ex.toJsonString() << std::endl;
     }

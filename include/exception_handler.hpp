@@ -1,7 +1,7 @@
 #pragma once
 
 #include "database_manager.hpp"
-#include "exceptions.hpp"
+#include "etl_exceptions.hpp"
 #include "logger.hpp"
 #include <chrono>
 #include <functional>
@@ -17,7 +17,7 @@ private:
   bool committed_;
   bool rollbackOnDestroy_;
   std::string operationName_;
-  Exceptions::ErrorContext context_;
+  etl::ErrorContext context_;
 
 public:
   explicit TransactionScope(std::shared_ptr<DatabaseManager> dbManager,
@@ -36,7 +36,7 @@ public:
   void rollback();
   void setRollbackOnDestroy(bool rollback) { rollbackOnDestroy_ = rollback; }
 
-  const Exceptions::ErrorContext &getContext() const { return context_; }
+  const etl::ErrorContext &getContext() const { return context_; }
 };
 
 // Exception-safe resource wrapper
@@ -113,16 +113,16 @@ struct RetryConfig {
   std::chrono::milliseconds initialDelay{100};
   double backoffMultiplier = 2.0;
   std::chrono::milliseconds maxDelay{5000};
-  std::function<bool(const Exceptions::BaseException &)> shouldRetry;
+  std::function<bool(const etl::ETLException &)> shouldRetry;
 
   RetryConfig() {
     // Default retry policy: retry on transient errors
-    shouldRetry = [](const Exceptions::BaseException &ex) {
-      switch (ex.getErrorCode()) {
-      case Exceptions::ErrorCode::CONNECTION_TIMEOUT:
-      case Exceptions::ErrorCode::CONNECTION_REFUSED:
-      case Exceptions::ErrorCode::SERVICE_UNAVAILABLE:
-      case Exceptions::ErrorCode::DEADLOCK_DETECTED:
+    shouldRetry = [](const etl::ETLException &ex) {
+      switch (ex.getCode()) {
+      case etl::ErrorCode::NETWORK_ERROR:
+      case etl::ErrorCode::DATABASE_ERROR:
+      case etl::ErrorCode::COMPONENT_UNAVAILABLE:
+      case etl::ErrorCode::LOCK_TIMEOUT:
         return true;
       default:
         return false;
@@ -139,12 +139,12 @@ public:
   static ReturnType executeWithHandling(
       Func &&func, ExceptionPolicy policy = ExceptionPolicy::PROPAGATE,
       const std::string &operationName = "",
-      const Exceptions::ErrorContext &context = Exceptions::ErrorContext()) {
+      const etl::ErrorContext &context = etl::ErrorContext()) {
 
     try {
       return func();
-    } catch (const Exceptions::BaseException &ex) {
-      handleBaseException(ex, policy, operationName, context);
+    } catch (const etl::ETLException &ex) {
+      handleETLException(ex, policy, operationName, context);
       if constexpr (!std::is_void_v<ReturnType>) {
         return ReturnType{};
       }
@@ -166,15 +166,15 @@ public:
   static ReturnType executeWithRetry(
       Func &&func, const RetryConfig &config = RetryConfig(),
       const std::string &operationName = "",
-      const Exceptions::ErrorContext &context = Exceptions::ErrorContext()) {
+      const etl::ErrorContext &context = etl::ErrorContext()) {
 
-    std::shared_ptr<Exceptions::BaseException> lastException;
+    std::shared_ptr<etl::ETLException> lastException;
 
     for (int attempt = 1; attempt <= config.maxAttempts; ++attempt) {
       try {
         return func();
-      } catch (const Exceptions::BaseException &ex) {
-        lastException = std::make_shared<Exceptions::BaseException>(ex);
+      } catch (const etl::ETLException &ex) {
+        lastException = std::make_shared<etl::ETLException>(ex);
 
         if (attempt == config.maxAttempts || !config.shouldRetry(ex)) {
           LOG_ERROR("ExceptionHandler", "Operation '" + operationName +
@@ -193,10 +193,10 @@ public:
 
         std::this_thread::sleep_for(delay);
       } catch (const std::exception &ex) {
-        // Convert to BaseException for consistent handling
-        auto baseEx = std::make_shared<Exceptions::SystemException>(
-            Exceptions::ErrorCode::INTERNAL_ERROR,
-            "Standard exception caught: " + std::string(ex.what()), context);
+        // Convert to ETLException for consistent handling
+        auto baseEx = std::make_shared<etl::SystemException>(
+            etl::ErrorCode::INTERNAL_ERROR,
+            "Standard exception caught: " + std::string(ex.what()), "", context);
 
         if (attempt == config.maxAttempts) {
           LOG_ERROR("ExceptionHandler",
@@ -222,34 +222,33 @@ public:
     if (lastException) {
       throw *lastException;
     }
-    throw Exceptions::SystemException(Exceptions::ErrorCode::INTERNAL_ERROR,
-                                      "Unexpected error in retry logic",
-                                      context);
+    throw etl::SystemException(etl::ErrorCode::INTERNAL_ERROR,
+                               "Unexpected error in retry logic", "", context);
   }
 
-  // Convert standard exceptions to BaseException
-  static std::shared_ptr<Exceptions::BaseException> convertException(
+  // Convert standard exceptions to ETLException
+  static std::shared_ptr<etl::ETLException> convertException(
       const std::exception &ex, const std::string &operationName = "",
-      const Exceptions::ErrorContext &context = Exceptions::ErrorContext());
+      const etl::ErrorContext &context = etl::ErrorContext());
 
-  // Log exception with appropriate level based on severity
-  static void logException(const Exceptions::BaseException &ex,
+  // Log exception with appropriate level
+  static void logException(const etl::ETLException &ex,
                            const std::string &operationName = "");
 
 private:
-  static void handleBaseException(const Exceptions::BaseException &ex,
-                                  ExceptionPolicy policy,
-                                  const std::string &operationName,
-                                  const Exceptions::ErrorContext &context);
+  static void handleETLException(const etl::ETLException &ex,
+                                 ExceptionPolicy policy,
+                                 const std::string &operationName,
+                                 const etl::ErrorContext &context);
 
   static void handleStandardException(const std::exception &ex,
                                       ExceptionPolicy policy,
                                       const std::string &operationName,
-                                      const Exceptions::ErrorContext &context);
+                                      const etl::ErrorContext &context);
 
   static void handleUnknownException(ExceptionPolicy policy,
                                      const std::string &operationName,
-                                     const Exceptions::ErrorContext &context);
+                                     const etl::ErrorContext &context);
 
   static std::chrono::milliseconds calculateDelay(int attempt,
                                                   const RetryConfig &config);
@@ -259,26 +258,26 @@ private:
 #define EXECUTE_WITH_EXCEPTION_HANDLING(func, policy, operation)               \
   ETLPlus::ExceptionHandling::ExceptionHandler::executeWithHandling(           \
       [&]() { return func; }, policy, operation,                               \
-      ETLPlus::Exceptions::ErrorContext(operation))
+      etl::ErrorContext())
 
 #define EXECUTE_WITH_RETRY(func, config, operation)                            \
   ETLPlus::ExceptionHandling::ExceptionHandler::executeWithRetry(              \
       [&]() { return func; }, config, operation,                               \
-      ETLPlus::Exceptions::ErrorContext(operation))
+      etl::ErrorContext())
 
 #define TRY_CATCH_LOG(operation, func)                                         \
   try {                                                                        \
     func;                                                                      \
-  } catch (const ETLPlus::Exceptions::BaseException &ex) {                     \
+  } catch (const etl::ETLException &ex) {                                      \
     ETLPlus::ExceptionHandling::ExceptionHandler::logException(ex, operation); \
     throw;                                                                     \
   } catch (const std::exception &ex) {                                         \
-    auto baseEx =                                                              \
+    auto etlEx =                                                               \
         ETLPlus::ExceptionHandling::ExceptionHandler::convertException(        \
             ex, operation);                                                    \
-    ETLPlus::ExceptionHandling::ExceptionHandler::logException(*baseEx,        \
+    ETLPlus::ExceptionHandling::ExceptionHandler::logException(*etlEx,         \
                                                                operation);     \
-    throw *baseEx;                                                             \
+    throw *etlEx;                                                              \
   }
 
 // Database transaction helpers

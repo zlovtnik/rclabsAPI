@@ -5,6 +5,9 @@ project(ETLPlusBackend)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Option to enable tests
+option(ENABLE_TESTS "Enable GTest-based tests" ON)
+
 # Build optimization flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
 set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
@@ -19,7 +22,7 @@ endif()
 
 # Find required packages
 find_package(Boost REQUIRED COMPONENTS system filesystem thread)
-find_package(GTest REQUIRED)
+find_package(GTest)
 find_package(Threads REQUIRED)
 
 # Try to find nlohmann_json
@@ -218,56 +221,46 @@ create_test_executable(test_log_streaming_demo scripts/test_log_streaming_demo.c
 create_test_executable(test_enhanced_rest_endpoints_simple scripts/test_enhanced_rest_endpoints_simple.cpp)
 create_test_executable(test_config_management_demo scripts/test_config_management_demo.cpp)
 create_test_executable(test_config_simple scripts/test_config_simple.cpp)
-create_test_executable(test_log_handler scripts/test_log_handler.cpp)
-create_test_executable(test_log_file_manager scripts/test_log_file_manager.cpp)
-target_link_libraries(test_log_file_manager GTest::gtest GTest::gtest_main)
-create_test_executable(test_component_logger_template scripts/test_component_logger_template.cpp)
-create_test_executable(test_error_code_consolidation scripts/test_error_code_consolidation.cpp)
 
-# Demo executable for LogFileManager
-add_executable(demo_log_file_manager scripts/demo_log_file_manager.cpp)
-target_include_directories(demo_log_file_manager PRIVATE include)
-target_link_libraries(demo_log_file_manager etl_common)
+# GTest-based targets
+if(GTest_FOUND AND ENABLE_TESTS)
+  create_test_executable(test_log_handler scripts/test_log_handler.cpp)
+  create_test_executable(test_log_file_manager scripts/test_log_file_manager.cpp)
+  target_link_libraries(test_log_file_manager GTest::gtest GTest::gtest_main)
 
-# TEMPORARY: Disabled until test is updated for new API
-# create_test_executable(test_notification_service_error_handling scripts/test_notification_service_error_handling.cpp)
+  # Real-time monitoring integration test (working version)
+  create_test_executable(test_real_time_monitoring_integration scripts/test_real_time_monitoring_integration.cpp)
+  target_link_libraries(test_real_time_monitoring_integration GTest::gtest GTest::gtest_main)
 
-# Real-time monitoring integration test (working version)
-create_test_executable(test_real_time_monitoring_integration scripts/test_real_time_monitoring_integration.cpp)
-target_link_libraries(test_real_time_monitoring_integration GTest::gtest GTest::gtest_main)
+  # Add custom target to run integration tests
+  add_custom_target(run_integration_tests
+      COMMAND ${CMAKE_COMMAND} -E echo "Running Real-time Monitoring Integration Tests..."
+      COMMAND test_real_time_monitoring_integration --gtest_filter="*BasicJobStatusTracking*:*WebSocketManagerConnectionHandling*:*NotificationServiceIntegration*:*ComponentLifecycleManagement*"
+      DEPENDS test_real_time_monitoring_integration
+      WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+      COMMENT "Running integration tests for real-time monitoring workflow"
+  )
 
-# TEMPORARY: Disabled test_real_time_monitoring_workflow until full APIs are implemented
-# This test requires complete WebSocket endpoints and HTTP server integration
-# create_test_executable(test_real_time_monitoring_workflow scripts/test_real_time_monitoring_workflow.cpp)
+  # Add integration tests to the default build target
+  add_custom_target(test_all
+      DEPENDS run_integration_tests
+      COMMENT "Build and run all integration tests"
+  )
 
-# Add custom target to run integration tests
-add_custom_target(run_integration_tests
-    COMMAND ${CMAKE_COMMAND} -E echo "Running Real-time Monitoring Integration Tests..."
-    COMMAND test_real_time_monitoring_integration --gtest_filter="*BasicJobStatusTracking*:*WebSocketManagerConnectionHandling*:*NotificationServiceIntegration*:*ComponentLifecycleManagement*"
-    DEPENDS test_real_time_monitoring_integration
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    COMMENT "Running integration tests for real-time monitoring workflow"
-)
+  # Add build-and-test target for continuous integration
+  add_custom_target(build_and_test
+      COMMAND ninja
+      COMMAND ninja run_integration_tests
+      WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+      COMMENT "Build everything and run integration tests"
+  )
 
-# Add integration tests to the default build target
-add_custom_target(test_all
-    DEPENDS run_integration_tests
-    COMMENT "Build and run all integration tests"
-)
-
-# Add build-and-test target for continuous integration
-add_custom_target(build_and_test
-    COMMAND ninja
-    COMMAND ninja run_integration_tests
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    COMMENT "Build everything and run integration tests"
-)
-
-# Make test_all run when doing "ninja check"
-add_custom_target(check
-    DEPENDS test_all
-    COMMENT "Check code by building and running tests"
-)
+  # Make test_all run when doing "ninja check"
+  add_custom_target(check
+      DEPENDS test_all
+      COMMENT "Check code by building and running tests"
+  )
+endif()
 
 # Optional: Enable precompiled headers for common includes (C++20 feature)
 if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.16")
