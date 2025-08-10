@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <chrono>
 #include <sstream>
+#include "error_codes.hpp"
 
 namespace etl {
 
@@ -14,47 +15,9 @@ class ValidationException;
 class SystemException;
 class BusinessException;
 
-// Consolidated error codes organized by category
-enum class ErrorCode {
-    // Validation errors (1000-1999)
-    INVALID_INPUT = 1000,
-    MISSING_FIELD = 1001,
-    INVALID_FORMAT = 1002,
-    INVALID_RANGE = 1003,
-    INVALID_TYPE = 1004,
-    CONSTRAINT_VIOLATION = 1005,
-    
-    // Authentication/Authorization errors (2000-2999)
-    UNAUTHORIZED = 2000,
-    FORBIDDEN = 2001,
-    TOKEN_EXPIRED = 2002,
-    INVALID_CREDENTIALS = 2003,
-    ACCESS_DENIED = 2004,
-    
-    // System errors (3000-3999)
-    DATABASE_ERROR = 3000,
-    NETWORK_ERROR = 3001,
-    FILE_ERROR = 3002,
-    MEMORY_ERROR = 3003,
-    LOCK_TIMEOUT = 3004,
-    RESOURCE_EXHAUSTED = 3005,
-    CONFIGURATION_ERROR = 3006,
-    
-    // Business logic errors (4000-4999)
-    JOB_NOT_FOUND = 4000,
-    JOB_ALREADY_RUNNING = 4001,
-    INVALID_JOB_STATE = 4002,
-    PROCESSING_FAILED = 4003,
-    TRANSFORMATION_ERROR = 4004,
-    DATA_INTEGRITY_ERROR = 4005,
-    WORKFLOW_ERROR = 4006
-};
-
+// Use the consolidated error codes from error_codes.hpp
 // Error context for additional debugging information
 using ErrorContext = std::unordered_map<std::string, std::string>;
-
-// Utility function to get error code description
-const char* getErrorCodeDescription(ErrorCode code);
 
 // Base ETL exception class with error context and correlation ID support
 class ETLException : public std::exception {

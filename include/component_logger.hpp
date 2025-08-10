@@ -1,6 +1,7 @@
 #pragma once
 
 #include "logger.hpp"
+#include "transparent_string_hash.hpp"
 #include <string>
 #include <type_traits>
 #include <unordered_map>
@@ -313,6 +314,34 @@ public:
     }
 
 private:
+    // Helper function to convert unordered_map to string representation
+    template<typename K, typename V, typename H, typename E>
+    static std::string to_string(const std::unordered_map<K, V, H, E>& map) {
+        std::stringstream ss;
+        ss << "{";
+        bool first = true;
+        for (const auto& pair : map) {
+            if (!first) ss << ", ";
+            ss << pair.first << ": " << pair.second;
+            first = false;
+        }
+        ss << "}";
+        return ss.str();
+    }
+
+    // Helper function to convert any type to string for logging
+    template<typename T>
+    static void stream_value(std::stringstream& ss, T&& value) {
+        if constexpr (std::is_same_v<std::decay_t<T>, std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<void>>>) {
+            ss << to_string(value);
+        } else if constexpr (std::is_arithmetic_v<std::decay_t<T>> || std::is_convertible_v<T, std::string>) {
+            ss << std::forward<T>(value);
+        } else {
+            // For other types, try to convert to string or provide a default representation
+            ss << "[object]";
+        }
+    }
+
     // Helper function for message formatting with variadic templates
     template<typename... Args>
     static std::string format_message(const std::string& format, Args&&... args) {
@@ -326,7 +355,8 @@ private:
     static void format_impl(std::stringstream& ss, const std::string& format, T&& arg, Args&&... args) {
         size_t pos = format.find("{}");
         if (pos != std::string::npos) {
-            ss << format.substr(0, pos) << std::forward<T>(arg);
+            ss << format.substr(0, pos);
+            stream_value(ss, std::forward<T>(arg));
             if constexpr (sizeof...(args) > 0) {
                 format_impl(ss, format.substr(pos + 2), std::forward<Args>(args)...);
             } else {

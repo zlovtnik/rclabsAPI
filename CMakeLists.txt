@@ -123,6 +123,8 @@ set(COMMON_SOURCES
     src/input_validator.cpp
     src/exceptions.cpp
     src/exception_handler.cpp
+    src/error_codes.cpp
+    src/etl_exceptions.cpp
     src/job_monitoring_models.cpp
     src/job_monitor_service.cpp
     src/notification_service.cpp
@@ -220,6 +222,7 @@ create_test_executable(test_log_handler scripts/test_log_handler.cpp)
 create_test_executable(test_log_file_manager scripts/test_log_file_manager.cpp)
 target_link_libraries(test_log_file_manager GTest::gtest GTest::gtest_main)
 create_test_executable(test_component_logger_template scripts/test_component_logger_template.cpp)
+create_test_executable(test_error_code_consolidation scripts/test_error_code_consolidation.cpp)
 
 # Demo executable for LogFileManager
 add_executable(demo_log_file_manager scripts/demo_log_file_manager.cpp)
