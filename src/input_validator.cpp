@@ -363,8 +363,8 @@ bool InputValidator::isValidHttpMethod(const std::string& method, const std::vec
 bool InputValidator::isValidContentType(const std::string& contentType) {
     return contentType == "application/json" || 
            contentType == "application/x-www-form-urlencoded" ||
-           contentType.starts_with("application/json;") ||
-           contentType.starts_with("application/x-www-form-urlencoded;");
+           contentType.find("application/json;") == 0 ||
+           contentType.find("application/x-www-form-urlencoded;") == 0;
 }
 
 InputValidator::ValidationResult InputValidator::validateAuthorizationHeader(const std::string& authHeader) {

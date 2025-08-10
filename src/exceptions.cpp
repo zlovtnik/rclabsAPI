@@ -41,12 +41,20 @@ namespace ETLPlus {
             std::ostringstream oss;
             auto time_t = std::chrono::system_clock::to_time_t(timestamp);
             
+            // Use thread-safe localtime alternative
+            std::tm tm_buf{};
+#ifdef _WIN32
+            localtime_s(&tm_buf, &time_t);
+#else
+            localtime_r(&time_t, &tm_buf);
+#endif
+
             oss << "CorrelationId: " << correlationId;
             if (!operation.empty()) oss << ", Operation: " << operation;
             if (!userId.empty()) oss << ", UserId: " << userId;
             if (!component.empty()) oss << ", Component: " << component;
-            oss << ", Timestamp: " << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S");
-            
+            oss << ", Timestamp: " << std::put_time(&tm_buf, "%Y-%m-%d %H:%M:%S");
+
             if (!additionalInfo.empty()) {
                 oss << ", Additional: {";
                 bool first = true;
@@ -57,7 +65,7 @@ namespace ETLPlus {
                 }
                 oss << "}";
             }
-            
+
             return oss.str();
         }
 
@@ -297,7 +305,7 @@ namespace ETLPlus {
                 case ErrorCode::TOKEN_INVALID: return "TOKEN_INVALID";
                 case ErrorCode::INSUFFICIENT_PERMISSIONS: return "INSUFFICIENT_PERMISSIONS";
                 case ErrorCode::ACCOUNT_LOCKED: return "ACCOUNT_LOCKED";
-                
+
                 // Database errors
                 case ErrorCode::CONNECTION_FAILED: return "CONNECTION_FAILED";
                 case ErrorCode::QUERY_FAILED: return "QUERY_FAILED";
@@ -305,14 +313,14 @@ namespace ETLPlus {
                 case ErrorCode::DEADLOCK_DETECTED: return "DEADLOCK_DETECTED";
                 case ErrorCode::CONSTRAINT_VIOLATION: return "CONSTRAINT_VIOLATION";
                 case ErrorCode::CONNECTION_TIMEOUT: return "CONNECTION_TIMEOUT";
-                
+
                 // Network errors
                 case ErrorCode::REQUEST_TIMEOUT: return "REQUEST_TIMEOUT";
                 case ErrorCode::CONNECTION_REFUSED: return "CONNECTION_REFUSED";
                 case ErrorCode::INVALID_RESPONSE: return "INVALID_RESPONSE";
                 case ErrorCode::RATE_LIMIT_EXCEEDED: return "RATE_LIMIT_EXCEEDED";
                 case ErrorCode::SERVICE_UNAVAILABLE: return "SERVICE_UNAVAILABLE";
-                
+
                 // ETL Processing errors
                 case ErrorCode::JOB_EXECUTION_FAILED: return "JOB_EXECUTION_FAILED";
                 case ErrorCode::DATA_TRANSFORMATION_ERROR: return "DATA_TRANSFORMATION_ERROR";
@@ -320,28 +328,29 @@ namespace ETLPlus {
                 case ErrorCode::LOAD_FAILED: return "LOAD_FAILED";
                 case ErrorCode::JOB_NOT_FOUND: return "JOB_NOT_FOUND";
                 case ErrorCode::JOB_ALREADY_RUNNING: return "JOB_ALREADY_RUNNING";
-                
+
                 // Configuration errors
                 case ErrorCode::CONFIG_NOT_FOUND: return "CONFIG_NOT_FOUND";
                 case ErrorCode::CONFIG_PARSE_ERROR: return "CONFIG_PARSE_ERROR";
                 case ErrorCode::INVALID_CONFIG_VALUE: return "INVALID_CONFIG_VALUE";
                 case ErrorCode::MISSING_CONFIG_SECTION: return "MISSING_CONFIG_SECTION";
-                
+
                 // Resource errors
                 case ErrorCode::OUT_OF_MEMORY: return "OUT_OF_MEMORY";
                 case ErrorCode::FILE_NOT_FOUND: return "FILE_NOT_FOUND";
                 case ErrorCode::PERMISSION_DENIED: return "PERMISSION_DENIED";
                 case ErrorCode::DISK_FULL: return "DISK_FULL";
                 case ErrorCode::RESOURCE_EXHAUSTED: return "RESOURCE_EXHAUSTED";
-                
+
                 // System errors
                 case ErrorCode::INTERNAL_ERROR: return "INTERNAL_ERROR";
                 case ErrorCode::SERVICE_STARTUP_FAILED: return "SERVICE_STARTUP_FAILED";
                 case ErrorCode::COMPONENT_UNAVAILABLE: return "COMPONENT_UNAVAILABLE";
                 case ErrorCode::THREAD_POOL_EXHAUSTED: return "THREAD_POOL_EXHAUSTED";
-                
-                // Unknown
+
+                // Unknown/Generic
                 case ErrorCode::UNKNOWN_ERROR: return "UNKNOWN_ERROR";
+
                 default: return "UNKNOWN_ERROR_CODE";
             }
         }
@@ -388,6 +397,7 @@ namespace ETLPlus {
             switch (code) {
                 // Critical errors
                 case ErrorCode::OUT_OF_MEMORY:
+                case ErrorCode::RESOURCE_EXHAUSTED:
                 case ErrorCode::SERVICE_STARTUP_FAILED:
                 case ErrorCode::COMPONENT_UNAVAILABLE:
                     return ErrorSeverity::CRITICAL;
@@ -401,10 +411,12 @@ namespace ETLPlus {
                     return ErrorSeverity::HIGH;
                 
                 // Medium severity errors
-                case ErrorCode::QUERY_FAILED:
                 case ErrorCode::DATA_TRANSFORMATION_ERROR:
                 case ErrorCode::CONFIG_PARSE_ERROR:
                 case ErrorCode::PERMISSION_DENIED:
+                case ErrorCode::QUERY_FAILED:
+                case ErrorCode::EXTRACT_FAILED:
+                case ErrorCode::LOAD_FAILED:
                     return ErrorSeverity::MEDIUM;
                 
                 // Low severity errors (mostly validation)

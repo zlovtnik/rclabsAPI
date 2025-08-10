@@ -1,11 +1,12 @@
 #pragma once
 
-#include "exceptions.hpp"
+#include "etl_exceptions.hpp"
 #include "input_validator.hpp"
 #include "etl_job_manager.hpp"
 #include "websocket_manager.hpp"
 #include "job_monitoring_models.hpp"
 #include "transparent_string_hash.hpp"
+#include "logger.hpp"
 #include <boost/beast/http.hpp>
 #include <memory>
 #include <string>
@@ -54,6 +55,8 @@ private:
   http::response<http::string_body>
   handleAuth(const http::request<http::string_body> &req) const;
   http::response<http::string_body>
+  handleLogs(const http::request<http::string_body> &req) const;
+  http::response<http::string_body>
   handleETLJobs(const http::request<http::string_body> &req) const;
   http::response<http::string_body>
   handleMonitoring(const http::request<http::string_body> &req) const;
@@ -62,7 +65,7 @@ private:
   http::response<http::string_body>
   createErrorResponse(http::status status, const std::string &message) const;
   http::response<http::string_body>
-  createExceptionResponse(const ETLPlus::Exceptions::BaseException &ex) const;
+  createExceptionResponse(const etl::ETLException &ex) const;
   http::response<http::string_body>
   createValidationErrorResponse(const InputValidator::ValidationResult &result) const;
   http::response<http::string_body>
@@ -79,6 +82,10 @@ private:
   std::string formatTimestamp(const std::chrono::system_clock::time_point& timePoint) const;
   std::chrono::system_clock::time_point parseTimestamp(std::string_view timestampStr) const;
   
+  // Log level conversion helpers
+  LogLevel stringToLogLevel(const std::string& levelStr) const;
+  std::string levelToString(LogLevel level) const;
+
   // WebSocket filter management methods
   http::response<http::string_body>
   handleGetConnectionFilters(const std::string& connectionId);

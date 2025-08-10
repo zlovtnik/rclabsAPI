@@ -12,35 +12,36 @@ namespace ETLPlus {
             , committed_(false)
             , rollbackOnDestroy_(true)
             , operationName_(operationName)
-            , context_(operationName) {
+            , context_() {
+            context_["operation"] = operationName;
             
             if (!dbManager_) {
-                throw Exceptions::SystemException(
-                    Exceptions::ErrorCode::COMPONENT_UNAVAILABLE,
+                throw etl::SystemException(
+                    etl::ErrorCode::COMPONENT_UNAVAILABLE,
                     "Database manager is null in transaction scope",
-                    context_);
+                    "TransactionScope", context_);
             }
 
             if (!dbManager_->isConnected()) {
-                throw Exceptions::DatabaseException(
-                    Exceptions::ErrorCode::CONNECTION_FAILED,
+                throw etl::SystemException(
+                    etl::ErrorCode::DATABASE_ERROR,
                     "Database not connected when starting transaction",
-                    context_);
+                    "TransactionScope", context_);
             }
 
             try {
                 if (!dbManager_->beginTransaction()) {
-                    throw Exceptions::DatabaseException(
-                        Exceptions::ErrorCode::TRANSACTION_FAILED,
+                    throw etl::SystemException(
+                        etl::ErrorCode::DATABASE_ERROR,
                         "Failed to begin database transaction",
-                        context_);
+                        "TransactionScope", context_);
                 }
                 DB_LOG_DEBUG("Transaction started for operation: " + operationName_);
             } catch (const std::exception& ex) {
-                throw Exceptions::DatabaseException(
-                    Exceptions::ErrorCode::TRANSACTION_FAILED,
+                throw etl::SystemException(
+                    etl::ErrorCode::DATABASE_ERROR,
                     "Exception during transaction begin: " + std::string(ex.what()),
-                    context_);
+                    "TransactionScope", context_);
             }
         }
 
@@ -89,42 +90,42 @@ namespace ETLPlus {
 
         void TransactionScope::commit() {
             if (committed_) {
-                throw Exceptions::DatabaseException(
-                    Exceptions::ErrorCode::TRANSACTION_FAILED,
+                throw etl::SystemException(
+                    etl::ErrorCode::DATABASE_ERROR,
                     "Transaction already committed",
-                    context_);
+                    "TransactionScope", context_);
             }
 
             if (!dbManager_ || !dbManager_->isConnected()) {
-                throw Exceptions::DatabaseException(
-                    Exceptions::ErrorCode::CONNECTION_FAILED,
+                throw etl::SystemException(
+                    etl::ErrorCode::DATABASE_ERROR,
                     "Database not connected when committing transaction",
-                    context_);
+                    "TransactionScope", context_);
             }
 
             try {
                 if (!dbManager_->commitTransaction()) {
-                    throw Exceptions::DatabaseException(
-                        Exceptions::ErrorCode::TRANSACTION_FAILED,
+                    throw etl::SystemException(
+                        etl::ErrorCode::DATABASE_ERROR,
                         "Failed to commit database transaction",
-                        context_);
+                        "TransactionScope", context_);
                 }
                 committed_ = true;
                 DB_LOG_DEBUG("Transaction committed for operation: " + operationName_);
             } catch (const std::exception& ex) {
-                throw Exceptions::DatabaseException(
-                    Exceptions::ErrorCode::TRANSACTION_FAILED,
+                throw etl::SystemException(
+                    etl::ErrorCode::DATABASE_ERROR,
                     "Exception during transaction commit: " + std::string(ex.what()),
-                    context_);
+                    "TransactionScope", context_);
             }
         }
 
         void TransactionScope::rollback() {
             if (committed_) {
-                throw Exceptions::DatabaseException(
-                    Exceptions::ErrorCode::TRANSACTION_FAILED,
+                throw etl::SystemException(
+                    etl::ErrorCode::DATABASE_ERROR,
                     "Cannot rollback committed transaction",
-                    context_);
+                    "TransactionScope", context_);
             }
 
             if (!dbManager_ || !dbManager_->isConnected()) {
@@ -134,26 +135,26 @@ namespace ETLPlus {
 
             try {
                 if (!dbManager_->rollbackTransaction()) {
-                    throw Exceptions::DatabaseException(
-                        Exceptions::ErrorCode::TRANSACTION_FAILED,
+                    throw etl::SystemException(
+                        etl::ErrorCode::DATABASE_ERROR,
                         "Failed to rollback database transaction",
-                        context_);
+                        "TransactionScope", context_);
                 }
                 committed_ = true; // Prevent destructor from trying to rollback again
                 DB_LOG_WARN("Transaction rolled back for operation: " + operationName_);
             } catch (const std::exception& ex) {
-                throw Exceptions::DatabaseException(
-                    Exceptions::ErrorCode::TRANSACTION_FAILED,
+                throw etl::SystemException(
+                    etl::ErrorCode::DATABASE_ERROR,
                     "Exception during transaction rollback: " + std::string(ex.what()),
-                    context_);
+                    "TransactionScope", context_);
             }
         }
 
         // ExceptionHandler implementation
-        std::shared_ptr<Exceptions::BaseException> ExceptionHandler::convertException(
+        std::shared_ptr<etl::ETLException> ExceptionHandler::convertException(
             const std::exception& ex,
             const std::string& operationName,
-            const Exceptions::ErrorContext& context) {
+            const etl::ErrorContext& context) {
             
             // Try to determine the most appropriate exception type based on the message
             std::string message = ex.what();
@@ -165,10 +166,10 @@ namespace ETLPlus {
                 lowerMessage.find("connection") != std::string::npos ||
                 lowerMessage.find("query") != std::string::npos ||
                 lowerMessage.find("sql") != std::string::npos) {
-                return std::make_shared<Exceptions::DatabaseException>(
-                    Exceptions::ErrorCode::QUERY_FAILED,
+                return std::make_shared<etl::SystemException>(
+                    etl::ErrorCode::DATABASE_ERROR,
                     "Database error: " + message,
-                    context);
+                    "DatabaseSystem", context);
             }
             
             // Network-related errors
@@ -176,41 +177,41 @@ namespace ETLPlus {
                 lowerMessage.find("socket") != std::string::npos ||
                 lowerMessage.find("timeout") != std::string::npos ||
                 lowerMessage.find("refused") != std::string::npos) {
-                return std::make_shared<Exceptions::NetworkException>(
-                    Exceptions::ErrorCode::CONNECTION_REFUSED,
+                return std::make_shared<etl::SystemException>(
+                    etl::ErrorCode::NETWORK_ERROR,
                     "Network error: " + message,
-                    context);
+                    "NetworkSystem", context);
             }
             
             // Memory-related errors
             if (lowerMessage.find("memory") != std::string::npos ||
                 lowerMessage.find("allocation") != std::string::npos ||
                 lowerMessage.find("bad_alloc") != std::string::npos) {
-                return std::make_shared<Exceptions::ResourceException>(
-                    Exceptions::ErrorCode::OUT_OF_MEMORY,
+                return std::make_shared<etl::SystemException>(
+                    etl::ErrorCode::MEMORY_ERROR,
                     "Memory error: " + message,
-                    context);
+                    "MemorySystem", context);
             }
             
             // File-related errors
             if (lowerMessage.find("file") != std::string::npos ||
                 lowerMessage.find("permission") != std::string::npos ||
                 lowerMessage.find("access") != std::string::npos) {
-                return std::make_shared<Exceptions::ResourceException>(
-                    Exceptions::ErrorCode::FILE_NOT_FOUND,
+                return std::make_shared<etl::SystemException>(
+                    etl::ErrorCode::FILE_ERROR,
                     "File/Resource error: " + message,
-                    context);
+                    "FileSystem", context);
             }
 
             // Default to system exception
-            return std::make_shared<Exceptions::SystemException>(
-                Exceptions::ErrorCode::INTERNAL_ERROR,
+            return std::make_shared<etl::SystemException>(
+                etl::ErrorCode::INTERNAL_ERROR,
                 "Converted standard exception: " + message,
-                context);
+                "UnknownSystem", context);
         }
 
         void ExceptionHandler::logException(
-            const Exceptions::BaseException& ex,
+            const etl::ETLException& ex,
             const std::string& operationName) {
             
             std::string logMessage = ex.toLogString();
@@ -218,27 +219,15 @@ namespace ETLPlus {
                 logMessage = "[" + operationName + "] " + logMessage;
             }
 
-            switch (ex.getSeverity()) {
-                case Exceptions::ErrorSeverity::LOW:
-                    LOG_WARN("ExceptionHandler", logMessage);
-                    break;
-                case Exceptions::ErrorSeverity::MEDIUM:
-                    LOG_ERROR("ExceptionHandler", logMessage);
-                    break;
-                case Exceptions::ErrorSeverity::HIGH:
-                    LOG_ERROR("ExceptionHandler", logMessage);
-                    break;
-                case Exceptions::ErrorSeverity::CRITICAL:
-                    LOG_FATAL("ExceptionHandler", logMessage);
-                    break;
-            }
+            // Log all exceptions as errors for now (simplified from severity-based logging)
+            LOG_ERROR("ExceptionHandler", logMessage);
         }
 
-        void ExceptionHandler::handleBaseException(
-            const Exceptions::BaseException& ex,
+        void ExceptionHandler::handleETLException(
+            const etl::ETLException& ex,
             ExceptionPolicy policy,
             const std::string& operationName,
-            const Exceptions::ErrorContext& context) {
+            const etl::ErrorContext& context) {
             
             switch (policy) {
                 case ExceptionPolicy::PROPAGATE:
@@ -266,23 +255,23 @@ namespace ETLPlus {
             const std::exception& ex,
             ExceptionPolicy policy,
             const std::string& operationName,
-            const Exceptions::ErrorContext& context) {
+            const etl::ErrorContext& context) {
             
-            auto baseEx = convertException(ex, operationName, context);
-            handleBaseException(*baseEx, policy, operationName, context);
+            auto etlEx = convertException(ex, operationName, context);
+            handleETLException(*etlEx, policy, operationName, context);
         }
 
         void ExceptionHandler::handleUnknownException(
             ExceptionPolicy policy,
             const std::string& operationName,
-            const Exceptions::ErrorContext& context) {
+            const etl::ErrorContext& context) {
             
-            auto unknownEx = Exceptions::SystemException(
-                Exceptions::ErrorCode::UNKNOWN_ERROR,
+            auto unknownEx = etl::SystemException(
+                etl::ErrorCode::INTERNAL_ERROR,
                 "Unknown exception caught",
-                context);
+                "UnknownSystem", context);
             
-            handleBaseException(unknownEx, policy, operationName, context);
+            handleETLException(unknownEx, policy, operationName, context);
         }
 
         std::chrono::milliseconds ExceptionHandler::calculateDelay(

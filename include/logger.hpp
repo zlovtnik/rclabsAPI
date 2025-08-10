@@ -4,27 +4,52 @@
 #include <chrono>
 #include <condition_variable>
 #include <fstream>
-#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <mutex>
 #include <queue>
-#include <sstream>
 #include <string>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <functional>
-#include <string_view>
+#include <vector>
+#include <optional>
 #include "transparent_string_hash.hpp"
 
 // Forward declarations for real-time log streaming
 class WebSocketManager;
 struct LogMessage;
 
+// Forward declarations for shared types from log_file_manager.hpp
+struct LogQueryParams;
+struct HistoricalLogEntry;
+struct LogFileInfo;
+
 enum class LogLevel { DEBUG = 0, INFO = 1, WARN = 2, ERROR = 3, FATAL = 4 };
 
 enum class LogFormat { TEXT = 0, JSON = 1 };
+
+// Enhanced log rotation and retention configuration
+struct LogRotationConfig {
+  bool enableRotation = true;
+  size_t maxFileSize = 10 * 1024 * 1024; // 10MB
+  int maxBackupFiles = 5;
+
+  // Enhanced retention policies
+  bool enableTimeBasedRotation = false;
+  std::chrono::hours rotationInterval = std::chrono::hours(24);
+  std::chrono::hours retentionPeriod = std::chrono::hours(24 * 7); // 7 days
+
+  // Compression settings
+  bool compressOldLogs = false;
+  std::string compressionFormat = "gzip"; // gzip, zip, none
+
+  // Cleanup settings
+  bool enableAutoCleanup = true;
+  std::chrono::minutes cleanupInterval = std::chrono::minutes(60);
+};
+
 
 struct LogConfig {
   LogLevel level = LogLevel::INFO;
@@ -45,6 +70,15 @@ struct LogConfig {
   size_t streamingQueueSize = 1000;
   bool streamAllLevels = true;
   std::unordered_set<std::string, TransparentStringHash, std::equal_to<>> streamingJobFilter; // Empty = all jobs
+
+  // Enhanced rotation and retention
+  LogRotationConfig rotation;
+
+  // Historical access configuration
+  bool enableHistoricalAccess = true;
+  std::string archiveDirectory = "logs/archive";
+  size_t maxQueryResults = 10000;
+  bool enableLogIndexing = true;
 };
 
 struct LogMetrics {
@@ -150,6 +184,25 @@ public:
                    const std::string& jobId,
                    const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context = {});
 
+  // Historical log access methods
+  void enableHistoricalAccess(bool enable);
+  bool isHistoricalAccessEnabled() const;
+  void setArchiveDirectory(const std::string &directory);
+  std::string getArchiveDirectory() const;
+  void setMaxQueryResults(size_t maxResults);
+  size_t getMaxQueryResults() const;
+  void enableLogIndexing(bool enable);
+  bool isLogIndexingEnabled() const;
+
+  // Log querying methods
+  std::vector<HistoricalLogEntry> queryLogs(const LogQueryParams &params);
+  std::vector<LogFileInfo> listLogFiles(bool includeArchived = false);
+  bool archiveLogFile(const std::string &filename);
+  bool restoreLogFile(const std::string &filename);
+  bool deleteLogFile(const std::string &filename);
+  bool compressLogFile(const std::string &filename, const std::string &format = "gzip");
+  bool decompressLogFile(const std::string &filename);
+
 private:
   Logger() = default;
   ~Logger();
@@ -212,9 +265,28 @@ private:
   std::shared_ptr<LogMessage> createLogMessage(LogLevel level, const std::string& component,
                                               const std::string& message, const std::string& jobId,
                                               const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context);
+
+  // Historical log access helpers
+  mutable std::mutex indexMutex_;
+  void archiveOldLogs();
+  void cleanupArchivedLogs();
+  void indexLogFile(const std::string &filename);
+  void removeLogFileIndex(const std::string &filename);
+  std::vector<HistoricalLogEntry> searchLogs(const std::string &query, const std::string &jobId = "");
+  void sortLogEntries(std::vector<HistoricalLogEntry> &entries, bool descending);
+
+  // Log parsing helpers
+  std::optional<HistoricalLogEntry> parseLogLine(const std::string& line, const std::string& filename, size_t lineNumber);
+  std::optional<HistoricalLogEntry> parseTextLogLine(const std::string& line, HistoricalLogEntry& entry);
+  std::optional<HistoricalLogEntry> parseJsonLogLine(const std::string& line, HistoricalLogEntry& entry);
+  std::chrono::system_clock::time_point parseTimestamp(const std::string& timestampStr);
+  LogLevel stringToLogLevel(const std::string& levelStr);
+  void parseContextString(const std::string& contextStr, std::unordered_map<std::string, std::string>& context);
+  void parseJsonContext(const std::string& contextStr, std::unordered_map<std::string, std::string>& context);
+  bool matchesQuery(const HistoricalLogEntry& entry, const LogQueryParams& params);
 };
 
-// Convenience macros for logging (backward compatible)
+// Standard logging macros (backward compatible)
 #define LOG_DEBUG(component, message, ...)                                     \
   Logger::getInstance().debug(component, message, ##__VA_ARGS__)
 #define LOG_INFO(component, message, ...)                                      \
@@ -226,98 +298,7 @@ private:
 #define LOG_FATAL(component, message, ...)                                     \
   Logger::getInstance().fatal(component, message, ##__VA_ARGS__)
 
-// Component-specific logging macros (backward compatible)
-#define CONFIG_LOG_DEBUG(message, ...)                                         \
-  LOG_DEBUG("ConfigManager", message, ##__VA_ARGS__)
-#define CONFIG_LOG_INFO(message, ...)                                          \
-  LOG_INFO("ConfigManager", message, ##__VA_ARGS__)
-#define CONFIG_LOG_WARN(message, ...)                                          \
-  LOG_WARN("ConfigManager", message, ##__VA_ARGS__)
-#define CONFIG_LOG_ERROR(message, ...)                                         \
-  LOG_ERROR("ConfigManager", message, ##__VA_ARGS__)
-
-#define DB_LOG_DEBUG(message, ...)                                             \
-  LOG_DEBUG("DatabaseManager", message, ##__VA_ARGS__)
-#define DB_LOG_INFO(message, ...)                                              \
-  LOG_INFO("DatabaseManager", message, ##__VA_ARGS__)
-#define DB_LOG_WARN(message, ...)                                              \
-  LOG_WARN("DatabaseManager", message, ##__VA_ARGS__)
-#define DB_LOG_ERROR(message, ...)                                             \
-  LOG_ERROR("DatabaseManager", message, ##__VA_ARGS__)
-
-#define HTTP_LOG_DEBUG(message, ...)                                           \
-  LOG_DEBUG("HttpServer", message, ##__VA_ARGS__)
-#define HTTP_LOG_INFO(message, ...)                                            \
-  LOG_INFO("HttpServer", message, ##__VA_ARGS__)
-#define HTTP_LOG_WARN(message, ...)                                            \
-  LOG_WARN("HttpServer", message, ##__VA_ARGS__)
-#define HTTP_LOG_ERROR(message, ...)                                           \
-  LOG_ERROR("HttpServer", message, ##__VA_ARGS__)
-
-#define AUTH_LOG_DEBUG(message, ...)                                           \
-  LOG_DEBUG("AuthManager", message, ##__VA_ARGS__)
-#define AUTH_LOG_INFO(message, ...)                                            \
-  LOG_INFO("AuthManager", message, ##__VA_ARGS__)
-#define AUTH_LOG_WARN(message, ...)                                            \
-  LOG_WARN("AuthManager", message, ##__VA_ARGS__)
-#define AUTH_LOG_ERROR(message, ...)                                           \
-  LOG_ERROR("AuthManager", message, ##__VA_ARGS__)
-
-#define ETL_LOG_DEBUG(message, ...)                                            \
-  LOG_DEBUG("ETLJobManager", message, ##__VA_ARGS__)
-#define ETL_LOG_INFO(message, ...)                                             \
-  LOG_INFO("ETLJobManager", message, ##__VA_ARGS__)
-#define ETL_LOG_WARN(message, ...)                                             \
-  LOG_WARN("ETLJobManager", message, ##__VA_ARGS__)
-#define ETL_LOG_ERROR(message, ...)                                            \
-  LOG_ERROR("ETLJobManager", message, ##__VA_ARGS__)
-
-#define REQ_LOG_DEBUG(message, ...)                                            \
-  LOG_DEBUG("RequestHandler", message, ##__VA_ARGS__)
-#define REQ_LOG_INFO(message, ...)                                             \
-  LOG_INFO("RequestHandler", message, ##__VA_ARGS__)
-#define REQ_LOG_WARN(message, ...)                                             \
-  LOG_WARN("RequestHandler", message, ##__VA_ARGS__)
-#define REQ_LOG_ERROR(message, ...)                                            \
-  LOG_ERROR("RequestHandler", message, ##__VA_ARGS__)
-
-#define TRANSFORM_LOG_DEBUG(message, ...)                                      \
-  LOG_DEBUG("DataTransformer", message, ##__VA_ARGS__)
-#define TRANSFORM_LOG_INFO(message, ...)                                       \
-  LOG_INFO("DataTransformer", message, ##__VA_ARGS__)
-#define TRANSFORM_LOG_WARN(message, ...)                                       \
-  LOG_WARN("DataTransformer", message, ##__VA_ARGS__)
-#define TRANSFORM_LOG_ERROR(message, ...)                                      \
-  LOG_ERROR("DataTransformer", message, ##__VA_ARGS__)
-
-#define REQUEST_LOG_DEBUG(message, ...)                                        \
-  LOG_DEBUG("RequestHandler", message, ##__VA_ARGS__)
-#define REQUEST_LOG_INFO(message, ...)                                         \
-  LOG_INFO("RequestHandler", message, ##__VA_ARGS__)
-#define REQUEST_LOG_WARN(message, ...)                                         \
-  LOG_WARN("RequestHandler", message, ##__VA_ARGS__)
-#define REQUEST_LOG_ERROR(message, ...)                                        \
-  LOG_ERROR("RequestHandler", message, ##__VA_ARGS__)
-
-#define WS_LOG_DEBUG(message, ...)                                             \
-  LOG_DEBUG("WebSocket", message, ##__VA_ARGS__)
-#define WS_LOG_INFO(message, ...)                                              \
-  LOG_INFO("WebSocket", message, ##__VA_ARGS__)
-#define WS_LOG_WARN(message, ...)                                              \
-  LOG_WARN("WebSocket", message, ##__VA_ARGS__)
-#define WS_LOG_ERROR(message, ...)                                             \
-  LOG_ERROR("WebSocket", message, ##__VA_ARGS__)
-
-#define JOB_LOG_DEBUG(message, ...)                                            \
-  LOG_DEBUG("JobMonitorService", message, ##__VA_ARGS__)
-#define JOB_LOG_INFO(message, ...)                                             \
-  LOG_INFO("JobMonitorService", message, ##__VA_ARGS__)
-#define JOB_LOG_WARN(message, ...)                                             \
-  LOG_WARN("JobMonitorService", message, ##__VA_ARGS__)
-#define JOB_LOG_ERROR(message, ...)                                            \
-  LOG_ERROR("JobMonitorService", message, ##__VA_ARGS__)
-
-// Job-specific logging macros for real-time streaming
+// Job-specific logging macros 
 #define LOG_DEBUG_JOB(component, message, jobId, ...)                          \
   Logger::getInstance().debugForJob(component, message, jobId, ##__VA_ARGS__)
 #define LOG_INFO_JOB(component, message, jobId, ...)                           \
@@ -329,12 +310,98 @@ private:
 #define LOG_FATAL_JOB(component, message, jobId, ...)                          \
   Logger::getInstance().fatalForJob(component, message, jobId, ##__VA_ARGS__)
 
-// ETL Job-specific logging macros
+// Include the new ComponentLogger template system
+#include "component_logger.hpp"
+
+// Backward compatibility - redirect old macros to new ComponentLogger system
+// Note: These are deprecated and should be replaced with ComponentLogger template calls
+
+#define CONFIG_LOG_DEBUG(message, ...)                                         \
+  etl::ConfigLogger::debug(message, ##__VA_ARGS__)
+#define CONFIG_LOG_INFO(message, ...)                                          \
+  etl::ConfigLogger::info(message, ##__VA_ARGS__)
+#define CONFIG_LOG_WARN(message, ...)                                          \
+  etl::ConfigLogger::warn(message, ##__VA_ARGS__)
+#define CONFIG_LOG_ERROR(message, ...)                                         \
+  etl::ConfigLogger::error(message, ##__VA_ARGS__)
+
+#define DB_LOG_DEBUG(message, ...)                                             \
+  etl::DatabaseLogger::debug(message, ##__VA_ARGS__)
+#define DB_LOG_INFO(message, ...)                                              \
+  etl::DatabaseLogger::info(message, ##__VA_ARGS__)
+#define DB_LOG_WARN(message, ...)                                              \
+  etl::DatabaseLogger::warn(message, ##__VA_ARGS__)
+#define DB_LOG_ERROR(message, ...)                                             \
+  etl::DatabaseLogger::error(message, ##__VA_ARGS__)
+
+#define ETL_LOG_DEBUG(message, ...)                                            \
+  etl::ETLJobLogger::debug(message, ##__VA_ARGS__)
+#define ETL_LOG_INFO(message, ...)                                             \
+  etl::ETLJobLogger::info(message, ##__VA_ARGS__)
+#define ETL_LOG_WARN(message, ...)                                             \
+  etl::ETLJobLogger::warn(message, ##__VA_ARGS__)
+#define ETL_LOG_ERROR(message, ...)                                            \
+  etl::ETLJobLogger::error(message, ##__VA_ARGS__)
+
 #define ETL_LOG_DEBUG_JOB(message, jobId, ...)                                 \
-  LOG_DEBUG_JOB("ETLJobManager", message, jobId, ##__VA_ARGS__)
+  etl::ETLJobLogger::debugJob(message, jobId, ##__VA_ARGS__)
 #define ETL_LOG_INFO_JOB(message, jobId, ...)                                  \
-  LOG_INFO_JOB("ETLJobManager", message, jobId, ##__VA_ARGS__)
+  etl::ETLJobLogger::infoJob(message, jobId, ##__VA_ARGS__)
 #define ETL_LOG_WARN_JOB(message, jobId, ...)                                  \
-  LOG_WARN_JOB("ETLJobManager", message, jobId, ##__VA_ARGS__)
+  etl::ETLJobLogger::warnJob(message, jobId, ##__VA_ARGS__)
 #define ETL_LOG_ERROR_JOB(message, jobId, ...)                                 \
-  LOG_ERROR_JOB("ETLJobManager", message, jobId, ##__VA_ARGS__)
+  etl::ETLJobLogger::errorJob(message, jobId, ##__VA_ARGS__)
+
+#define WS_LOG_DEBUG(message, ...)                                             \
+  etl::WebSocketLogger::debug(message, ##__VA_ARGS__)
+#define WS_LOG_INFO(message, ...)                                              \
+  etl::WebSocketLogger::info(message, ##__VA_ARGS__)
+#define WS_LOG_WARN(message, ...)                                              \
+  etl::WebSocketLogger::warn(message, ##__VA_ARGS__)
+#define WS_LOG_ERROR(message, ...)                                             \
+  etl::WebSocketLogger::error(message, ##__VA_ARGS__)
+
+#define AUTH_LOG_DEBUG(message, ...)                                           \
+  etl::AuthLogger::debug(message, ##__VA_ARGS__)
+#define AUTH_LOG_INFO(message, ...)                                            \
+  etl::AuthLogger::info(message, ##__VA_ARGS__)
+#define AUTH_LOG_WARN(message, ...)                                            \
+  etl::AuthLogger::warn(message, ##__VA_ARGS__)
+#define AUTH_LOG_ERROR(message, ...)                                           \
+  etl::AuthLogger::error(message, ##__VA_ARGS__)
+
+#define HTTP_LOG_DEBUG(message, ...)                                           \
+  etl::HttpLogger::debug(message, ##__VA_ARGS__)
+#define HTTP_LOG_INFO(message, ...)                                            \
+  etl::HttpLogger::info(message, ##__VA_ARGS__)
+#define HTTP_LOG_WARN(message, ...)                                            \
+  etl::HttpLogger::warn(message, ##__VA_ARGS__)
+#define HTTP_LOG_ERROR(message, ...)                                           \
+  etl::HttpLogger::error(message, ##__VA_ARGS__)
+
+#define REQ_LOG_DEBUG(message, ...)                                            \
+  etl::ComponentLogger<etl::RequestHandler>::debug(message, ##__VA_ARGS__)
+#define REQ_LOG_INFO(message, ...)                                             \
+  etl::ComponentLogger<etl::RequestHandler>::info(message, ##__VA_ARGS__)
+#define REQ_LOG_WARN(message, ...)                                             \
+  etl::ComponentLogger<etl::RequestHandler>::warn(message, ##__VA_ARGS__)
+#define REQ_LOG_ERROR(message, ...)                                            \
+  etl::ComponentLogger<etl::RequestHandler>::error(message, ##__VA_ARGS__)
+
+#define TRANSFORM_LOG_DEBUG(message, ...)                                      \
+  etl::DataTransformerLogger::debug(message, ##__VA_ARGS__)
+#define TRANSFORM_LOG_INFO(message, ...)                                       \
+  etl::DataTransformerLogger::info(message, ##__VA_ARGS__)
+#define TRANSFORM_LOG_WARN(message, ...)                                       \
+  etl::DataTransformerLogger::warn(message, ##__VA_ARGS__)
+#define TRANSFORM_LOG_ERROR(message, ...)                                      \
+  etl::DataTransformerLogger::error(message, ##__VA_ARGS__)
+
+#define JOB_LOG_DEBUG(message, ...)                                            \
+  etl::JobMonitorLogger::debug(message, ##__VA_ARGS__)
+#define JOB_LOG_INFO(message, ...)                                             \
+  etl::JobMonitorLogger::info(message, ##__VA_ARGS__)
+#define JOB_LOG_WARN(message, ...)                                             \
+  etl::JobMonitorLogger::warn(message, ##__VA_ARGS__)
+#define JOB_LOG_ERROR(message, ...)                                            \
+  etl::JobMonitorLogger::error(message, ##__VA_ARGS__)

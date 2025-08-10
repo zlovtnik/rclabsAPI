@@ -2,6 +2,7 @@
 #include "http_server.hpp"
 #include "request_handler.hpp"
 #include "websocket_manager.hpp"
+#include "etl_exceptions.hpp"
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 #include <boost/beast/websocket.hpp>
@@ -302,7 +303,9 @@ void HttpServer::start() {
 
     if (!pImpl->handler) {
         HTTP_LOG_ERROR("HttpServer::start() - No request handler set!");
-        throw std::runtime_error("No request handler set");
+        throw etl::SystemException(etl::ErrorCode::CONFIGURATION_ERROR, 
+                                   "No request handler set", 
+                                   "HttpServer");
     }
 
     try {

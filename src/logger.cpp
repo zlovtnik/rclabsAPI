@@ -6,6 +6,8 @@
 #include <filesystem>
 #include <algorithm>
 #include <sstream>
+#include <fstream>
+#include <ctime>
 
 Logger& Logger::getInstance() {
     static Logger instance;
@@ -43,6 +45,11 @@ void Logger::configure(const LogConfig& config) {
             std::filesystem::path logPath(config.logFile);
             std::filesystem::create_directories(logPath.parent_path());
             
+            // Create archive directory if historical access OR indexing is enabled
+            if (config_.enableHistoricalAccess || config_.enableLogIndexing) {
+                std::filesystem::create_directories(config_.archiveDirectory);
+            }
+
             fileStream_.open(currentLogFile_, std::ios::app);
             
             if (!fileStream_.is_open()) {
@@ -56,11 +63,31 @@ void Logger::configure(const LogConfig& config) {
                     currentFileSize_ = 0;
                 }
                 
-                // Write simple startup message
-                std::string startupMsg = "[" + formatTimestamp() + "] [INFO ] [Logger] Enhanced logger initialized";
+                // Write conditional startup message based on enabled features
+                std::string features;
+                if (config_.enableHistoricalAccess && config_.enableLogIndexing) {
+                    features = "historical access and indexing";
+                } else if (config_.enableHistoricalAccess) {
+                    features = "historical access";
+                } else if (config_.enableLogIndexing) {
+                    features = "indexing";
+                } else {
+                    features = "standard logging";
+                }
+
+                std::string startupMsg = "[" + formatTimestamp() + "] [INFO ] [Logger] Enhanced logger initialized with " + features;
                 fileStream_ << startupMsg << std::endl;
                 fileStream_.flush();
                 currentFileSize_ += startupMsg.length() + 1;
+
+                // Index current log file if indexing is enabled - INLINE to avoid deadlock
+                if (config_.enableLogIndexing) {
+                    // Create or open the index file (we already hold fileMutex_)
+                    std::ofstream indexFile(config_.archiveDirectory + "/log_index.txt", std::ios::app);
+                    if (indexFile.is_open()) {
+                        indexFile << currentLogFile_ << " " << formatTimestamp() << std::endl;
+                    }
+                }
             }
         }
     }
@@ -83,14 +110,17 @@ void Logger::configure(const LogConfig& config) {
         asyncThread_ = std::thread(&Logger::asyncWorker, this);
     }
     
-    // Handle real-time streaming initialization
+    // Handle real-time streaming initialization - INLINE to avoid deadlock
     config_.enableRealTimeStreaming = config.enableRealTimeStreaming;
     config_.streamingQueueSize = config.streamingQueueSize;
     config_.streamAllLevels = config.streamAllLevels;
     config_.streamingJobFilter = config.streamingJobFilter;
     
+    // Initialize streaming directly without calling enableRealTimeStreaming to avoid deadlock
     if (config.enableRealTimeStreaming && !streamingStarted_) {
-        enableRealTimeStreaming(true);
+        stopStreaming_ = false;
+        streamingStarted_ = true;
+        streamingThread_ = std::thread(&Logger::streamingWorker, this);
     }
 }
 
@@ -285,8 +315,16 @@ std::string Logger::formatTimestamp() {
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         now.time_since_epoch()) % 1000;
     
+    // Use thread-safe localtime alternative
+    std::tm tm_buf{};
+#ifdef _WIN32
+    localtime_s(&tm_buf, &time_t);
+#else
+    localtime_r(&time_t, &tm_buf);
+#endif
+
     std::ostringstream oss;
-    oss << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S");
+    oss << std::put_time(&tm_buf, "%Y-%m-%d %H:%M:%S");
     oss << "." << std::setfill('0') << std::setw(3) << ms.count();
     return oss.str();
 }
@@ -302,16 +340,16 @@ std::string Logger::levelToString(LogLevel level) {
     }
 }
 
-std::string Logger::formatMessage(LogLevel level, const std::string& component, 
-                                 const std::string& message, 
+std::string Logger::formatMessage(LogLevel level, const std::string& component,
+                                 const std::string& message,
                                  const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
-    return config_.format == LogFormat::JSON 
+    return config_.format == LogFormat::JSON
         ? formatJsonMessage(level, component, message, context)
         : formatTextMessage(level, component, message, context);
 }
 
-std::string Logger::formatTextMessage(LogLevel level, const std::string& component, 
-                                     const std::string& message, 
+std::string Logger::formatTextMessage(LogLevel level, const std::string& component,
+                                     const std::string& message,
                                      const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
     std::ostringstream oss;
     oss << "[" << formatTimestamp() << "] "
@@ -673,4 +711,49 @@ std::shared_ptr<LogMessage> Logger::createLogMessage(LogLevel level, const std::
     return logMsg;
 }
 
+void Logger::indexLogFile(const std::string& logFile) {
+    if (!config_.enableLogIndexing) return;
 
+    std::lock_guard<std::mutex> lock(fileMutex_);
+
+    // Ensure archive directory exists and use proper path handling
+    namespace fs = std::filesystem;
+    const fs::path archiveDir{config_.archiveDirectory};
+    std::error_code ec;
+    fs::create_directories(archiveDir, ec); // ignore error; open() will validate
+
+    // Create or open the index file using proper path joining
+    const fs::path indexFilePath = archiveDir / "log_index.txt";
+    std::ofstream indexFile(indexFilePath.string(), std::ios::app);
+    if (!indexFile.is_open()) {
+        std::cerr << "Failed to open index file: " << indexFilePath.string() << std::endl;
+        return;
+    }
+
+    // Write the log file entry
+    indexFile << logFile << " " << formatTimestamp() << std::endl;
+}
+
+void Logger::archiveOldLogs() {
+    if (!config_.enableHistoricalAccess) return;
+
+    std::lock_guard<std::mutex> lock(fileMutex_);
+
+    // Close the current log file
+    if (fileStream_.is_open()) {
+        fileStream_.close();
+    }
+
+    // Move the current log file to the archive directory
+    std::string archiveFile = config_.archiveDirectory + "/" + std::filesystem::path(currentLogFile_).filename().string();
+    std::filesystem::rename(currentLogFile_, archiveFile);
+
+    // Reopen the log file stream
+    fileStream_.open(currentLogFile_, std::ios::app);
+    currentFileSize_ = 0;
+
+    if (!fileStream_.is_open()) {
+        std::cerr << "Failed to open new log file after archiving: " << currentLogFile_ << std::endl;
+        config_.fileOutput = false;
+    }
+}

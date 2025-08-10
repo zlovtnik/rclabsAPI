@@ -1,5 +1,6 @@
 #include "notification_service.hpp"
 #include "config_manager.hpp"
+#include "etl_exceptions.hpp"
 #include <sstream>
 #include <iomanip>
 #include <random>
@@ -107,7 +108,9 @@ NotificationMessage NotificationMessage::fromJson(const std::string& jsonStr) {
     std::istringstream stream(jsonStr);
     
     if (!Json::parseFromStream(builder, stream, &json, &errors)) {
-        throw std::runtime_error("Failed to parse notification JSON: " + errors);
+        throw etl::SystemException(etl::ErrorCode::PROCESSING_FAILED, 
+                                   "Failed to parse notification JSON: " + errors, 
+                                   "NotificationService");
     }
     
     NotificationMessage msg;
@@ -206,7 +209,9 @@ ResourceAlert ResourceAlert::fromJson(const std::string& jsonStr) {
     std::istringstream stream(jsonStr);
     
     if (!Json::parseFromStream(builder, stream, &json, &errors)) {
-        throw std::runtime_error("Failed to parse resource alert JSON: " + errors);
+        throw etl::SystemException(etl::ErrorCode::PROCESSING_FAILED, 
+                                   "Failed to parse resource alert JSON: " + errors, 
+                                   "NotificationService");
     }
     
     ResourceAlert alert;
