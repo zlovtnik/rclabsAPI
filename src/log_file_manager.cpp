@@ -1080,7 +1080,7 @@ bool LogFileManager::cancelScheduledRotation(const std::string& filename) {
 bool LogFileManager::needsArchiving() const {
     auto files = listLogFiles();
     for (const auto& file : files) {
-        if (needsArchiving(file.filename)) {
+        if (shouldArchiveByAge(file.filename)) {
             return true;
         }
     }
@@ -1088,8 +1088,37 @@ bool LogFileManager::needsArchiving() const {
 }
 
 bool LogFileManager::needsArchiving(const std::string& filename) const {
-    auto fileAge = getFileAge(filename);
-    return fileAge > std::chrono::duration_cast<std::chrono::system_clock::duration>(config_.archive.maxAge);
+    std::shared_lock cLock(configMutex_);
+    const auto archivePolicy = config_.archive;
+    cLock.unlock(); // Release lock early after copying config
+
+    if (archivePolicy.strategy == ArchiveStrategy::DISABLED) {
+        return false;
+    }
+
+    // Check based on archiving strategy
+    switch (archivePolicy.strategy) {
+        case ArchiveStrategy::AGE_BASED:
+            return shouldArchiveByAge(filename);
+        
+        case ArchiveStrategy::SIZE_BASED:
+            return shouldArchiveBySize();
+        
+        case ArchiveStrategy::COUNT_BASED:
+            return shouldArchiveByCount();
+        
+        case ArchiveStrategy::COMBINED:
+            // Archive if ANY criteria is met
+            return shouldArchiveByAge(filename) || 
+                   shouldArchiveBySize() || 
+                   shouldArchiveByCount();
+        
+        case ArchiveStrategy::SMART:
+            return shouldArchiveByAccessPattern(filename);
+        
+        default:
+            return false;
+    }
 }
 
 size_t LogFileManager::archiveFiles(const std::vector<std::string>& filenames) {
@@ -1113,8 +1142,33 @@ size_t LogFileManager::archiveEligibleFiles() {
 bool LogFileManager::restoreArchivedFile(const std::string& archivedFile,
                                         const std::string& targetFile) {
     if (!archiver_) return false;
-    std::string target = targetFile.empty() ? archivedFile : targetFile;
-    return archiver_->restoreFile(archivedFile, config_.logDirectory + "/" + target);
+    const std::string archivedPath = config_.archive.archiveDirectory + "/" + archivedFile;
+    
+    std::string target;
+    if (targetFile.empty()) {
+        // If no target specified, use the archived filename
+        // Strip compression extension if file was compressed during archiving
+        target = archivedFile;
+        
+        // Remove common compression extensions for the restored file
+        auto endsWith = [](const std::string& s, const char* suf) {
+            const std::size_t n = std::char_traits<char>::length(suf);
+            return s.size() >= n && s.compare(s.size()-n, n, suf) == 0;
+        };
+        
+        if (endsWith(target, ".gz") || endsWith(target, ".zip") || 
+            endsWith(target, ".bz2") || endsWith(target, ".lz4") || 
+            endsWith(target, ".zst")) {
+            size_t lastDot = target.find_last_of('.');
+            if (lastDot != std::string::npos) {
+                target = target.substr(0, lastDot);
+            }
+        }
+    } else {
+        target = targetFile;
+    }
+    
+    return archiver_->restoreFile(archivedPath, config_.logDirectory + "/" + target);
 }
 
 bool LogFileManager::createArchiveSnapshot(const std::string& snapshotName) {
@@ -1148,11 +1202,14 @@ bool LogFileManager::decompressLogFile(const std::string& compressedFilename,
                                       const std::string& outputFilename) {
     if (!compressor_) return false;
 
-    std::string target = outputFilename.empty() ?
-        compressedFilename.substr(0, compressedFilename.find_last_of('.')) :
-        outputFilename;
+    // Resolve source in logDirectory if relative
+    const bool abs = std::filesystem::path(compressedFilename).is_absolute();
+    std::string source = abs ? compressedFilename : (config_.logDirectory + "/" + compressedFilename);
+    std::string target = outputFilename.empty()
+        ? std::filesystem::path(source).replace_extension("").string()
+        : outputFilename;
 
-    return compressor_->decompressFile(compressedFilename, target);
+    return compressor_->decompressFile(source, target);
 }
 
 size_t LogFileManager::compressEligibleFiles() {
@@ -1557,4 +1614,75 @@ std::string LogFileManager::getCompressionExtension(CompressionType type) const 
         case CompressionType::ZSTD: return ".zst";
         default: return ".gz";
     }
+}
+
+// Missing archiving helper method implementations
+
+bool LogFileManager::shouldArchiveByAge(const std::string& filename) const {
+    std::shared_lock cLock(configMutex_);
+    const auto archivePolicy = config_.archive;
+    cLock.unlock(); // Release lock early after copying config
+
+    if (archivePolicy.strategy == ArchiveStrategy::DISABLED ||
+        (archivePolicy.strategy != ArchiveStrategy::AGE_BASED &&
+         archivePolicy.strategy != ArchiveStrategy::COMBINED)) {
+        return false;
+    }
+
+    auto fileAge = getFileAge(filename);
+    return fileAge > std::chrono::duration_cast<std::chrono::system_clock::duration>(archivePolicy.maxAge);
+}
+
+bool LogFileManager::shouldArchiveBySize() const {
+    std::shared_lock cLock(configMutex_);
+    const auto archivePolicy = config_.archive;
+    cLock.unlock(); // Release lock early after copying config
+
+    if (archivePolicy.strategy == ArchiveStrategy::DISABLED ||
+        (archivePolicy.strategy != ArchiveStrategy::SIZE_BASED &&
+         archivePolicy.strategy != ArchiveStrategy::COMBINED)) {
+        return false;
+    }
+
+    size_t totalSize = getTotalLogSize(false, false); // Don't include archived or compressed files
+    return totalSize >= archivePolicy.maxDirectorySize;
+}
+
+bool LogFileManager::shouldArchiveByCount() const {
+    std::shared_lock cLock(configMutex_);
+    const auto archivePolicy = config_.archive;
+    cLock.unlock(); // Release lock early after copying config
+
+    if (archivePolicy.strategy == ArchiveStrategy::DISABLED ||
+        (archivePolicy.strategy != ArchiveStrategy::COUNT_BASED &&
+         archivePolicy.strategy != ArchiveStrategy::COMBINED)) {
+        return false;
+    }
+
+    auto files = listLogFiles(false, false); // Don't include archived or compressed files
+    return files.size() >= archivePolicy.maxFileCount;
+}
+
+bool LogFileManager::shouldArchiveByAccessPattern(const std::string& filename) const {
+    std::shared_lock cLock(configMutex_);
+    const auto archivePolicy = config_.archive;
+    cLock.unlock(); // Release lock early after copying config
+
+    if (archivePolicy.strategy == ArchiveStrategy::DISABLED ||
+        archivePolicy.strategy != ArchiveStrategy::SMART) {
+        return false;
+    }
+
+    // Simple access pattern check - could be enhanced with ML
+    std::shared_lock lock(filesMutex_);
+    auto it = lastAccessTimes_.find(filename);
+    if (it != lastAccessTimes_.end()) {
+        auto timeSinceAccess = std::chrono::system_clock::now() - it->second;
+        auto accessThreshold = std::chrono::duration_cast<std::chrono::system_clock::duration>(
+            archivePolicy.maxAge / 2); // Archive if not accessed for half of max age
+        return timeSinceAccess > accessThreshold;
+    }
+
+    // If no access time recorded, use age-based check as fallback
+    return shouldArchiveByAge(filename);
 }
