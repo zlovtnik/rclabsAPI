@@ -165,9 +165,9 @@ private:
     
     // Performance metrics
     std::atomic<double> processingRate_{0.0};
-    std::chrono::system_clock::time_point lastRateUpdate_;
-    int recordsAtLastUpdate_{0};
-    
+    std::atomic<std::chrono::system_clock::time_point> lastRateUpdate_;
+    std::atomic<int> recordsAtLastUpdate_{0};
+
     // Resource usage at job start
     size_t baselineMemoryUsage_{0};
     double baselineCpuUsage_{0.0};

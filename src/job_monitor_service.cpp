@@ -482,13 +482,13 @@ JobMetrics JobMonitorService::getAggregatedMetricsByTimeRange(std::chrono::syste
     return aggregateMetrics(metricsCollection);
 }
 
-double JobMonitorService::getAverageProcessingRate(JobType jobType) const {
+double JobMonitorService::getAverageProcessingRate(std::optional<JobType> jobType) const {
     std::vector<double> rates;
     
     withJobDataLock<void>([&]() {
         // Collect from active jobs
         for (const auto& [jobId, data] : activeJobs_) {
-            if ((jobType == static_cast<JobType>(-1) || data.jobType == jobType) && 
+            if ((!jobType.has_value() || data.jobType == jobType.value()) &&
                 data.metrics.averageProcessingRate > 0) {
                 rates.push_back(data.metrics.averageProcessingRate);
             }
@@ -496,7 +496,7 @@ double JobMonitorService::getAverageProcessingRate(JobType jobType) const {
         
         // Collect from completed jobs
         for (const auto& [jobId, data] : completedJobs_) {
-            if ((jobType == static_cast<JobType>(-1) || data.jobType == jobType) && 
+            if ((!jobType.has_value() || data.jobType == jobType.value()) &&
                 data.metrics.averageProcessingRate > 0) {
                 rates.push_back(data.metrics.averageProcessingRate);
             }
@@ -515,13 +515,13 @@ double JobMonitorService::getAverageProcessingRate(JobType jobType) const {
     return sum / rates.size();
 }
 
-double JobMonitorService::getAverageErrorRate(JobType jobType) const {
+double JobMonitorService::getAverageErrorRate(std::optional<JobType> jobType) const {
     std::vector<double> errorRates;
     
     withJobDataLock<void>([&]() {
         // Collect from active jobs
         for (const auto& [jobId, data] : activeJobs_) {
-            if ((jobType == static_cast<JobType>(-1) || data.jobType == jobType) && 
+            if ((!jobType.has_value() || data.jobType == jobType.value()) &&
                 data.metrics.recordsProcessed > 0) {
                 errorRates.push_back(data.metrics.errorRate);
             }
@@ -529,7 +529,7 @@ double JobMonitorService::getAverageErrorRate(JobType jobType) const {
         
         // Collect from completed jobs
         for (const auto& [jobId, data] : completedJobs_) {
-            if ((jobType == static_cast<JobType>(-1) || data.jobType == jobType) && 
+            if ((!jobType.has_value() || data.jobType == jobType.value()) &&
                 data.metrics.recordsProcessed > 0) {
                 errorRates.push_back(data.metrics.errorRate);
             }
@@ -1284,3 +1284,4 @@ void JobMonitorService::updateResourceUtilization() {
         lastCleanup = now;
     }
 }
+

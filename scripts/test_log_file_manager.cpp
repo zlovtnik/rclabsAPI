@@ -13,7 +13,8 @@ private:
 
 protected:
     void SetUp() override {
-        testDir = "/tmp/etlplus_test_logs";
+        // Use platform-agnostic temporary directory instead of hard-coded /tmp
+        testDir = std::filesystem::temp_directory_path() / "etlplus_test_logs";
         archiveDir = testDir + "/archive";
         
         // Clean up from previous tests
@@ -202,13 +203,13 @@ TEST_F(LogFileManagerTest, ConfigurationUpdateWorks) {
 TEST_F(LogFileManagerTest, MetricsTracking) {
     LogFileManager manager(getConfig());
     manager.initializeLogFile(getConfig().defaultLogFile);
-
+    
     // Get initial metrics
     auto initialMetrics = manager.getMetrics();
-
+    
     // Write some data
     manager.writeToFile("Test message for metrics");
-
+    
     // Check that metrics were updated
     auto finalMetrics = manager.getMetrics();
     EXPECT_GT(finalMetrics.totalWriteOperations.load(), initialMetrics.totalWriteOperations.load());
@@ -218,10 +219,10 @@ TEST_F(LogFileManagerTest, MetricsTracking) {
 TEST_F(LogFileManagerTest, HealthStatus) {
     LogFileManager manager(getConfig());
     manager.initializeLogFile(getConfig().defaultLogFile);
-
+    
     // Manager should be healthy after initialization
     EXPECT_TRUE(manager.isHealthy());
-
+    
     // Get status string
     std::string status = manager.getStatus();
     EXPECT_FALSE(status.empty());

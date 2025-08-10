@@ -150,9 +150,11 @@ void JobMetrics::updatePerformanceIndicators() {
         processingRate = static_cast<double>(recordsProcessed) / (executionTime.count() / 1000.0);
     }
     
-    // Calculate error rate
+    // Calculate error rate - protect against divide-by-zero
     if (recordsProcessed > 0) {
         errorRate = (static_cast<double>(recordsFailed) / recordsProcessed) * 100.0;
+    } else {
+        errorRate = 0.0; // No records processed means no error rate
     }
     
     // Calculate throughput in MB/s
@@ -160,17 +162,23 @@ void JobMetrics::updatePerformanceIndicators() {
         double seconds = executionTime.count() / 1000.0;
         double megabytes = totalBytesProcessed / (1024.0 * 1024.0);
         throughputMBps = megabytes / seconds;
+    } else {
+        throughputMBps = 0.0;
     }
     
-    // Calculate memory efficiency (records per MB)
+    // Calculate memory efficiency (records per MB) - protect against divide-by-zero
     if (memoryUsage > 0 && recordsProcessed > 0) {
         double memoryMB = memoryUsage / (1024.0 * 1024.0);
         memoryEfficiency = recordsProcessed / memoryMB;
+    } else {
+        memoryEfficiency = 0.0;
     }
     
-    // Calculate CPU efficiency (records per CPU percentage)
+    // Calculate CPU efficiency (records per CPU percentage) - protect against divide-by-zero
     if (cpuUsage > 0.0 && recordsProcessed > 0) {
         cpuEfficiency = recordsProcessed / cpuUsage;
+    } else {
+        cpuEfficiency = 0.0;
     }
     
     // Update peak values
@@ -184,9 +192,10 @@ void JobMetrics::updatePerformanceIndicators() {
 
 void JobMetrics::recordError() {
     consecutiveErrors++;
-    
-    // Record time to first error if this is the first error
-    if (recordsFailed == 0) {
+    recordsFailed++;
+
+    // Record time to first error if this is the first error - ensure monotonicity
+    if (recordsFailed == 1 && timeToFirstError.count() == 0) {
         timeToFirstError = executionTime;
         firstErrorTime = std::chrono::system_clock::now();
     }
@@ -206,13 +215,18 @@ void JobMetrics::recordBatch(int batchSize, int successful, int failed, size_t b
 }
 
 void JobMetrics::calculateAverages() {
+    // Protect against divide-by-zero for average batch size
     if (totalBatches > 0) {
         averageBatchSize = static_cast<double>(recordsProcessed) / totalBatches;
+    } else {
+        averageBatchSize = 0.0;
     }
     
-    // Calculate average processing rate over job lifetime
+    // Calculate average processing rate over job lifetime - protect against divide-by-zero
     if (executionTime.count() > 0) {
         averageProcessingRate = static_cast<double>(recordsProcessed) / (executionTime.count() / 1000.0);
+    } else {
+        averageProcessingRate = 0.0;
     }
 }
 

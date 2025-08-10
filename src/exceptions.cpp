@@ -41,12 +41,20 @@ namespace ETLPlus {
             std::ostringstream oss;
             auto time_t = std::chrono::system_clock::to_time_t(timestamp);
             
+            // Use thread-safe localtime alternative
+            std::tm tm_buf{};
+#ifdef _WIN32
+            localtime_s(&tm_buf, &time_t);
+#else
+            localtime_r(&time_t, &tm_buf);
+#endif
+
             oss << "CorrelationId: " << correlationId;
             if (!operation.empty()) oss << ", Operation: " << operation;
             if (!userId.empty()) oss << ", UserId: " << userId;
             if (!component.empty()) oss << ", Component: " << component;
-            oss << ", Timestamp: " << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S");
-            
+            oss << ", Timestamp: " << std::put_time(&tm_buf, "%Y-%m-%d %H:%M:%S");
+
             if (!additionalInfo.empty()) {
                 oss << ", Additional: {";
                 bool first = true;

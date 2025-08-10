@@ -3,6 +3,7 @@
 #include <thread>
 #include <chrono>
 #include <fstream>
+#include <filesystem>
 
 int main() {
     std::cout << "=== LogFileManager Demo ===" << std::endl;
@@ -19,6 +20,11 @@ int main() {
     config.archive.compressOnArchive = true;
     config.archive.compressionType = CompressionType::GZIP;
     config.indexing.enabled = true;
+
+    // Ensure directories exist for the demo
+    std::error_code ec;
+    std::filesystem::create_directories(config.logDirectory, ec);
+    std::filesystem::create_directories(config.archive.archiveDirectory, ec);
 
     // Create LogFileManager
     LogFileManager manager(config);

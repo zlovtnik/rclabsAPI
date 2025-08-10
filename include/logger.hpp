@@ -25,6 +25,11 @@
 class WebSocketManager;
 struct LogMessage;
 
+// Forward declarations for shared types from log_file_manager.hpp
+struct LogQueryParams;
+struct HistoricalLogEntry;
+struct LogFileInfo;
+
 enum class LogLevel { DEBUG = 0, INFO = 1, WARN = 2, ERROR = 3, FATAL = 4 };
 
 enum class LogFormat { TEXT = 0, JSON = 1 };
@@ -49,43 +54,6 @@ struct LogRotationConfig {
   std::chrono::minutes cleanupInterval = std::chrono::minutes(60);
 };
 
-// Historical log query parameters
-struct LogQueryParams {
-  std::string jobId = "";
-  std::string component = "";
-  LogLevel minLevel = LogLevel::DEBUG;
-  LogLevel maxLevel = LogLevel::FATAL;
-  std::chrono::system_clock::time_point startTime = std::chrono::system_clock::time_point::min();
-  std::chrono::system_clock::time_point endTime = std::chrono::system_clock::time_point::max();
-  size_t maxResults = 1000;
-  size_t offset = 0;
-  bool includeArchived = false;
-  std::string searchText = "";
-  bool sortDescending = true;
-};
-
-// Historical log entry structure
-struct HistoricalLogEntry {
-  std::chrono::system_clock::time_point timestamp;
-  LogLevel level;
-  std::string component;
-  std::string message;
-  std::string jobId;
-  std::string filename;
-  size_t lineNumber;
-  std::unordered_map<std::string, std::string> context;
-};
-
-// Log file information
-struct LogFileInfo {
-  std::string filename;
-  std::string fullPath;
-  size_t fileSize;
-  std::chrono::system_clock::time_point createdTime;
-  std::chrono::system_clock::time_point lastModified;
-  bool isCompressed;
-  bool isArchived;
-};
 
 struct LogConfig {
   LogLevel level = LogLevel::INFO;
