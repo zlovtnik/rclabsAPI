@@ -4,20 +4,16 @@
 #include <chrono>
 #include <condition_variable>
 #include <fstream>
-#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <mutex>
 #include <queue>
-#include <sstream>
 #include <string>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <functional>
-#include <string_view>
 #include <vector>
-#include <regex>
 #include <optional>
 #include "transparent_string_hash.hpp"
 
@@ -314,157 +310,98 @@ private:
 #define LOG_FATAL_JOB(component, message, jobId, ...)                          \
   Logger::getInstance().fatalForJob(component, message, jobId, ##__VA_ARGS__)
 
-// Forward declarations for component template traits
-namespace etl {
-  template<typename Component> struct ComponentTrait;
-  class AuthManager;
-  class ConfigManager;
-  class DatabaseManager;
-  class DataTransformer;
-  class ETLJobManager;
-  class HttpServer;
-  class JobMonitorService;
-  class NotificationService;
-  class RequestHandler;
-  class WebSocketManager;
-  class WebSocketFilterManager;
-  
-  // ComponentTrait specializations
-  template<> struct ComponentTrait<AuthManager> { static constexpr const char* name = "AuthManager"; };
-  template<> struct ComponentTrait<ConfigManager> { static constexpr const char* name = "ConfigManager"; };
-  template<> struct ComponentTrait<DatabaseManager> { static constexpr const char* name = "DatabaseManager"; };
-  template<> struct ComponentTrait<DataTransformer> { static constexpr const char* name = "DataTransformer"; };
-  template<> struct ComponentTrait<ETLJobManager> { static constexpr const char* name = "ETLJobManager"; };
-  template<> struct ComponentTrait<HttpServer> { static constexpr const char* name = "HttpServer"; };
-  template<> struct ComponentTrait<JobMonitorService> { static constexpr const char* name = "JobMonitorService"; };
-  template<> struct ComponentTrait<NotificationService> { static constexpr const char* name = "NotificationService"; };
-  template<> struct ComponentTrait<RequestHandler> { static constexpr const char* name = "RequestHandler"; };
-  template<> struct ComponentTrait<WebSocketManager> { static constexpr const char* name = "WebSocketManager"; };
-  template<> struct ComponentTrait<WebSocketFilterManager> { static constexpr const char* name = "WebSocketFilterManager"; };
-}
+// Include the new ComponentLogger template system
+#include "component_logger.hpp"
 
-// New template-based macros that use ComponentTrait for type safety
-#define COMPONENT_LOG_DEBUG(ComponentClass, message, ...)                      \
-  LOG_DEBUG(etl::ComponentTrait<ComponentClass>::name, message, ##__VA_ARGS__)
-#define COMPONENT_LOG_INFO(ComponentClass, message, ...)                       \
-  LOG_INFO(etl::ComponentTrait<ComponentClass>::name, message, ##__VA_ARGS__)
-#define COMPONENT_LOG_WARN(ComponentClass, message, ...)                       \
-  LOG_WARN(etl::ComponentTrait<ComponentClass>::name, message, ##__VA_ARGS__)
-#define COMPONENT_LOG_ERROR(ComponentClass, message, ...)                      \
-  LOG_ERROR(etl::ComponentTrait<ComponentClass>::name, message, ##__VA_ARGS__)
-#define COMPONENT_LOG_FATAL(ComponentClass, message, ...)                      \
-  LOG_FATAL(etl::ComponentTrait<ComponentClass>::name, message, ##__VA_ARGS__)
+// Backward compatibility - redirect old macros to new ComponentLogger system
+// Note: These are deprecated and should be replaced with ComponentLogger template calls
 
-#define COMPONENT_LOG_DEBUG_JOB(ComponentClass, message, jobId, ...)           \
-  LOG_DEBUG_JOB(etl::ComponentTrait<ComponentClass>::name, message, jobId, ##__VA_ARGS__)
-#define COMPONENT_LOG_INFO_JOB(ComponentClass, message, jobId, ...)            \
-  LOG_INFO_JOB(etl::ComponentTrait<ComponentClass>::name, message, jobId, ##__VA_ARGS__)
-#define COMPONENT_LOG_WARN_JOB(ComponentClass, message, jobId, ...)            \
-  LOG_WARN_JOB(etl::ComponentTrait<ComponentClass>::name, message, jobId, ##__VA_ARGS__)
-#define COMPONENT_LOG_ERROR_JOB(ComponentClass, message, jobId, ...)           \
-  LOG_ERROR_JOB(etl::ComponentTrait<ComponentClass>::name, message, jobId, ##__VA_ARGS__)
-#define COMPONENT_LOG_FATAL_JOB(ComponentClass, message, jobId, ...)           \
-  LOG_FATAL_JOB(etl::ComponentTrait<ComponentClass>::name, message, jobId, ##__VA_ARGS__)
-
-// Backward compatible component-specific macros (replace the old hardcoded strings)
 #define CONFIG_LOG_DEBUG(message, ...)                                         \
-  COMPONENT_LOG_DEBUG(etl::ConfigManager, message, ##__VA_ARGS__)
+  etl::ConfigLogger::debug(message, ##__VA_ARGS__)
 #define CONFIG_LOG_INFO(message, ...)                                          \
-  COMPONENT_LOG_INFO(etl::ConfigManager, message, ##__VA_ARGS__)
+  etl::ConfigLogger::info(message, ##__VA_ARGS__)
 #define CONFIG_LOG_WARN(message, ...)                                          \
-  COMPONENT_LOG_WARN(etl::ConfigManager, message, ##__VA_ARGS__)
+  etl::ConfigLogger::warn(message, ##__VA_ARGS__)
 #define CONFIG_LOG_ERROR(message, ...)                                         \
-  COMPONENT_LOG_ERROR(etl::ConfigManager, message, ##__VA_ARGS__)
+  etl::ConfigLogger::error(message, ##__VA_ARGS__)
 
 #define DB_LOG_DEBUG(message, ...)                                             \
-  COMPONENT_LOG_DEBUG(etl::DatabaseManager, message, ##__VA_ARGS__)
+  etl::DatabaseLogger::debug(message, ##__VA_ARGS__)
 #define DB_LOG_INFO(message, ...)                                              \
-  COMPONENT_LOG_INFO(etl::DatabaseManager, message, ##__VA_ARGS__)
+  etl::DatabaseLogger::info(message, ##__VA_ARGS__)
 #define DB_LOG_WARN(message, ...)                                              \
-  COMPONENT_LOG_WARN(etl::DatabaseManager, message, ##__VA_ARGS__)
+  etl::DatabaseLogger::warn(message, ##__VA_ARGS__)
 #define DB_LOG_ERROR(message, ...)                                             \
-  COMPONENT_LOG_ERROR(etl::DatabaseManager, message, ##__VA_ARGS__)
-
-#define HTTP_LOG_DEBUG(message, ...)                                           \
-  COMPONENT_LOG_DEBUG(etl::HttpServer, message, ##__VA_ARGS__)
-#define HTTP_LOG_INFO(message, ...)                                            \
-  COMPONENT_LOG_INFO(etl::HttpServer, message, ##__VA_ARGS__)
-#define HTTP_LOG_WARN(message, ...)                                            \
-  COMPONENT_LOG_WARN(etl::HttpServer, message, ##__VA_ARGS__)
-#define HTTP_LOG_ERROR(message, ...)                                           \
-  COMPONENT_LOG_ERROR(etl::HttpServer, message, ##__VA_ARGS__)
-
-#define AUTH_LOG_DEBUG(message, ...)                                           \
-  COMPONENT_LOG_DEBUG(etl::AuthManager, message, ##__VA_ARGS__)
-#define AUTH_LOG_INFO(message, ...)                                            \
-  COMPONENT_LOG_INFO(etl::AuthManager, message, ##__VA_ARGS__)
-#define AUTH_LOG_WARN(message, ...)                                            \
-  COMPONENT_LOG_WARN(etl::AuthManager, message, ##__VA_ARGS__)
-#define AUTH_LOG_ERROR(message, ...)                                           \
-  COMPONENT_LOG_ERROR(etl::AuthManager, message, ##__VA_ARGS__)
+  etl::DatabaseLogger::error(message, ##__VA_ARGS__)
 
 #define ETL_LOG_DEBUG(message, ...)                                            \
-  COMPONENT_LOG_DEBUG(etl::ETLJobManager, message, ##__VA_ARGS__)
+  etl::ETLJobLogger::debug(message, ##__VA_ARGS__)
 #define ETL_LOG_INFO(message, ...)                                             \
-  COMPONENT_LOG_INFO(etl::ETLJobManager, message, ##__VA_ARGS__)
+  etl::ETLJobLogger::info(message, ##__VA_ARGS__)
 #define ETL_LOG_WARN(message, ...)                                             \
-  COMPONENT_LOG_WARN(etl::ETLJobManager, message, ##__VA_ARGS__)
+  etl::ETLJobLogger::warn(message, ##__VA_ARGS__)
 #define ETL_LOG_ERROR(message, ...)                                            \
-  COMPONENT_LOG_ERROR(etl::ETLJobManager, message, ##__VA_ARGS__)
+  etl::ETLJobLogger::error(message, ##__VA_ARGS__)
 
-#define REQ_LOG_DEBUG(message, ...)                                            \
-  COMPONENT_LOG_DEBUG(etl::RequestHandler, message, ##__VA_ARGS__)
-#define REQ_LOG_INFO(message, ...)                                             \
-  COMPONENT_LOG_INFO(etl::RequestHandler, message, ##__VA_ARGS__)
-#define REQ_LOG_WARN(message, ...)                                             \
-  COMPONENT_LOG_WARN(etl::RequestHandler, message, ##__VA_ARGS__)
-#define REQ_LOG_ERROR(message, ...)                                            \
-  COMPONENT_LOG_ERROR(etl::RequestHandler, message, ##__VA_ARGS__)
-
-#define REQUEST_LOG_DEBUG(message, ...)                                        \
-  COMPONENT_LOG_DEBUG(etl::RequestHandler, message, ##__VA_ARGS__)
-#define REQUEST_LOG_INFO(message, ...)                                         \
-  COMPONENT_LOG_INFO(etl::RequestHandler, message, ##__VA_ARGS__)
-#define REQUEST_LOG_WARN(message, ...)                                         \
-  COMPONENT_LOG_WARN(etl::RequestHandler, message, ##__VA_ARGS__)
-#define REQUEST_LOG_ERROR(message, ...)                                        \
-  COMPONENT_LOG_ERROR(etl::RequestHandler, message, ##__VA_ARGS__)
-
-#define TRANSFORM_LOG_DEBUG(message, ...)                                      \
-  COMPONENT_LOG_DEBUG(etl::DataTransformer, message, ##__VA_ARGS__)
-#define TRANSFORM_LOG_INFO(message, ...)                                       \
-  COMPONENT_LOG_INFO(etl::DataTransformer, message, ##__VA_ARGS__)
-#define TRANSFORM_LOG_WARN(message, ...)                                       \
-  COMPONENT_LOG_WARN(etl::DataTransformer, message, ##__VA_ARGS__)
-#define TRANSFORM_LOG_ERROR(message, ...)                                      \
-  COMPONENT_LOG_ERROR(etl::DataTransformer, message, ##__VA_ARGS__)
+#define ETL_LOG_DEBUG_JOB(message, jobId, ...)                                 \
+  etl::ETLJobLogger::debugJob(message, jobId, ##__VA_ARGS__)
+#define ETL_LOG_INFO_JOB(message, jobId, ...)                                  \
+  etl::ETLJobLogger::infoJob(message, jobId, ##__VA_ARGS__)
+#define ETL_LOG_WARN_JOB(message, jobId, ...)                                  \
+  etl::ETLJobLogger::warnJob(message, jobId, ##__VA_ARGS__)
+#define ETL_LOG_ERROR_JOB(message, jobId, ...)                                 \
+  etl::ETLJobLogger::errorJob(message, jobId, ##__VA_ARGS__)
 
 #define WS_LOG_DEBUG(message, ...)                                             \
-  COMPONENT_LOG_DEBUG(etl::WebSocketManager, message, ##__VA_ARGS__)
+  etl::WebSocketLogger::debug(message, ##__VA_ARGS__)
 #define WS_LOG_INFO(message, ...)                                              \
-  COMPONENT_LOG_INFO(etl::WebSocketManager, message, ##__VA_ARGS__)
+  etl::WebSocketLogger::info(message, ##__VA_ARGS__)
 #define WS_LOG_WARN(message, ...)                                              \
-  COMPONENT_LOG_WARN(etl::WebSocketManager, message, ##__VA_ARGS__)
+  etl::WebSocketLogger::warn(message, ##__VA_ARGS__)
 #define WS_LOG_ERROR(message, ...)                                             \
-  COMPONENT_LOG_ERROR(etl::WebSocketManager, message, ##__VA_ARGS__)
+  etl::WebSocketLogger::error(message, ##__VA_ARGS__)
+
+#define AUTH_LOG_DEBUG(message, ...)                                           \
+  etl::AuthLogger::debug(message, ##__VA_ARGS__)
+#define AUTH_LOG_INFO(message, ...)                                            \
+  etl::AuthLogger::info(message, ##__VA_ARGS__)
+#define AUTH_LOG_WARN(message, ...)                                            \
+  etl::AuthLogger::warn(message, ##__VA_ARGS__)
+#define AUTH_LOG_ERROR(message, ...)                                           \
+  etl::AuthLogger::error(message, ##__VA_ARGS__)
+
+#define HTTP_LOG_DEBUG(message, ...)                                           \
+  etl::HttpLogger::debug(message, ##__VA_ARGS__)
+#define HTTP_LOG_INFO(message, ...)                                            \
+  etl::HttpLogger::info(message, ##__VA_ARGS__)
+#define HTTP_LOG_WARN(message, ...)                                            \
+  etl::HttpLogger::warn(message, ##__VA_ARGS__)
+#define HTTP_LOG_ERROR(message, ...)                                           \
+  etl::HttpLogger::error(message, ##__VA_ARGS__)
+
+#define REQ_LOG_DEBUG(message, ...)                                            \
+  etl::ComponentLogger<etl::RequestHandler>::debug(message, ##__VA_ARGS__)
+#define REQ_LOG_INFO(message, ...)                                             \
+  etl::ComponentLogger<etl::RequestHandler>::info(message, ##__VA_ARGS__)
+#define REQ_LOG_WARN(message, ...)                                             \
+  etl::ComponentLogger<etl::RequestHandler>::warn(message, ##__VA_ARGS__)
+#define REQ_LOG_ERROR(message, ...)                                            \
+  etl::ComponentLogger<etl::RequestHandler>::error(message, ##__VA_ARGS__)
+
+#define TRANSFORM_LOG_DEBUG(message, ...)                                      \
+  etl::DataTransformerLogger::debug(message, ##__VA_ARGS__)
+#define TRANSFORM_LOG_INFO(message, ...)                                       \
+  etl::DataTransformerLogger::info(message, ##__VA_ARGS__)
+#define TRANSFORM_LOG_WARN(message, ...)                                       \
+  etl::DataTransformerLogger::warn(message, ##__VA_ARGS__)
+#define TRANSFORM_LOG_ERROR(message, ...)                                      \
+  etl::DataTransformerLogger::error(message, ##__VA_ARGS__)
 
 #define JOB_LOG_DEBUG(message, ...)                                            \
-  COMPONENT_LOG_DEBUG(etl::JobMonitorService, message, ##__VA_ARGS__)
+  etl::JobMonitorLogger::debug(message, ##__VA_ARGS__)
 #define JOB_LOG_INFO(message, ...)                                             \
-  COMPONENT_LOG_INFO(etl::JobMonitorService, message, ##__VA_ARGS__)
+  etl::JobMonitorLogger::info(message, ##__VA_ARGS__)
 #define JOB_LOG_WARN(message, ...)                                             \
-  COMPONENT_LOG_WARN(etl::JobMonitorService, message, ##__VA_ARGS__)
+  etl::JobMonitorLogger::warn(message, ##__VA_ARGS__)
 #define JOB_LOG_ERROR(message, ...)                                            \
-  COMPONENT_LOG_ERROR(etl::JobMonitorService, message, ##__VA_ARGS__)
-
-// ETL Job-specific logging macros using template system
-#define ETL_LOG_DEBUG_JOB(message, jobId, ...)                                 \
-  COMPONENT_LOG_DEBUG_JOB(etl::ETLJobManager, message, jobId, ##__VA_ARGS__)
-#define ETL_LOG_INFO_JOB(message, jobId, ...)                                  \
-  COMPONENT_LOG_INFO_JOB(etl::ETLJobManager, message, jobId, ##__VA_ARGS__)
-#define ETL_LOG_WARN_JOB(message, jobId, ...)                                  \
-  COMPONENT_LOG_WARN_JOB(etl::ETLJobManager, message, jobId, ##__VA_ARGS__)
-#define ETL_LOG_ERROR_JOB(message, jobId, ...)                                 \
-  COMPONENT_LOG_ERROR_JOB(etl::ETLJobManager, message, jobId, ##__VA_ARGS__)
-
-// Component trait definitions are included inline above
+  etl::JobMonitorLogger::error(message, ##__VA_ARGS__)
