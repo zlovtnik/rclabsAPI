@@ -595,7 +595,7 @@ void JobMetricsCollector::updateProcessingRate() {
             double rate = static_cast<double>(recordsDelta) / (elapsed.count() / 1000.0);
             processingRate_.store(rate);
         }
-        
+
         lastRateUpdate_.store(now);
         recordsAtLastUpdate_.store(currentRecords);
     }
