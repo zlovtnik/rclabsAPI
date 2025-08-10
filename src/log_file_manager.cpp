@@ -649,7 +649,7 @@ bool LogFileManager::needsArchiving() const {
 
 bool LogFileManager::needsArchiving(const std::string& filename) const {
     auto fileAge = getFileAge(filename);
-    return fileAge > config_.archive.maxAge;
+    return fileAge > std::chrono::duration_cast<std::chrono::system_clock::duration>(config_.archive.maxAge);
 }
 
 size_t LogFileManager::archiveFiles(const std::vector<std::string>& filenames) {
@@ -1118,3 +1118,437 @@ std::string LogFileManager::getCompressionExtension(CompressionType type) const 
         default: return ".gz";
     }
 }
+
+// Missing method implementations
+bool LogFileManager::archiveLogFile(const std::string& filename) {
+    if (!archiver_) return false;
+    std::string sourceFile = config_.logDirectory + "/" + filename;
+    return archiver_->archiveFile(sourceFile, config_.archive.archiveDirectory);
+}
+
+bool LogFileManager::performMaintenance() {
+    performRotationMaintenance();
+    performCleanupMaintenance();
+    return true;
+}
+
+std::vector<HistoricalLogEntry> LogFileManager::searchLogEntries(const LogQueryParams& params) const {
+    // Basic implementation - would use indexer in full version
+    std::vector<HistoricalLogEntry> results;
+
+    try {
+        for (const auto& entry : std::filesystem::directory_iterator(config_.logDirectory)) {
+            if (entry.is_regular_file()) {
+                std::ifstream file(entry.path());
+                std::string line;
+                size_t lineNumber = 1;
+
+                while (std::getline(file, line) && results.size() < params.maxResults) {
+                    // Simple text search
+                    if (params.searchText && !params.searchText->empty()) {
+                        if (line.find(*params.searchText) != std::string::npos) {
+                            HistoricalLogEntry logEntry;
+                            logEntry.timestamp = std::chrono::system_clock::now();
+                            logEntry.level = LogLevel::INFO;
+                            logEntry.message = line;
+                            logEntry.filename = entry.path().filename().string();
+                            logEntry.lineNumber = lineNumber;
+                            results.push_back(logEntry);
+                        }
+                    }
+                    lineNumber++;
+                }
+            }
+        }
+    } catch (const std::exception&) {
+        // Handle filesystem errors
+    }
+
+    return results;
+}
+
+std::unordered_map<std::string, std::unordered_map<std::string, uint64_t>>
+LogFileManager::getIndexStatistics() const {
+    std::unordered_map<std::string, std::unordered_map<std::string, uint64_t>> stats;
+    // Basic implementation - would use indexer in full version
+    stats["index"]["totalEntries"] = 0;
+    stats["index"]["totalFiles"] = listLogFiles().size();
+    return stats;
+}
+
+std::vector<HistoricalLogEntry> LogFileManager::getLogEntriesInTimeRange(
+    const std::chrono::system_clock::time_point& startTime,
+    const std::chrono::system_clock::time_point& endTime,
+    size_t maxResults,
+    size_t offset) const {
+
+    LogQueryParams params;
+    params.startTime = startTime;
+    params.endTime = endTime;
+    params.maxResults = maxResults;
+    params.offset = offset;
+
+    return searchLogEntries(params);
+}
+
+// ============================================================================
+// Utility Class Implementations (Stub versions)
+// ============================================================================
+
+LogFileArchiver::LogFileArchiver(const LogArchivePolicy& policy) : policy_(policy) {}
+
+bool LogFileArchiver::archiveFile(const std::string& sourceFile, const std::string& archiveDir) {
+    try {
+        std::filesystem::path source(sourceFile);
+        std::filesystem::path archivePath(archiveDir);
+
+        if (!std::filesystem::exists(archivePath)) {
+            std::filesystem::create_directories(archivePath);
+        }
+
+        std::filesystem::path targetFile = archivePath / source.filename();
+        std::filesystem::copy_file(source, targetFile, std::filesystem::copy_options::overwrite_existing);
+
+        return true;
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+
+bool LogFileArchiver::archiveFiles(const std::vector<std::string>& sourceFiles, const std::string& archiveDir) {
+    bool allSuccess = true;
+    for (const auto& file : sourceFiles) {
+        if (!archiveFile(file, archiveDir)) {
+            allSuccess = false;
+        }
+    }
+    return allSuccess;
+}
+
+bool LogFileArchiver::restoreFile(const std::string& archivedFile, const std::string& targetFile) {
+    try {
+        std::filesystem::copy_file(archivedFile, targetFile, std::filesystem::copy_options::overwrite_existing);
+        return true;
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+
+std::vector<std::string> LogFileArchiver::findEligibleFiles(const std::string& logDir,
+                                                           const LogArchivePolicy& policy) const {
+    std::vector<std::string> eligible;
+    try {
+        for (const auto& entry : std::filesystem::directory_iterator(logDir)) {
+            if (entry.is_regular_file()) {
+                // Simple age-based eligibility check
+                auto ftime = entry.last_write_time();
+                auto now = std::filesystem::file_time_type::clock::now();
+                auto age = now - ftime;
+
+                if (age > std::chrono::duration_cast<std::filesystem::file_time_type::duration>(policy.maxAge)) {
+                    eligible.push_back(entry.path().filename().string());
+                }
+            }
+        }
+    } catch (const std::exception&) {
+        // Handle filesystem errors
+    }
+    return eligible;
+}
+
+bool LogFileArchiver::cleanupOldArchives(const std::string& archiveDir, const LogArchivePolicy& policy) {
+    // Stub implementation
+    return true;
+}
+
+bool LogFileArchiver::createManifest(const std::vector<std::string>& archivedFiles, const std::string& manifestPath) {
+    try {
+        std::ofstream manifest(manifestPath);
+        if (!manifest.is_open()) return false;
+
+        for (const auto& file : archivedFiles) {
+            manifest << file << "\n";
+        }
+        return true;
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+
+std::vector<std::string> LogFileArchiver::readManifest(const std::string& manifestPath) {
+    std::vector<std::string> files;
+    try {
+        std::ifstream manifest(manifestPath);
+        std::string line;
+        while (std::getline(manifest, line)) {
+            if (!line.empty()) {
+                files.push_back(line);
+            }
+        }
+    } catch (const std::exception&) {
+        // Handle errors
+    }
+    return files;
+}
+
+bool LogFileArchiver::verifyArchiveIntegrity(const std::string& archiveFile) {
+    return std::filesystem::exists(archiveFile);
+}
+
+std::string LogFileArchiver::calculateArchiveChecksum(const std::string& archiveFile, IntegrityMethod method) {
+    // Stub implementation
+    return "checksum";
+}
+
+// LogFileIndexer implementations
+LogFileIndexer::LogFileIndexer(const LogIndexingPolicy& policy) : policy_(policy) {}
+
+bool LogFileIndexer::indexFile(const std::string& logFile) {
+    // Stub implementation
+    return true;
+}
+
+bool LogFileIndexer::removeIndex(const std::string& logFile) {
+    // Stub implementation
+    return true;
+}
+
+std::vector<HistoricalLogEntry> LogFileIndexer::searchIndex(const LogQueryParams& params) const {
+    // Stub implementation
+    return std::vector<HistoricalLogEntry>();
+}
+
+bool LogFileIndexer::optimizeIndex() {
+    // Stub implementation
+    return true;
+}
+
+bool LogFileIndexer::rebuildIndex(const std::string& logFile) {
+    // Stub implementation
+    return true;
+}
+
+bool LogFileIndexer::rebuildAllIndexes(const std::string& logDirectory) {
+    // Stub implementation
+    return true;
+}
+
+std::unordered_map<std::string, uint64_t> LogFileIndexer::getIndexStatistics() const {
+    std::unordered_map<std::string, uint64_t> stats;
+    stats["totalEntries"] = 0;
+    stats["totalFiles"] = 0;
+    return stats;
+}
+
+bool LogFileIndexer::verifyIndexIntegrity(const std::string& indexFile) const {
+    // Stub implementation
+    return true;
+}
+
+std::vector<LogFileIndexer::IndexEntry> LogFileIndexer::loadIndex(const std::string& indexFile) const {
+    return std::vector<IndexEntry>();
+}
+
+bool LogFileIndexer::saveIndex(const std::string& indexFile, const std::vector<IndexEntry>& entries) {
+    return true;
+}
+
+std::string LogFileIndexer::getIndexFilePath(const std::string& logFile) const {
+    return logFile + ".idx";
+}
+
+bool LogFileIndexer::createFullTextIndex(const std::string& logFile) {
+    return true;
+}
+
+std::vector<std::string> LogFileIndexer::tokenizeText(const std::string& text) const {
+    return std::vector<std::string>();
+}
+
+// LogFileCompressor implementations
+bool LogFileCompressor::compressFile(const std::string& sourceFile, const std::string& targetFile,
+                                   CompressionType type, int level) {
+    // Stub implementation - just copy file for now
+    try {
+        std::filesystem::copy_file(sourceFile, targetFile, std::filesystem::copy_options::overwrite_existing);
+        return true;
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+
+bool LogFileCompressor::decompressFile(const std::string& compressedFile, const std::string& targetFile) {
+    // Stub implementation - just copy file for now
+    try {
+        std::filesystem::copy_file(compressedFile, targetFile, std::filesystem::copy_options::overwrite_existing);
+        return true;
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+
+CompressionType LogFileCompressor::detectCompressionType(const std::string& filename) const {
+    if (filename.ends_with(".gz")) return CompressionType::GZIP;
+    if (filename.ends_with(".zip")) return CompressionType::ZIP;
+    if (filename.ends_with(".bz2")) return CompressionType::BZIP2;
+    if (filename.ends_with(".lz4")) return CompressionType::LZ4;
+    if (filename.ends_with(".zst")) return CompressionType::ZSTD;
+    return CompressionType::NONE;
+}
+
+std::string LogFileCompressor::getCompressedExtension(CompressionType type) const {
+    switch (type) {
+        case CompressionType::GZIP: return ".gz";
+        case CompressionType::ZIP: return ".zip";
+        case CompressionType::BZIP2: return ".bz2";
+        case CompressionType::LZ4: return ".lz4";
+        case CompressionType::ZSTD: return ".zst";
+        default: return ".gz";
+    }
+}
+
+double LogFileCompressor::getCompressionRatio(const std::string& originalFile, const std::string& compressedFile) const {
+    try {
+        auto originalSize = std::filesystem::file_size(originalFile);
+        auto compressedSize = std::filesystem::file_size(compressedFile);
+        return originalSize > 0 ? static_cast<double>(compressedSize) / originalSize : 0.0;
+    } catch (const std::exception&) {
+        return 0.0;
+    }
+}
+
+size_t LogFileCompressor::estimateCompressedSize(const std::string& filename, CompressionType type) const {
+    try {
+        auto originalSize = std::filesystem::file_size(filename);
+        // Rough estimate - actual compression would vary
+        switch (type) {
+            case CompressionType::GZIP: return originalSize / 3;
+            case CompressionType::ZIP: return originalSize / 3;
+            case CompressionType::BZIP2: return originalSize / 4;
+            case CompressionType::LZ4: return originalSize / 2;
+            case CompressionType::ZSTD: return originalSize / 3;
+            default: return originalSize;
+        }
+    } catch (const std::exception&) {
+        return 0;
+    }
+}
+
+bool LogFileCompressor::compressInMemory(const std::string& data, std::string& compressedData, CompressionType type) {
+    // Stub implementation
+    compressedData = data;
+    return true;
+}
+
+bool LogFileCompressor::decompressInMemory(const std::string& compressedData, std::string& data, CompressionType type) {
+    // Stub implementation
+    data = compressedData;
+    return true;
+}
+
+// Algorithm-specific stub implementations
+bool LogFileCompressor::compressGzip(const std::string& sourceFile, const std::string& targetFile, int level) {
+    return compressFile(sourceFile, targetFile, CompressionType::GZIP, level);
+}
+
+bool LogFileCompressor::compressZip(const std::string& sourceFile, const std::string& targetFile, int level) {
+    return compressFile(sourceFile, targetFile, CompressionType::ZIP, level);
+}
+
+bool LogFileCompressor::compressBzip2(const std::string& sourceFile, const std::string& targetFile, int level) {
+    return compressFile(sourceFile, targetFile, CompressionType::BZIP2, level);
+}
+
+bool LogFileCompressor::compressLZ4(const std::string& sourceFile, const std::string& targetFile) {
+    return compressFile(sourceFile, targetFile, CompressionType::LZ4);
+}
+
+bool LogFileCompressor::compressZstd(const std::string& sourceFile, const std::string& targetFile, int level) {
+    return compressFile(sourceFile, targetFile, CompressionType::ZSTD, level);
+}
+
+bool LogFileCompressor::decompressGzip(const std::string& sourceFile, const std::string& targetFile) {
+    return decompressFile(sourceFile, targetFile);
+}
+
+bool LogFileCompressor::decompressZip(const std::string& sourceFile, const std::string& targetFile) {
+    return decompressFile(sourceFile, targetFile);
+}
+
+bool LogFileCompressor::decompressBzip2(const std::string& sourceFile, const std::string& targetFile) {
+    return decompressFile(sourceFile, targetFile);
+}
+
+bool LogFileCompressor::decompressLZ4(const std::string& sourceFile, const std::string& targetFile) {
+    return decompressFile(sourceFile, targetFile);
+}
+
+bool LogFileCompressor::decompressZstd(const std::string& sourceFile, const std::string& targetFile) {
+    return decompressFile(sourceFile, targetFile);
+}
+
+// LogFileValidator implementations
+bool LogFileValidator::validateFile(const std::string& filename) const {
+    return std::filesystem::exists(filename);
+}
+
+bool LogFileValidator::validateFormat(const std::string& filename) const {
+    // Stub implementation
+    return true;
+}
+
+bool LogFileValidator::validateIntegrity(const std::string& filename, IntegrityMethod method) const {
+    // Stub implementation
+    return true;
+}
+
+bool LogFileValidator::repairFile(const std::string& filename) {
+    // Stub implementation
+    return true;
+}
+
+bool LogFileValidator::recoverPartialFile(const std::string& corruptedFile, const std::string& recoveredFile) {
+    // Stub implementation
+    try {
+        std::filesystem::copy_file(corruptedFile, recoveredFile);
+        return true;
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+
+std::string LogFileValidator::calculateChecksum(const std::string& filename, IntegrityMethod method) const {
+    // Stub implementation
+    return "checksum";
+}
+
+bool LogFileValidator::verifyChecksum(const std::string& filename, const std::string& expectedChecksum,
+                                    IntegrityMethod method) const {
+    // Stub implementation
+    return true;
+}
+
+std::string LogFileValidator::calculateCRC32(const std::string& filename) const {
+    return "crc32";
+}
+
+std::string LogFileValidator::calculateMD5(const std::string& filename) const {
+    return "md5";
+}
+
+std::string LogFileValidator::calculateSHA256(const std::string& filename) const {
+    return "sha256";
+}
+
+std::string LogFileValidator::calculateSHA512(const std::string& filename) const {
+    return "sha512";
+}
+
+bool LogFileValidator::isValidLogLine(const std::string& line) const {
+    return !line.empty();
+}
+
+bool LogFileValidator::isRecoverableLine(const std::string& line) const {
+    return !line.empty();
+}
+

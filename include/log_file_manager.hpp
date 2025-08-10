@@ -821,6 +821,13 @@ public:
     bool needsArchiving() const;
     
     /**
+     * @brief Check if specific file needs archiving
+     * @param filename File to check for archiving eligibility
+     * @return true if file should be archived
+     */
+    bool needsArchiving(const std::string& filename) const;
+
+    /**
      * @brief Archive specified log file with integrity verification
      * @param filename File to archive
      * @return true if archiving was successful
@@ -1179,6 +1186,30 @@ public:
      * @return true if schedule was set successfully
      */
     bool setMaintenanceSchedule(const std::unordered_map<std::string, std::chrono::seconds>& schedule);
+
+    // ========================================================================
+    // Helper Methods
+    // ========================================================================
+
+    /**
+     * @brief Get the age of a file
+     * @param filename File to check
+     * @return Duration since file creation/modification
+     */
+    std::chrono::system_clock::duration getFileAge(const std::string& filename) const;
+
+    /**
+     * @brief Get compression extension for given compression type
+     * @param type Compression type
+     * @return File extension string
+     */
+    std::string getCompressionExtension(CompressionType type) const;
+
+    /**
+     * @brief Get list of files eligible for compression
+     * @return Vector of filenames eligible for compression
+     */
+    std::vector<std::string> getEligibleFilesForCompression() const;
 
 private:
     // ========================================================================

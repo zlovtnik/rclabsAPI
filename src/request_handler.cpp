@@ -645,7 +645,7 @@ RequestHandler::handleMonitoring(const http::request<http::string_body> &req) co
   }
 
   // Handle GET /api/monitor/jobs - filtered job monitoring
-  if (req.method() == http::verb::get && target.starts_with("/api/monitor/jobs")) {
+  if (req.method() == http::verb::get && target.find("/api/monitor/jobs") == 0) {
   auto queryParams = extractQueryParams(target);
     
     // Convert to standard unordered_map for InputValidator
