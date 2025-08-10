@@ -65,7 +65,7 @@ namespace ETLPlus {
                 }
                 oss << "}";
             }
-            
+
             return oss.str();
         }
 
