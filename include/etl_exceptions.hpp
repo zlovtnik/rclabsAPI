@@ -82,7 +82,7 @@ public:
     const char* what() const noexcept override { return message_.c_str(); }
     
     // Serialization for logging
-    std::string toLogString() const;
+    virtual std::string toLogString() const;
     std::string toJsonString() const;
     
     // Context manipulation
