@@ -328,6 +328,19 @@ namespace etl {
   class RequestHandler;
   class WebSocketManager;
   class WebSocketFilterManager;
+  
+  // ComponentTrait specializations
+  template<> struct ComponentTrait<AuthManager> { static constexpr const char* name = "AuthManager"; };
+  template<> struct ComponentTrait<ConfigManager> { static constexpr const char* name = "ConfigManager"; };
+  template<> struct ComponentTrait<DatabaseManager> { static constexpr const char* name = "DatabaseManager"; };
+  template<> struct ComponentTrait<DataTransformer> { static constexpr const char* name = "DataTransformer"; };
+  template<> struct ComponentTrait<ETLJobManager> { static constexpr const char* name = "ETLJobManager"; };
+  template<> struct ComponentTrait<HttpServer> { static constexpr const char* name = "HttpServer"; };
+  template<> struct ComponentTrait<JobMonitorService> { static constexpr const char* name = "JobMonitorService"; };
+  template<> struct ComponentTrait<NotificationService> { static constexpr const char* name = "NotificationService"; };
+  template<> struct ComponentTrait<RequestHandler> { static constexpr const char* name = "RequestHandler"; };
+  template<> struct ComponentTrait<WebSocketManager> { static constexpr const char* name = "WebSocketManager"; };
+  template<> struct ComponentTrait<WebSocketFilterManager> { static constexpr const char* name = "WebSocketFilterManager"; };
 }
 
 // New template-based macros that use ComponentTrait for type safety
@@ -454,5 +467,4 @@ namespace etl {
 #define ETL_LOG_ERROR_JOB(message, jobId, ...)                                 \
   COMPONENT_LOG_ERROR_JOB(etl::ETLJobManager, message, jobId, ##__VA_ARGS__)
 
-// Include the component trait definitions
-#include "component_logger.hpp"
+// Component trait definitions are included inline above
