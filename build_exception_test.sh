@@ -9,7 +9,7 @@ mkdir -p build_exceptions
 echo "Compiling exception system..."
 g++ -std=c++17 -Wall -Wextra -O2 -I./include \
     src/etl_exceptions.cpp \
-    test_etl_exceptions.cpp \
+    scripts/test_etl_exceptions.cpp \
     -o build_exceptions/test_etl_exceptions
 
 if [ $? -eq 0 ]; then
