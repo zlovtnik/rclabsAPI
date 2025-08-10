@@ -4,6 +4,7 @@
 #include <string>
 #include <type_traits>
 #include <unordered_map>
+#include <sstream>
 
 namespace etl {
 
@@ -202,54 +203,54 @@ public:
     // Context-aware logging with metadata
 
     static void debugWithContext(const std::string& message,
-                                const std::unordered_map<std::string, std::string>& context = {}) {
+                                const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context = {}) {
         getLogger().debug(component_name, message, context);
     }
 
     static void infoWithContext(const std::string& message,
-                               const std::unordered_map<std::string, std::string>& context = {}) {
+                               const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context = {}) {
         getLogger().info(component_name, message, context);
     }
 
     static void warnWithContext(const std::string& message,
-                               const std::unordered_map<std::string, std::string>& context = {}) {
+                               const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context = {}) {
         getLogger().warn(component_name, message, context);
     }
 
     static void errorWithContext(const std::string& message,
-                                const std::unordered_map<std::string, std::string>& context = {}) {
+                                const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context = {}) {
         getLogger().error(component_name, message, context);
     }
 
     static void fatalWithContext(const std::string& message,
-                                const std::unordered_map<std::string, std::string>& context = {}) {
+                                const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context = {}) {
         getLogger().fatal(component_name, message, context);
     }
 
     // Job-specific logging with context
 
     static void debugJobWithContext(const std::string& message, const std::string& jobId,
-                                   const std::unordered_map<std::string, std::string>& context = {}) {
+                                   const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context = {}) {
         getLogger().debugForJob(component_name, message, jobId, context);
     }
 
     static void infoJobWithContext(const std::string& message, const std::string& jobId,
-                                  const std::unordered_map<std::string, std::string>& context = {}) {
+                                  const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context = {}) {
         getLogger().infoForJob(component_name, message, jobId, context);
     }
 
     static void warnJobWithContext(const std::string& message, const std::string& jobId,
-                                  const std::unordered_map<std::string, std::string>& context = {}) {
+                                  const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context = {}) {
         getLogger().warnForJob(component_name, message, jobId, context);
     }
 
     static void errorJobWithContext(const std::string& message, const std::string& jobId,
-                                   const std::unordered_map<std::string, std::string>& context = {}) {
+                                   const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context = {}) {
         getLogger().errorForJob(component_name, message, jobId, context);
     }
 
     static void fatalJobWithContext(const std::string& message, const std::string& jobId,
-                                   const std::unordered_map<std::string, std::string>& context = {}) {
+                                   const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context = {}) {
         getLogger().fatalForJob(component_name, message, jobId, context);
     }
 
@@ -260,7 +261,7 @@ public:
     }
 
     static void logPerformance(const std::string& operation, double durationMs,
-                              const std::unordered_map<std::string, std::string>& context = {}) {
+                              const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context = {}) {
         getLogger().logPerformance(operation, durationMs, context);
     }
 
