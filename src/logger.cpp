@@ -340,16 +340,16 @@ std::string Logger::levelToString(LogLevel level) {
     }
 }
 
-std::string Logger::formatMessage(LogLevel level, const std::string& component, 
-                                 const std::string& message, 
+std::string Logger::formatMessage(LogLevel level, const std::string& component,
+                                 const std::string& message,
                                  const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
-    return config_.format == LogFormat::JSON 
+    return config_.format == LogFormat::JSON
         ? formatJsonMessage(level, component, message, context)
         : formatTextMessage(level, component, message, context);
 }
 
-std::string Logger::formatTextMessage(LogLevel level, const std::string& component, 
-                                     const std::string& message, 
+std::string Logger::formatTextMessage(LogLevel level, const std::string& component,
+                                     const std::string& message,
                                      const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
     std::ostringstream oss;
     oss << "[" << formatTimestamp() << "] "
