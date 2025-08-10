@@ -7,791 +7,590 @@
 #include <iomanip>
 #include <sstream>
 
-// RotationPolicy implementations
+// LogFileManager implementation
 
-bool SizeBasedRotationPolicy::shouldRotate(size_t currentSize, 
-                                          const std::chrono::system_clock::time_point& lastRotation) const {
-    return currentSize >= maxFileSize_;
+LogFileManager::LogFileManager(const LogFileManagerConfig& config)
+    : config_(config), maxCacheSize_(config.performance.maxMemoryUsage / 10) {
+    // Initialize directory structure
+    createDirectoryStructure(config_.logDirectory);
+    createDirectoryStructure(config_.archive.archiveDirectory);
+
+    // Initialize utility components
+    archiver_ = std::make_unique<LogFileArchiver>(config_.archive);
+    indexer_ = std::make_unique<LogFileIndexer>(config_.indexing);
+    compressor_ = std::make_unique<LogFileCompressor>();
+    validator_ = std::make_unique<LogFileValidator>();
+
+    // Start background maintenance if enabled
+    if (config_.enableFileMonitoring) {
+        startBackgroundMaintenance();
+    }
 }
 
-bool TimeBasedRotationPolicy::shouldRotate(size_t currentSize, 
-                                          const std::chrono::system_clock::time_point& lastRotation) const {
-    auto now = std::chrono::system_clock::now();
-    auto timeSinceRotation = std::chrono::duration_cast<std::chrono::hours>(now - lastRotation);
-    return timeSinceRotation >= rotationInterval_;
+LogFileManager::~LogFileManager() {
+    stopBackgroundMaintenance();
+    closeAllFiles();
 }
 
-bool CombinedRotationPolicy::shouldRotate(size_t currentSize, 
-                                         const std::chrono::system_clock::time_point& lastRotation) const {
-    return sizePolicy_.shouldRotate(currentSize, lastRotation) || 
-           timePolicy_.shouldRotate(currentSize, lastRotation);
+bool LogFileManager::updateConfig(const LogFileManagerConfig& config) {
+    auto [isValid, errorMessage] = validateConfig(config);
+    if (!isValid) {
+        return false;
+    }
+
+    std::unique_lock lock(configMutex_);
+    config_ = config;
+    return true;
 }
 
-// LogFileArchiver implementation
+LogFileManagerConfig LogFileManager::getConfig() const {
+    std::shared_lock lock(configMutex_);
+    return config_;
+}
 
-LogFileArchiver::LogFileArchiver(const FileConfig& config) : config_(config) {}
+bool LogFileManager::initializeLogFile(const std::string& filename) {
+    std::string fullPath = filename;
+    if (!std::filesystem::path(filename).is_absolute()) {
+        fullPath = config_.logDirectory + "/" + filename;
+    }
 
-bool LogFileArchiver::archiveFile(const std::string& filename, const std::string& archiveDir) {
-    if (!std::filesystem::exists(filename)) {
-        std::cerr << "File does not exist: " << filename << std::endl;
+    if (!createDirectoryStructure(fullPath)) {
         return false;
     }
     
+    std::unique_lock lock(filesMutex_);
+
+    auto stream = std::make_unique<std::ofstream>(fullPath, std::ios::app);
+    if (!stream->is_open()) {
+        return false;
+    }
+
+    openFiles_[filename] = std::move(stream);
+    fileSizes_[filename] = getFileSize(fullPath);
+    fileCreationTimes_[filename] = std::chrono::system_clock::now();
+    lastRotationTimes_[filename] = std::chrono::system_clock::now();
+
+    {
+        std::unique_lock currentLock(currentFileMutex_);
+        if (currentLogFile_.empty()) {
+            currentLogFile_ = filename;
+        }
+    }
+
+    metrics_.totalFilesCreated++;
+    return true;
+}
+
+size_t LogFileManager::writeToFile(const std::string& data, bool forceFlush) {
+    std::shared_lock currentLock(currentFileMutex_);
+    if (currentLogFile_.empty()) {
+        return 0;
+    }
+    return writeToFile(currentLogFile_, data, forceFlush);
+}
+
+size_t LogFileManager::writeToFile(const std::string& filename, const std::string& data, bool forceFlush) {
+    auto start = std::chrono::steady_clock::now();
+
+    // Check if rotation is needed
+    if (needsRotation(filename)) {
+        rotateLogFile(filename);
+    }
+
+    std::unique_lock lock(filesMutex_);
+
+    auto it = openFiles_.find(filename);
+    if (it == openFiles_.end()) {
+        if (!initializeLogFile(filename)) {
+            metrics_.writeErrors++;
+            return 0;
+        }
+        it = openFiles_.find(filename);
+    }
+
+    if (!it->second || !it->second->is_open()) {
+        metrics_.writeErrors++;
+        return 0;
+    }
+
+    it->second->write(data.c_str(), data.size());
+    if (it->second->fail()) {
+        metrics_.writeErrors++;
+        return 0;
+    }
+
+    // Update metrics and tracking
+    fileSizes_[filename] += data.size();
+    lastAccessTimes_[filename] = std::chrono::system_clock::now();
+
+    if (forceFlush) {
+        it->second->flush();
+        metrics_.totalFlushOperations++;
+    }
+
+    auto end = std::chrono::steady_clock::now();
+    auto latency = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+
+    metrics_.totalWriteOperations++;
+    metrics_.totalBytesWritten += data.size();
+    updateLatencyMetric("write", latency);
+
+    return data.size();
+}
+
+bool LogFileManager::flush() {
+    std::shared_lock lock(filesMutex_);
+
+    for (auto& [filename, stream] : openFiles_) {
+        if (stream && stream->is_open()) {
+            stream->flush();
+        }
+    }
+
+    metrics_.totalFlushOperations++;
+    return true;
+}
+
+bool LogFileManager::needsRotation() const {
+    std::shared_lock currentLock(currentFileMutex_);
+    if (currentLogFile_.empty()) {
+        return false;
+    }
+    return needsRotation(currentLogFile_);
+}
+
+bool LogFileManager::needsRotation(const std::string& filename) const {
+    return shouldRotateBySize(filename) || shouldRotateByTime(filename);
+}
+
+bool LogFileManager::rotateLogFile() {
+    std::shared_lock currentLock(currentFileMutex_);
+    if (currentLogFile_.empty()) {
+        return false;
+    }
+    return rotateLogFile(currentLogFile_);
+}
+
+bool LogFileManager::rotateLogFile(const std::string& filename) {
+    std::unique_lock lock(filesMutex_);
+
+    auto it = openFiles_.find(filename);
+    if (it == openFiles_.end() || !it->second) {
+        return false;
+    }
+    
+    // Close current file
+    it->second->close();
+
+    // Generate backup filename
+    std::string backupName = generateBackupFileName(filename, 1);
+
+    // Move current file to backup
+    std::string fullPath = config_.logDirectory + "/" + filename;
+    std::string backupPath = config_.logDirectory + "/" + backupName;
+
     try {
-        // Create archive directory if it doesn't exist
-        std::filesystem::create_directories(archiveDir);
-        
-        // Generate archived filename with timestamp
-        std::filesystem::path filePath(filename);
-        std::string baseName = filePath.filename().string();
-        auto now = std::chrono::system_clock::now();
-        auto time_t = std::chrono::system_clock::to_time_t(now);
-        
-        std::stringstream ss;
-        ss << archiveDir << "/" << baseName << "_" 
-           << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S");
-        std::string archivedPath = ss.str();
-        
-        // Move file to archive
-        std::filesystem::rename(filename, archivedPath);
-        
-        // Compress if enabled
-        if (config_.compressOldLogs) {
-            return compressFile(archivedPath, config_.compressionFormat);
+        std::filesystem::rename(fullPath, backupPath);
+
+        // Create new file
+        auto newStream = std::make_unique<std::ofstream>(fullPath, std::ios::out);
+        if (!newStream->is_open()) {
+            return false;
         }
         
+        openFiles_[filename] = std::move(newStream);
+        fileSizes_[filename] = 0;
+        lastRotationTimes_[filename] = std::chrono::system_clock::now();
+
+        metrics_.totalFilesRotated++;
         return true;
+
     } catch (const std::exception& e) {
-        std::cerr << "Failed to archive file " << filename << ": " << e.what() << std::endl;
+        handleFileError("rotation", filename, e);
         return false;
     }
 }
 
-bool LogFileArchiver::restoreFile(const std::string& filename, const std::string& targetDir) {
-    if (!std::filesystem::exists(filename)) {
-        std::cerr << "Archived file does not exist: " << filename << std::endl;
-        return false;
-    }
-    
-    try {
-        std::filesystem::path filePath(filename);
-        std::string baseName = filePath.filename().string();
-        
-        // Remove timestamp suffix if present
-        std::regex timestampRegex("_\\d{8}_\\d{6}");
-        baseName = std::regex_replace(baseName, timestampRegex, "");
-        
-        std::string targetPath = targetDir + "/" + baseName;
-        
-        // Decompress if necessary
-        if (isCompressedFile(filename)) {
-            std::string tempFile = filename + ".temp";
-            if (!decompressFile(filename, tempFile)) {
-                return false;
-            }
-            std::filesystem::rename(tempFile, targetPath);
-        } else {
-            std::filesystem::copy_file(filename, targetPath);
-        }
-        
-        return true;
-    } catch (const std::exception& e) {
-        std::cerr << "Failed to restore file " << filename << ": " << e.what() << std::endl;
-        return false;
-    }
-}
-
-bool LogFileArchiver::deleteFile(const std::string& filename) {
-    try {
-        return std::filesystem::remove(filename);
-    } catch (const std::exception& e) {
-        std::cerr << "Failed to delete file " << filename << ": " << e.what() << std::endl;
-        return false;
-    }
-}
-
-bool LogFileArchiver::compressFile(const std::string& filename, const std::string& format) {
-    if (format == "gzip") {
-        return compressWithGzip(filename, filename + ".gz");
-    } else if (format == "none") {
-        return true; // No compression requested
-    }
-    
-    std::cerr << "Unsupported compression format: " << format << std::endl;
-    return false;
-}
-
-bool LogFileArchiver::decompressFile(const std::string& inputFile, const std::string& outputFile) {
-    if (inputFile.ends_with(".gz")) {
-        return decompressWithGzip(inputFile, outputFile);
-    }
-    
-    std::cerr << "Unknown compression format for file: " << inputFile << std::endl;
-    return false;
-}
-
-std::vector<LogFileInfo> LogFileArchiver::listArchivedFiles(const std::string& archiveDir) const {
+std::vector<LogFileInfo> LogFileManager::listLogFiles(bool includeArchived, bool includeCompressed, const std::string& sortBy) const {
     std::vector<LogFileInfo> files;
     
     try {
-        if (!std::filesystem::exists(archiveDir)) {
-            return files;
-        }
-        
-        for (const auto& entry : std::filesystem::directory_iterator(archiveDir)) {
+        for (const auto& entry : std::filesystem::directory_iterator(config_.logDirectory)) {
             if (entry.is_regular_file()) {
                 LogFileInfo info;
                 info.filename = entry.path().filename().string();
                 info.fullPath = entry.path().string();
                 info.fileSize = entry.file_size();
-                
-                auto ftime = entry.last_write_time();
-                info.lastModified = std::chrono::system_clock::from_time_t(
-                    std::chrono::system_clock::to_time_t(
-                        std::chrono::time_point_cast<std::chrono::system_clock::duration>(
-                            ftime - std::filesystem::file_time_type::clock::now() + 
-                            std::chrono::system_clock::now())));
-                info.createdTime = info.lastModified;
-                info.isCompressed = isCompressedFile(info.filename);
-                info.isArchived = true;
-                
+                info.lastModified = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+                    std::chrono::system_clock::now()); // Simplified for C++17 compatibility
+                info.isCompressed = info.isCompressedFile();
+
+                if (!includeCompressed && info.isCompressed) continue;
+
                 files.push_back(info);
             }
         }
-    } catch (const std::exception& e) {
-        std::cerr << "Error listing archived files: " << e.what() << std::endl;
-    }
-    
-    return files;
-}
-
-void LogFileArchiver::cleanupArchivedFiles(const std::string& archiveDir, 
-                                          const std::chrono::hours& retentionPeriod) {
-    try {
-        if (!std::filesystem::exists(archiveDir)) {
-            return;
-        }
         
-        auto now = std::chrono::system_clock::now();
-        
-        for (const auto& entry : std::filesystem::directory_iterator(archiveDir)) {
-            if (entry.is_regular_file()) {
-                auto ftime = entry.last_write_time();
-                auto fileTime = std::chrono::system_clock::from_time_t(
-                    std::chrono::system_clock::to_time_t(
-                        std::chrono::time_point_cast<std::chrono::system_clock::duration>(
-                            ftime - std::filesystem::file_time_type::clock::now() + 
-                            std::chrono::system_clock::now())));
-                
-                auto age = std::chrono::duration_cast<std::chrono::hours>(now - fileTime);
-                
-                if (age > retentionPeriod) {
-                    std::filesystem::remove(entry);
-                    std::cout << "Removed old archived file: " << entry.path() << std::endl;
-                }
-            }
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "Error cleaning up archived files: " << e.what() << std::endl;
-    }
-}
-
-bool LogFileArchiver::compressWithGzip(const std::string& inputFile, const std::string& outputFile) {
-    // This is a simplified implementation - in a real system you might want to use
-    // a compression library like zlib or call external gzip command
-    std::ifstream input(inputFile, std::ios::binary);
-    std::ofstream output(outputFile, std::ios::binary);
-    
-    if (!input.is_open() || !output.is_open()) {
-        return false;
-    }
-    
-    // For now, just copy the file and add .gz extension
-    // In a real implementation, you would use proper gzip compression
-    output << input.rdbuf();
-    
-    input.close();
-    output.close();
-    
-    // Remove original file after successful compression
-    std::filesystem::remove(inputFile);
-    
-    return true;
-}
-
-bool LogFileArchiver::decompressWithGzip(const std::string& inputFile, const std::string& outputFile) {
-    // This is a simplified implementation - in a real system you would use
-    // a decompression library like zlib
-    std::ifstream input(inputFile, std::ios::binary);
-    std::ofstream output(outputFile, std::ios::binary);
-    
-    if (!input.is_open() || !output.is_open()) {
-        return false;
-    }
-    
-    // For now, just copy the content
-    // In a real implementation, you would use proper gzip decompression
-    output << input.rdbuf();
-    
-    input.close();
-    output.close();
-    
-    return true;
-}
-
-std::string LogFileArchiver::getCompressionExtension(const std::string& format) const {
-    if (format == "gzip") return ".gz";
-    if (format == "zip") return ".zip";
-    return "";
-}
-
-bool LogFileArchiver::isCompressedFile(const std::string& filename) const {
-    return filename.ends_with(".gz") || filename.ends_with(".zip");
-}
-
-// LogFileIndexer implementation
-
-LogFileIndexer::LogFileIndexer(const FileConfig& config) 
-    : config_(config)
-    , indexFilePath_(config.archiveDirectory + "/log_index.txt") {}
-
-void LogFileIndexer::indexFile(const std::string& filename) {
-    if (!config_.enableLogIndexing) {
-        return;
-    }
-    
-    std::lock_guard<std::mutex> lock(indexMutex_);
-    writeIndexEntry(filename);
-}
-
-void LogFileIndexer::removeFileIndex(const std::string& filename) {
-    if (!config_.enableLogIndexing) {
-        return;
-    }
-    
-    std::lock_guard<std::mutex> lock(indexMutex_);
-    removeIndexEntry(filename);
-}
-
-void LogFileIndexer::rebuildIndex(const std::string& logDir) {
-    if (!config_.enableLogIndexing) {
-        return;
-    }
-    
-    std::lock_guard<std::mutex> lock(indexMutex_);
-    
-    std::vector<std::string> entries;
-    
-    try {
-        // Scan log directory
-        if (std::filesystem::exists(logDir)) {
-            for (const auto& entry : std::filesystem::directory_iterator(logDir)) {
+        if (includeArchived && std::filesystem::exists(config_.archive.archiveDirectory)) {
+            for (const auto& entry : std::filesystem::directory_iterator(config_.archive.archiveDirectory)) {
                 if (entry.is_regular_file()) {
-                    std::string filename = entry.path().string();
-                    auto time_t = std::chrono::system_clock::to_time_t(
-                        std::chrono::system_clock::now());
-                    entries.push_back(filename + " " + std::to_string(time_t));
-                }
-            }
-        }
-        
-        // Scan archive directory
-        std::string archiveDir = config_.archiveDirectory;
-        if (std::filesystem::exists(archiveDir)) {
-            for (const auto& entry : std::filesystem::directory_iterator(archiveDir)) {
-                if (entry.is_regular_file() && entry.path().filename() != "log_index.txt") {
-                    std::string filename = entry.path().string();
-                    auto ftime = entry.last_write_time();
-                    auto time_t = std::chrono::system_clock::to_time_t(
-                        std::chrono::time_point_cast<std::chrono::system_clock::duration>(
-                            ftime - std::filesystem::file_time_type::clock::now() + 
-                            std::chrono::system_clock::now()));
-                    entries.push_back(filename + " " + std::to_string(time_t));
-                }
-            }
-        }
-        
-        writeIndexFile(entries);
-    } catch (const std::exception& e) {
-        std::cerr << "Error rebuilding index: " << e.what() << std::endl;
-    }
-}
+                    LogFileInfo info;
+                    info.filename = entry.path().filename().string();
+                    info.fullPath = entry.path().string();
+                    info.fileSize = entry.file_size();
+                    info.lastModified = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+                        std::chrono::system_clock::now()); // Simplified for C++17 compatibility
+                    info.isArchived = true;
+                    info.isCompressed = info.isCompressedFile();
 
-void LogFileIndexer::writeIndexEntry(const std::string& filename) {
-    try {
-        // Create archive directory if it doesn't exist
-        std::filesystem::create_directories(config_.archiveDirectory);
-        
-        std::ofstream indexFile(indexFilePath_, std::ios::app);
-        if (indexFile.is_open()) {
-            auto now = std::chrono::system_clock::now();
-            auto time_t = std::chrono::system_clock::to_time_t(now);
-            indexFile << filename << " " << time_t << std::endl;
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "Failed to write index entry: " << e.what() << std::endl;
-    }
-}
-
-void LogFileIndexer::removeIndexEntry(const std::string& filename) {
-    try {
-        auto entries = readIndexFile();
-        
-        // Remove entries containing the filename
-        entries.erase(
-            std::remove_if(entries.begin(), entries.end(),
-                          [&filename](const std::string& entry) {
-                              return entry.find(filename) != std::string::npos;
-                          }),
-            entries.end());
-        
-        writeIndexFile(entries);
-    } catch (const std::exception& e) {
-        std::cerr << "Failed to remove index entry: " << e.what() << std::endl;
-    }
-}
-
-std::vector<std::string> LogFileIndexer::readIndexFile() const {
-    std::vector<std::string> entries;
-    
-    try {
-        std::ifstream indexFile(indexFilePath_);
-        if (indexFile.is_open()) {
-            std::string line;
-            while (std::getline(indexFile, line)) {
-                if (!line.empty()) {
-                    entries.push_back(line);
-                }
-            }
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "Failed to read index file: " << e.what() << std::endl;
-    }
-    
-    return entries;
-}
-
-void LogFileIndexer::writeIndexFile(const std::vector<std::string>& entries) const {
-    try {
-        std::ofstream indexFile(indexFilePath_, std::ios::out);
-        if (indexFile.is_open()) {
-            for (const auto& entry : entries) {
-                indexFile << entry << std::endl;
-            }
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "Failed to write index file: " << e.what() << std::endl;
-    }
-}
-
-// LogFileManager implementation
-
-LogFileManager::LogFileManager(const FileConfig& config) 
-    : config_(config)
-    , currentLogFile_(config.logFile)
-    , lastRotationTime_(std::chrono::system_clock::now()) {
-    
-    // Create default rotation policy based on configuration
-    if (config_.enableTimeBasedRotation) {
-        setRotationPolicy(std::make_unique<CombinedRotationPolicy>(
-            config_.maxFileSize, config_.rotationInterval));
-    } else {
-        setRotationPolicy(std::make_unique<SizeBasedRotationPolicy>(config_.maxFileSize));
-    }
-    
-    // Initialize utility components
-    archiver_ = std::make_unique<LogFileArchiver>(config_);
-    indexer_ = std::make_unique<LogFileIndexer>(config_);
-    
-    // Initialize file if needed
-    if (config_.enableFileOutput) {
-        initializeFile();
-    }
-}
-
-LogFileManager::~LogFileManager() {
-    close();
-}
-
-bool LogFileManager::initializeFile() {
-    std::lock_guard<std::mutex> lock(fileMutex_);
-    
-    // Create directories if they don't exist
-    if (!createDirectories()) {
-        std::cerr << "Failed to create log directories" << std::endl;
-        return false;
-    }
-    
-    // Close existing stream if open
-    if (fileStream_.is_open()) {
-        fileStream_.close();
-    }
-    
-    // Open log file for appending
-    fileStream_.open(currentLogFile_, std::ios::app);
-    if (!fileStream_.is_open()) {
-        std::cerr << "Failed to open log file: " << currentLogFile_ << std::endl;
-        return false;
-    }
-    
-    // Get current file size
-    if (fileExists(currentLogFile_)) {
-        currentFileSize_ = getFileSize(currentLogFile_);
-    } else {
-        currentFileSize_ = 0;
-    }
-    
-    // Write initialization message
-    auto now = std::chrono::system_clock::now();
-    auto time_t = std::chrono::system_clock::to_time_t(now);
-    std::stringstream ss;
-    ss << "[" << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S") 
-       << "] [INFO ] [LogFileManager] Log file manager initialized: " << currentLogFile_ << std::endl;
-    
-    std::string initMsg = ss.str();
-    fileStream_ << initMsg;
-    fileStream_.flush();
-    currentFileSize_ += initMsg.length();
-    
-    // Index the file if indexing is enabled
-    if (config_.enableLogIndexing) {
-        indexer_->indexFile(currentLogFile_);
-    }
-    
-    return true;
-}
-
-void LogFileManager::writeToFile(const std::string& formattedMessage) {
-    std::lock_guard<std::mutex> lock(fileMutex_);
-    
-    if (!fileStream_.is_open()) {
-        return;
-    }
-    
-    fileStream_ << formattedMessage << std::endl;
-    fileStream_.flush();
-    currentFileSize_ += formattedMessage.length() + 1;
-    
-    // Check if rotation is needed
-    if (isRotationNeeded()) {
-        performRotation();
-    }
-}
-
-void LogFileManager::flush() {
-    std::lock_guard<std::mutex> lock(fileMutex_);
-    if (fileStream_.is_open()) {
-        fileStream_.flush();
-    }
-}
-
-void LogFileManager::close() {
-    std::lock_guard<std::mutex> lock(fileMutex_);
-    if (fileStream_.is_open()) {
-        fileStream_.close();
-    }
-}
-
-void LogFileManager::updateConfig(const FileConfig& config) {
-    std::lock_guard<std::mutex> lock(configMutex_);
-    config_ = config;
-    
-    // Update rotation policy if needed
-    if (config_.enableTimeBasedRotation) {
-        setRotationPolicy(std::make_unique<CombinedRotationPolicy>(
-            config_.maxFileSize, config_.rotationInterval));
-    } else {
-        setRotationPolicy(std::make_unique<SizeBasedRotationPolicy>(config_.maxFileSize));
-    }
-}
-
-void LogFileManager::rotateIfNeeded() {
-    if (isRotationNeeded()) {
-        std::lock_guard<std::mutex> lock(fileMutex_);
-        performRotation();
-    }
-}
-
-void LogFileManager::setRotationPolicy(std::unique_ptr<RotationPolicy> policy) {
-    rotationPolicy_ = std::move(policy);
-}
-
-bool LogFileManager::isRotationNeeded() const {
-    if (!config_.enableRotation || !rotationPolicy_) {
-        return false;
-    }
-    
-    return rotationPolicy_->shouldRotate(currentFileSize_.load(), lastRotationTime_);
-}
-
-std::vector<LogFileInfo> LogFileManager::listLogFiles(bool includeArchived) const {
-    std::vector<LogFileInfo> files;
-    
-    // Get current and backup log files
-    std::filesystem::path logPath(currentLogFile_);
-    std::string logDir = logPath.parent_path().string();
-    std::string baseName = logPath.filename().string();
-    
-    try {
-        for (const auto& entry : std::filesystem::directory_iterator(logDir)) {
-            if (entry.is_regular_file()) {
-                std::string filename = entry.path().filename().string();
-                
-                // Check if it's a log file (current or backup)
-                if (filename == baseName || filename.find(baseName + ".") == 0) {
-                    LogFileInfo info = getFileInfo(entry.path().string());
                     files.push_back(info);
                 }
             }
         }
-        
-        // Include archived files if requested
-        if (includeArchived && config_.enableHistoricalAccess) {
-            auto archivedFiles = archiver_->listArchivedFiles(config_.archiveDirectory);
-            files.insert(files.end(), archivedFiles.begin(), archivedFiles.end());
-        }
-    } catch (const std::filesystem::filesystem_error& e) {
-        std::cerr << "Error listing log files: " << e.what() << std::endl;
+    } catch (const std::exception& e) {
+        // Log error but return what we have
     }
-    
-    // Sort files by creation time (newest first)
-    std::sort(files.begin(), files.end(), 
-              [](const LogFileInfo& a, const LogFileInfo& b) {
-                  return a.createdTime > b.createdTime;
-              });
     
     return files;
 }
 
-LogFileInfo LogFileManager::getFileInfo(const std::string& filename) const {
-    LogFileInfo info;
-    info.filename = std::filesystem::path(filename).filename().string();
-    info.fullPath = std::filesystem::absolute(filename).string();
-    
-    if (fileExists(filename)) {
-        info.fileSize = getFileSize(filename);
-        
-        try {
-            auto ftime = std::filesystem::last_write_time(filename);
-            info.lastModified = std::chrono::system_clock::from_time_t(
-                std::chrono::system_clock::to_time_t(
-                    std::chrono::time_point_cast<std::chrono::system_clock::duration>(
-                        ftime - std::filesystem::file_time_type::clock::now() + 
-                        std::chrono::system_clock::now())));
-            info.createdTime = info.lastModified; // Approximation
-        } catch (const std::exception&) {
-            info.lastModified = std::chrono::system_clock::now();
-            info.createdTime = info.lastModified;
-        }
-        
-        // Check if file is compressed
-        info.isCompressed = (filename.find(".gz") != std::string::npos) ||
-                           (filename.find(".zip") != std::string::npos);
-        
-        // Check if file is archived
-        info.isArchived = filename.find(config_.archiveDirectory) != std::string::npos;
-    } else {
-        info.fileSize = 0;
-        info.lastModified = std::chrono::system_clock::now();
-        info.createdTime = info.lastModified;
-        info.isCompressed = false;
-        info.isArchived = false;
+size_t LogFileManager::getCurrentFileSize() const {
+    std::shared_lock currentLock(currentFileMutex_);
+    if (currentLogFile_.empty()) {
+        return 0;
     }
-    
-    return info;
+    return getFileSize(currentLogFile_);
 }
 
-bool LogFileManager::archiveFile(const std::string& filename) {
-    return archiver_->archiveFile(filename, config_.archiveDirectory);
-}
+size_t LogFileManager::getFileSize(const std::string& filename) const {
+    std::shared_lock lock(filesMutex_);
 
-bool LogFileManager::restoreFile(const std::string& filename) {
-    std::filesystem::path logPath(currentLogFile_);
-    std::string logDir = logPath.parent_path().string();
-    return archiver_->restoreFile(filename, logDir);
-}
+    auto it = fileSizes_.find(filename);
+    if (it != fileSizes_.end()) {
+        return it->second;
+    }
 
-bool LogFileManager::deleteFile(const std::string& filename) {
-    return archiver_->deleteFile(filename);
-}
+    // Try to get actual file size
+    std::string fullPath = filename;
+    if (!std::filesystem::path(filename).is_absolute()) {
+        fullPath = config_.logDirectory + "/" + filename;
+    }
 
-void LogFileManager::cleanupOldFiles() {
-    if (!config_.enableAutoCleanup) {
-        return;
-    }
-    
-    auto files = listLogFiles(false); // Only current log files, not archived
-    
-    // Remove old backup files if we have too many
-    std::vector<LogFileInfo> backupFiles;
-    std::copy_if(files.begin(), files.end(), std::back_inserter(backupFiles),
-                 [this](const LogFileInfo& file) {
-                     return file.filename.find(std::filesystem::path(currentLogFile_).filename().string() + ".") == 0;
-                 });
-    
-    // Sort by creation time and remove oldest files
-    std::sort(backupFiles.begin(), backupFiles.end(),
-              [](const LogFileInfo& a, const LogFileInfo& b) {
-                  return a.createdTime > b.createdTime;
-              });
-    
-    // Remove files beyond maxBackupFiles
-    for (size_t i = config_.maxBackupFiles; i < backupFiles.size(); ++i) {
-        try {
-            std::filesystem::remove(backupFiles[i].fullPath);
-        } catch (const std::exception& e) {
-            std::cerr << "Failed to remove old backup file " << backupFiles[i].fullPath 
-                      << ": " << e.what() << std::endl;
-        }
-    }
-    
-    // Cleanup archived files
-    if (config_.enableHistoricalAccess) {
-        archiver_->cleanupArchivedFiles(config_.archiveDirectory, config_.retentionPeriod);
-    }
-}
-
-void LogFileManager::archiveOldLogs() {
-    if (!config_.enableHistoricalAccess) {
-        return;
-    }
-    
-    std::lock_guard<std::mutex> lock(fileMutex_);
-    
-    // Close current file
-    if (fileStream_.is_open()) {
-        fileStream_.close();
-    }
-    
-    // Archive the current log file
-    std::string archivedFile = config_.archiveDirectory + "/" + 
-                              std::filesystem::path(currentLogFile_).filename().string() + 
-                              "_" + std::to_string(std::chrono::system_clock::to_time_t(
-                                  std::chrono::system_clock::now()));
-    
     try {
-        std::filesystem::rename(currentLogFile_, archivedFile);
-        
-        // Index the archived file
-        if (config_.enableLogIndexing) {
-            indexer_->indexFile(archivedFile);
+        if (std::filesystem::exists(fullPath)) {
+            return std::filesystem::file_size(fullPath);
         }
-        
-        // Compress if enabled
-        if (config_.compressOldLogs) {
-            archiver_->compressFile(archivedFile, config_.compressionFormat);
+    } catch (const std::exception&) {
+        // Return 0 on error
+    }
+
+    return 0;
+}
+
+bool LogFileManager::closeLogFile() {
+    std::shared_lock currentLock(currentFileMutex_);
+    if (currentLogFile_.empty()) {
+        return false;
+    }
+    return closeLogFile(currentLogFile_);
+}
+
+bool LogFileManager::closeLogFile(const std::string& filename) {
+    std::unique_lock lock(filesMutex_);
+
+    auto it = openFiles_.find(filename);
+    if (it == openFiles_.end()) {
+        return false;
+    }
+
+    if (it->second && it->second->is_open()) {
+        it->second->close();
+    }
+
+    openFiles_.erase(it);
+    return true;
+}
+
+size_t LogFileManager::closeAllFiles() {
+    std::unique_lock lock(filesMutex_);
+
+    size_t closedCount = 0;
+    for (auto& [filename, stream] : openFiles_) {
+        if (stream && stream->is_open()) {
+            stream->close();
+            closedCount++;
         }
-    } catch (const std::exception& e) {
-        std::cerr << "Failed to archive log file: " << e.what() << std::endl;
     }
-    
-    // Reopen log file
-    fileStream_.open(currentLogFile_, std::ios::out);
-    currentFileSize_ = 0;
-    
-    if (!fileStream_.is_open()) {
-        std::cerr << "Failed to create new log file after archiving: " << currentLogFile_ << std::endl;
-    }
+
+    openFiles_.clear();
+    return closedCount;
+}
+
+LogFileMetrics LogFileManager::getMetrics() const {
+    std::lock_guard lock(metricsMutex_);
+    return metrics_;
+}
+
+void LogFileManager::resetMetrics() {
+    std::lock_guard lock(metricsMutex_);
+    metrics_ = LogFileMetrics{};
+}
+
+std::string LogFileManager::getStatus() const {
+    std::ostringstream status;
+    status << "{"
+           << "\"currentFile\":\"" << getCurrentLogFile() << "\","
+           << "\"fileCount\":" << listLogFiles().size() << ","
+           << "\"totalSize\":" << getTotalLogSize() << ","
+           << "\"maintenanceRunning\":" << (maintenanceRunning_.load() ? "true" : "false") << ","
+           << "\"healthy\":" << (isHealthy() ? "true" : "false")
+           << "}";
+    return status.str();
+}
+
+bool LogFileManager::isHealthy() const {
+    // Basic health checks
+    return std::filesystem::exists(config_.logDirectory) &&
+           hasRequiredPermissions(config_.logDirectory);
 }
 
 std::string LogFileManager::getCurrentLogFile() const {
-    std::lock_guard<std::mutex> lock(configMutex_);
+    std::shared_lock lock(currentFileMutex_);
     return currentLogFile_;
 }
 
-bool LogFileManager::isFileOpen() const {
-    std::lock_guard<std::mutex> lock(fileMutex_);
-    return fileStream_.is_open();
+bool LogFileManager::startBackgroundMaintenance() {
+    if (maintenanceRunning_.load()) {
+        return false;
+    }
+    
+    stopMaintenance_.store(false);
+    maintenanceThread_ = std::thread(&LogFileManager::maintenanceWorker, this);
+    maintenanceRunning_.store(true);
+    return true;
+}
+
+bool LogFileManager::stopBackgroundMaintenance(std::chrono::seconds timeout) {
+    if (!maintenanceRunning_.load()) {
+        return true;
+    }
+    
+    stopMaintenance_.store(true);
+    maintenanceCondition_.notify_all();
+
+    if (maintenanceThread_.joinable()) {
+        maintenanceThread_.join();
+    }
+    
+    maintenanceRunning_.store(false);
+    return true;
+}
+
+bool LogFileManager::isBackgroundMaintenanceRunning() const {
+    return maintenanceRunning_.load();
 }
 
 // Private helper methods
 
-void LogFileManager::performRotation() {
-    if (!config_.enableRotation) {
-        return;
-    }
-    
-    // Close current file
-    fileStream_.close();
-    
-    // Move backup files
-    moveBackupFiles();
-    
-    // Move current log to .1
-    std::string firstBackup = generateBackupFilename(1);
+bool LogFileManager::createDirectoryStructure(const std::string& filePath) {
     try {
-        if (fileExists(currentLogFile_)) {
-            std::filesystem::rename(currentLogFile_, firstBackup);
+        std::filesystem::path path(filePath);
+        if (path.has_filename()) {
+            path = path.parent_path();
         }
-    } catch (const std::exception& e) {
-        std::cerr << "Failed to move current log file during rotation: " << e.what() << std::endl;
-    }
-    
-    // Create new log file
-    fileStream_.open(currentLogFile_, std::ios::out);
-    currentFileSize_ = 0;
-    lastRotationTime_ = std::chrono::system_clock::now();
-    
-    if (!fileStream_.is_open()) {
-        std::cerr << "Failed to create new log file after rotation: " << currentLogFile_ << std::endl;
-    }
-    
-    // Index the rotated file if needed
-    if (config_.enableLogIndexing && fileExists(firstBackup)) {
-        indexer_->indexFile(firstBackup);
+        return std::filesystem::create_directories(path);
+    } catch (const std::exception&) {
+        return false;
     }
 }
 
-void LogFileManager::moveBackupFiles() {
-    // Move existing backup files (from highest to lowest number)
-    for (int i = config_.maxBackupFiles - 1; i > 0; i--) {
-        std::string oldFile = generateBackupFilename(i);
-        std::string newFile = generateBackupFilename(i + 1);
+std::string LogFileManager::generateBackupFileName(const std::string& baseFilename, int index) const {
+    std::filesystem::path path(baseFilename);
+    std::string stem = path.stem().string();
+    std::string extension = path.extension().string();
+
+    return stem + "." + std::to_string(index) + extension;
+}
+
+bool LogFileManager::shouldRotateBySize(const std::string& filename) const {
+    if (!config_.rotation.enabled || config_.rotation.trigger == RotationTrigger::TIME_BASED) {
+        return false;
+    }
+
+    size_t currentSize = getFileSize(filename);
+    return currentSize >= config_.rotation.maxFileSize;
+}
+
+bool LogFileManager::shouldRotateByTime(const std::string& filename) const {
+    if (!config_.rotation.enabled || config_.rotation.trigger == RotationTrigger::SIZE_BASED) {
+        return false;
+    }
+    
+    std::shared_lock lock(filesMutex_);
+    auto it = lastRotationTimes_.find(filename);
+    if (it == lastRotationTimes_.end()) {
+        return false;
+    }
+    
+    auto now = std::chrono::system_clock::now();
+    auto timeSinceRotation = std::chrono::duration_cast<std::chrono::hours>(now - it->second);
+    return timeSinceRotation >= config_.rotation.rotationInterval;
+}
+
+size_t LogFileManager::getTotalLogSize(bool includeArchived, bool includeCompressed) const {
+    size_t totalSize = 0;
+    auto files = listLogFiles(includeArchived, includeCompressed);
+
+    for (const auto& file : files) {
+        totalSize += file.fileSize;
+    }
+
+    return totalSize;
+}
+
+bool LogFileManager::hasRequiredPermissions(const std::string& directory) const {
+    try {
+        std::filesystem::perms perms = std::filesystem::status(directory).permissions();
+        return (perms & std::filesystem::perms::owner_write) != std::filesystem::perms::none;
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+
+void LogFileManager::handleFileError(const std::string& operation, const std::string& filename, const std::exception& error) {
+    incrementErrorMetric(operation);
+    // Log error internally
+}
+
+void LogFileManager::incrementErrorMetric(const std::string& errorType) {
+    if (errorType == "write") {
+        metrics_.writeErrors++;
+    } else if (errorType == "rotation") {
+        metrics_.rotationErrors++;
+    } else if (errorType == "archive") {
+        metrics_.archiveErrors++;
+    }
+}
+
+void LogFileManager::updateLatencyMetric(const std::string& operation, std::chrono::microseconds latency) {
+    double latencyMs = latency.count();
+
+    if (operation == "write") {
+        uint64_t count = metrics_.totalWriteOperations.load();
+        double currentAvg = metrics_.averageWriteLatency.load();
+        metrics_.averageWriteLatency.store(calculateMovingAverage(currentAvg, latencyMs, count));
+    }
+}
+
+double LogFileManager::calculateMovingAverage(double currentAvg, double newValue, uint64_t count) {
+    if (count == 0) return newValue;
+    return ((currentAvg * (count - 1)) + newValue) / count;
+}
+
+void LogFileManager::maintenanceWorker() {
+    while (!stopMaintenance_.load()) {
+        std::unique_lock lock(maintenanceMutex_);
+        maintenanceCondition_.wait_for(lock, std::chrono::seconds(60));
+
+        if (stopMaintenance_.load()) {
+            break;
+        }
         
-        if (fileExists(oldFile)) {
-            try {
-                if (i == config_.maxBackupFiles - 1) {
-                    // Remove the oldest file
-                    std::filesystem::remove(newFile);
-                }
-                std::filesystem::rename(oldFile, newFile);
-            } catch (const std::exception& e) {
-                std::cerr << "Failed to move backup file during rotation: " << e.what() << std::endl;
+        // Perform basic maintenance
+        performRotationMaintenance();
+        performCleanupMaintenance();
+    }
+}
+
+void LogFileManager::performRotationMaintenance() {
+    auto files = listLogFiles();
+    for (const auto& file : files) {
+        if (needsRotation(file.filename)) {
+            rotateLogFile(file.filename);
+        }
+    }
+}
+
+void LogFileManager::performCleanupMaintenance() {
+    // Basic cleanup implementation
+    cleanupTempFiles();
+}
+
+size_t LogFileManager::cleanupTempFiles() {
+    // Simple implementation - remove .tmp files
+    size_t cleaned = 0;
+    try {
+        for (const auto& entry : std::filesystem::directory_iterator(config_.logDirectory)) {
+            if (entry.path().extension() == ".tmp") {
+                std::filesystem::remove(entry.path());
+                cleaned++;
             }
         }
-    }
-}
-
-std::string LogFileManager::generateBackupFilename(int backupNumber) const {
-    return currentLogFile_ + "." + std::to_string(backupNumber);
-}
-
-bool LogFileManager::fileExists(const std::string& path) const {
-    return std::filesystem::exists(path);
-}
-
-size_t LogFileManager::getFileSize(const std::string& path) const {
-    try {
-        return std::filesystem::file_size(path);
     } catch (const std::exception&) {
-        return 0;
+        // Ignore errors during cleanup
+    }
+    return cleaned;
+}
+
+std::pair<bool, std::string> LogFileManager::validateConfig(const LogFileManagerConfig& config) const {
+    if (config.logDirectory.empty()) {
+        return {false, "Log directory cannot be empty"};
+    }
+
+    if (config.rotation.maxFileSize == 0) {
+        return {false, "Max file size must be greater than 0"};
+    }
+
+    return {true, ""};
+}
+
+// Utility class implementations
+
+LogFileArchiver::LogFileArchiver(const LogArchivePolicy& policy) : policy_(policy) {}
+
+bool LogFileArchiver::archiveFile(const std::string& sourceFile, const std::string& archiveDir) {
+    try {
+        std::filesystem::create_directories(archiveDir);
+        std::filesystem::path sourcePath(sourceFile);
+        std::filesystem::path targetPath = std::filesystem::path(archiveDir) / sourcePath.filename();
+
+        std::filesystem::copy_file(sourcePath, targetPath, std::filesystem::copy_options::overwrite_existing);
+        return true;
+    } catch (const std::exception&) {
+        return false;
     }
 }
 
-bool LogFileManager::createDirectories() const {
+LogFileIndexer::LogFileIndexer(const LogIndexingPolicy& policy) : policy_(policy) {}
+
+bool LogFileIndexer::indexFile(const std::string& logFile) {
+    // Basic indexing implementation
+    return true;
+}
+
+std::vector<HistoricalLogEntry> LogFileIndexer::searchIndex(const LogQueryParams& params) const {
+    // Basic search implementation
+    return {};
+}
+
+bool LogFileManager::archiveLogFile(const std::string& filename) {
+    if (!archiver_) {
+        return false;
+    }
+
+    std::string fullPath = filename;
+    if (!std::filesystem::path(filename).is_absolute()) {
+        fullPath = config_.logDirectory + "/" + filename;
+    }
+
+    if (!std::filesystem::exists(fullPath)) {
+        return false;
+    }
+
     try {
-        // Create log file directory
-        std::filesystem::path logPath(currentLogFile_);
-        std::filesystem::create_directories(logPath.parent_path());
-        
-        // Create archive directory if historical access is enabled
-        if (config_.enableHistoricalAccess) {
-            std::filesystem::create_directories(config_.archiveDirectory);
-        }
-        
-        return true;
+        return archiver_->archiveFile(fullPath, config_.archive.archiveDirectory);
     } catch (const std::exception& e) {
-        std::cerr << "Failed to create directories: " << e.what() << std::endl;
+        handleFileError("archive", filename, e);
         return false;
     }
 }

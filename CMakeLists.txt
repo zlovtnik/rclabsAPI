@@ -219,6 +219,7 @@ create_test_executable(test_config_simple scripts/test_config_simple.cpp)
 create_test_executable(test_log_handler scripts/test_log_handler.cpp)
 create_test_executable(test_log_file_manager scripts/test_log_file_manager.cpp)
 target_link_libraries(test_log_file_manager GTest::gtest GTest::gtest_main)
+create_test_executable(test_component_logger_template scripts/test_component_logger_template.cpp)
 
 # Demo executable for LogFileManager
 add_executable(demo_log_file_manager scripts/demo_log_file_manager.cpp)
