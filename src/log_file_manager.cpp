@@ -886,11 +886,15 @@ bool LogFileCompressor::decompressFile(const std::string& compressedFile, const 
 }
 
 CompressionType LogFileCompressor::detectCompressionType(const std::string& filename) const {
-    if (filename.ends_with(".gz")) return CompressionType::GZIP;
-    if (filename.ends_with(".zip")) return CompressionType::ZIP;
-    if (filename.ends_with(".bz2")) return CompressionType::BZIP2;
-    if (filename.ends_with(".lz4")) return CompressionType::LZ4;
-    if (filename.ends_with(".zst")) return CompressionType::ZSTD;
+    auto endsWith = [](const std::string& s, const char* suf) {
+        const std::size_t n = std::char_traits<char>::length(suf);
+        return s.size() >= n && s.compare(s.size()-n, n, suf) == 0;
+    };
+    if (endsWith(filename, ".gz")) return CompressionType::GZIP;
+    if (endsWith(filename, ".zip")) return CompressionType::ZIP;
+    if (endsWith(filename, ".bz2")) return CompressionType::BZIP2;
+    if (endsWith(filename, ".lz4")) return CompressionType::LZ4;
+    if (endsWith(filename, ".zst")) return CompressionType::ZSTD;
     return CompressionType::NONE;
 }
 
