@@ -60,6 +60,8 @@ private:
   handleETLJobs(const http::request<http::string_body> &req) const;
   http::response<http::string_body>
   handleMonitoring(const http::request<http::string_body> &req) const;
+  http::response<http::string_body>
+  handleHealth(const http::request<http::string_body> &req) const;
 
   // Response creation methods
   http::response<http::string_body>
