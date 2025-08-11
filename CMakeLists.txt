@@ -131,6 +131,8 @@ set(COMMON_SOURCES
     src/job_monitor_service.cpp
     src/notification_service.cpp
     src/system_metrics.cpp
+    src/performance_monitor.cpp
+    src/timeout_manager.cpp
 )
 
 add_library(etl_common STATIC ${COMMON_SOURCES})
@@ -220,12 +222,17 @@ create_test_executable(test_log_streaming_demo scripts/test_log_streaming_demo.c
 create_test_executable(test_enhanced_rest_endpoints_simple scripts/test_enhanced_rest_endpoints_simple.cpp)
 create_test_executable(test_config_management_demo scripts/test_config_management_demo.cpp)
 create_test_executable(test_config_simple scripts/test_config_simple.cpp)
+create_test_executable(test_server_config_and_metrics scripts/test_server_config_and_metrics.cpp)
 
 # GTest-based targets
 if(GTest_FOUND AND ENABLE_TESTS)
   create_test_executable(test_log_handler scripts/test_log_handler.cpp)
   create_test_executable(test_log_file_manager scripts/test_log_file_manager.cpp)
   target_link_libraries(test_log_file_manager GTest::gtest GTest::gtest_main)
+
+  # TimeoutManager unit tests
+  create_test_executable(test_timeout_manager scripts/test_timeout_manager.cpp)
+  target_link_libraries(test_timeout_manager GTest::gtest GTest::gtest_main)
 
   # Real-time monitoring integration test (working version)
   create_test_executable(test_real_time_monitoring_integration scripts/test_real_time_monitoring_integration.cpp)
