@@ -133,6 +133,9 @@ set(COMMON_SOURCES
     src/system_metrics.cpp
     src/performance_monitor.cpp
     src/timeout_manager.cpp
+    src/pooled_session.cpp
+    src/connection_pool_manager.cpp
+    src/request_handler.cpp
 )
 
 add_library(etl_common STATIC ${COMMON_SOURCES})
@@ -223,6 +226,8 @@ create_test_executable(test_enhanced_rest_endpoints_simple scripts/test_enhanced
 create_test_executable(test_config_management_demo scripts/test_config_management_demo.cpp)
 create_test_executable(test_config_simple scripts/test_config_simple.cpp)
 create_test_executable(test_server_config_and_metrics scripts/test_server_config_and_metrics.cpp)
+create_test_executable(test_pooled_session scripts/test_pooled_session.cpp)
+create_test_executable(test_pooled_session_integration scripts/test_pooled_session_integration.cpp)
 
 # GTest-based targets
 if(GTest_FOUND AND ENABLE_TESTS)
@@ -233,6 +238,10 @@ if(GTest_FOUND AND ENABLE_TESTS)
   # TimeoutManager unit tests
   create_test_executable(test_timeout_manager scripts/test_timeout_manager.cpp)
   target_link_libraries(test_timeout_manager GTest::gtest GTest::gtest_main)
+
+  # ConnectionPoolManager unit tests
+  create_test_executable(test_connection_pool_manager scripts/test_connection_pool_manager.cpp)
+  target_link_libraries(test_connection_pool_manager GTest::gtest GTest::gtest_main)
 
   # Real-time monitoring integration test (working version)
   create_test_executable(test_real_time_monitoring_integration scripts/test_real_time_monitoring_integration.cpp)
