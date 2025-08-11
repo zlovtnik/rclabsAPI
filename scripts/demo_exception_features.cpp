@@ -1,28 +1,30 @@
-#include "exceptions.hpp"
+#include "etl_exceptions.hpp"
 #include "exception_handler.hpp"
 #include "logger.hpp"
 #include <iostream>
 
-using namespace ETLPlus::Exceptions;
-using namespace ETLPlus::ExceptionHandling;
+using namespace etl;
 
 void demonstrateExceptionChaining() {
     try {
         try {
             // Simulate a database connection failure
-            throw DatabaseException(ErrorCode::DATABASE_ERROR, "Database connection failed");
-        } catch (const DatabaseException& db_ex) {
+            throw SystemException(ErrorCode::DATABASE_ERROR, "Database connection failed", "DatabaseManager");
+        } catch (const SystemException& db_ex) {
             // Wrap in a higher-level exception
-            auto system_ex = SystemException(ErrorCode::INTERNAL_ERROR, "System initialization failed");
-            system_ex.setCause(std::make_shared<DatabaseException>(db_ex));
-            throw system_ex;
+            auto system_ex = SystemException(ErrorCode::INTERNAL_ERROR, "System initialization failed", "SystemBootstrap");
+            // Note: New exception system doesn't have chaining, but we can log the context
+            ErrorContext context;
+            context["original_error"] = db_ex.getMessage();
+            context["original_code"] = std::to_string(static_cast<int>(db_ex.getCode()));
+            throw SystemException(ErrorCode::INTERNAL_ERROR, "System initialization failed", "SystemBootstrap", context);
         }
-    } catch (const BaseException& ex) {
+    } catch (const ETLException& ex) {
         std::cout << "=== Exception Chaining Demo ===" << std::endl;
         std::cout << "Main Exception: " << ex.toJsonString() << std::endl;
-        
-        if (ex.getCause() != nullptr) {
-            std::cout << "Caused by: " << ex.getCause()->toJsonString() << std::endl;
+        std::cout << "Exception Context: " << std::endl;
+        for (const auto& [key, value] : ex.getContext()) {
+            std::cout << "  " << key << ": " << value << std::endl;
         }
     }
 }
@@ -39,16 +41,16 @@ void demonstrateRetryLogic() {
                 attempts++;
                 std::cout << "Attempt " << attempts << std::endl;
                 if (attempts < 3) {
-                    throw NetworkException(ErrorCode::NETWORK_ERROR, "Network timeout", 408);
+                    throw SystemException(ErrorCode::NETWORK_ERROR, "Network timeout", "HttpClient");
                 }
                 std::cout << "Success on attempt " << attempts << std::endl;
                 break;
-            } catch (const BaseException& ex) {
+            } catch (const ETLException&) {
                 if (i == 2) throw; // Re-throw on final attempt
                 std::cout << "Attempt failed, retrying..." << std::endl;
             }
         }
-    } catch (const BaseException& ex) {
+    } catch (const ETLException& ex) {
         std::cout << "Final failure: " << ex.getMessage() << std::endl;
     }
 }
@@ -58,21 +60,21 @@ void demonstrateBasicExceptions() {
     
     // Test different exception types
     try {
-        throw ValidationException(ErrorCode::INVALID_INPUT, "Invalid user input");
-    } catch (const BaseException& ex) {
+        throw ValidationException(ErrorCode::INVALID_INPUT, "Invalid user input", "user_email", "invalid@email");
+    } catch (const ETLException& ex) {
         std::cout << "ValidationException: " << ex.toJsonString() << std::endl;
     }
     
     try {
-        throw AuthException(ErrorCode::UNAUTHORIZED, "Authentication failed");
-    } catch (const BaseException& ex) {
-        std::cout << "AuthException: " << ex.toJsonString() << std::endl;
+        throw SystemException(ErrorCode::UNAUTHORIZED, "Authentication failed", "AuthManager");
+    } catch (const ETLException& ex) {
+        std::cout << "SystemException: " << ex.toJsonString() << std::endl;
     }
     
     try {
-        throw ETLException(ErrorCode::PROCESSING_FAILED, "ETL job processing failed");
-    } catch (const BaseException& ex) {
-        std::cout << "ETLException: " << ex.toJsonString() << std::endl;
+        throw BusinessException(ErrorCode::PROCESSING_FAILED, "ETL job processing failed", "DataProcessing");
+    } catch (const ETLException& ex) {
+        std::cout << "BusinessException: " << ex.toJsonString() << std::endl;
     }
 }
 

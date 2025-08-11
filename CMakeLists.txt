@@ -124,7 +124,6 @@ set(COMMON_SOURCES
     src/auth_manager.cpp
     src/etl_job_manager.cpp
     src/input_validator.cpp
-    src/exceptions.cpp
     src/exception_handler.cpp
     src/error_codes.cpp
     src/etl_exceptions.cpp
