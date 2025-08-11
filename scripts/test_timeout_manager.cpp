@@ -32,6 +32,7 @@ protected:
         
         // Create IO context and timeout manager
         ioc_ = std::make_unique<net::io_context>();
+        workGuard_ = std::make_unique<net::executor_work_guard<net::io_context::executor_type>>(ioc_->get_executor());
         timeoutManager_ = std::make_unique<TimeoutManager>(*ioc_, 
                                                           std::chrono::seconds(2), 
                                                           std::chrono::seconds(3));
@@ -49,7 +50,11 @@ protected:
         // Clear sessions first
         activeSessions_.clear();
         
-        // Stop IO context and join thread
+        // Give some time for any pending operations
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        
+        // Release work guard and stop IO context
+        workGuard_.reset();
         ioc_->stop();
         if (ioThread_.joinable()) {
             ioThread_.join();
@@ -60,6 +65,7 @@ protected:
     }
 
     std::unique_ptr<net::io_context> ioc_;
+    std::unique_ptr<net::executor_work_guard<net::io_context::executor_type>> workGuard_;
     std::unique_ptr<TimeoutManager> timeoutManager_;
     std::thread ioThread_;
     std::vector<std::shared_ptr<PooledSession>> activeSessions_;
