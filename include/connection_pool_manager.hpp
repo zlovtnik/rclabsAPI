@@ -14,8 +14,6 @@ using tcp = boost::asio::ip::tcp;
 
 // Forward declarations
 class PooledSession;
-class RequestHandler;
-class WebSocketManager;
 class TimeoutManager;
 
 /**
@@ -37,16 +35,17 @@ public:
      * @param minConnections Minimum number of connections to maintain in pool
      * @param maxConnections Maximum number of connections allowed in pool
      * @param idleTimeout Duration after which idle connections are cleaned up
-     * @param handler Request handler for new sessions
-     * @param wsManager WebSocket manager for new sessions
+     * @param handler Request handler for new sessions (can be any type)
+     * @param wsManager WebSocket manager for new sessions (can be any type)
      * @param timeoutManager Timeout manager for new sessions
      */
+    template<typename RequestHandlerType, typename WebSocketManagerType>
     ConnectionPoolManager(net::io_context& ioc,
                          size_t minConnections,
                          size_t maxConnections,
                          std::chrono::seconds idleTimeout,
-                         std::shared_ptr<RequestHandler> handler,
-                         std::shared_ptr<WebSocketManager> wsManager,
+                         std::shared_ptr<RequestHandlerType> handler,
+                         std::shared_ptr<WebSocketManagerType> wsManager,
                          std::shared_ptr<TimeoutManager> timeoutManager);
 
     /**
