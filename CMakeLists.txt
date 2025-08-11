@@ -240,8 +240,8 @@ if(GTest_FOUND AND ENABLE_TESTS)
   target_link_libraries(test_timeout_manager GTest::gtest GTest::gtest_main)
 
   # ConnectionPoolManager unit tests
-  create_test_executable(test_connection_pool_manager scripts/test_connection_pool_manager.cpp)
-  target_link_libraries(test_connection_pool_manager GTest::gtest GTest::gtest_main)
+  create_test_executable(test_connection_pool_manager_simple scripts/test_connection_pool_manager_simple.cpp)
+  target_link_libraries(test_connection_pool_manager_simple GTest::gtest GTest::gtest_main)
 
   # Real-time monitoring integration test (working version)
   create_test_executable(test_real_time_monitoring_integration scripts/test_real_time_monitoring_integration.cpp)
