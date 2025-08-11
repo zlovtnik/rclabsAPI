@@ -1,4 +1,5 @@
 #include "timeout_manager.hpp"
+#include "pooled_session.hpp"
 #include "logger.hpp"
 #include "transparent_string_hash.hpp"
 #include <boost/system/error_code.hpp>
@@ -54,12 +55,8 @@ void TimeoutManager::startConnectionTimeout(std::shared_ptr<PooledSession> sessi
     timerInfo->timer->expires_after(actualTimeout);
 
     // Start async wait
-    auto weakSession = std::weak_ptr<PooledSession>(session);
-    timerInfo->timer->async_wait([this, weakSession, actualCallback](const boost::system::error_code& ec) {
-        auto strongSession = weakSession.lock();
-        if (strongSession) {
-            handleTimeout(strongSession, TimeoutType::CONNECTION, actualCallback, ec);
-        }
+    timerInfo->timer->async_wait([this, session, actualCallback](const boost::system::error_code& ec) {
+        handleTimeout(session, TimeoutType::CONNECTION, actualCallback, ec);
     });
 
     connectionTimers_[session] = std::move(timerInfo);
@@ -101,12 +98,8 @@ void TimeoutManager::startRequestTimeout(std::shared_ptr<PooledSession> session,
     timerInfo->timer->expires_after(actualTimeout);
 
     // Start async wait
-    auto weakSession = std::weak_ptr<PooledSession>(session);
-    timerInfo->timer->async_wait([this, weakSession, actualCallback](const boost::system::error_code& ec) {
-        auto strongSession = weakSession.lock();
-        if (strongSession) {
-            handleTimeout(strongSession, TimeoutType::REQUEST, actualCallback, ec);
-        }
+    timerInfo->timer->async_wait([this, session, actualCallback](const boost::system::error_code& ec) {
+        handleTimeout(session, TimeoutType::REQUEST, actualCallback, ec);
     });
 
     requestTimers_[session] = std::move(timerInfo);
@@ -235,17 +228,20 @@ void TimeoutManager::handleTimeout(std::shared_ptr<PooledSession> session,
                                   TimeoutType type,
                                   TimeoutCallback callback,
                                   const boost::system::error_code& ec) {
+    std::string typeStr = (type == TimeoutType::CONNECTION) ? "connection" : "request";
+    
     if (ec == boost::asio::error::operation_aborted) {
         // Timer was cancelled, this is normal
-        std::string typeStr = (type == TimeoutType::CONNECTION) ? "connection" : "request";
         HTTP_LOG_DEBUG("TimeoutManager::handleTimeout - timer cancelled for " + typeStr);
         return;
     }
 
     if (ec) {
-        HTTP_LOG_ERROR("TimeoutManager::handleTimeout - timer error: " + ec.message());
+        HTTP_LOG_ERROR("TimeoutManager::handleTimeout - timer error for " + typeStr + ": " + ec.message());
         return;
     }
+
+    HTTP_LOG_DEBUG("TimeoutManager::handleTimeout - timeout occurred for " + typeStr);
 
     // Remove the timer from our tracking maps
     {
@@ -256,6 +252,7 @@ void TimeoutManager::handleTimeout(std::shared_ptr<PooledSession> session,
     // Invoke the callback
     if (callback) {
         try {
+            HTTP_LOG_DEBUG("TimeoutManager::handleTimeout - invoking callback for " + typeStr);
             callback(session, type);
         } catch (const std::exception& e) {
             HTTP_LOG_ERROR("TimeoutManager::handleTimeout - exception in timeout callback: " + 
@@ -263,11 +260,13 @@ void TimeoutManager::handleTimeout(std::shared_ptr<PooledSession> session,
         } catch (...) {
             HTTP_LOG_ERROR("TimeoutManager::handleTimeout - unknown exception in timeout callback");
         }
+    } else {
+        HTTP_LOG_DEBUG("TimeoutManager::handleTimeout - no callback provided for " + typeStr);
     }
 }
 
 void TimeoutManager::defaultTimeoutHandler(std::shared_ptr<PooledSession> session, TimeoutType type) {
-    std::string typeStr = (type == TimeoutType::CONNECTION) ? "connection" : "request";
+    std::string typeStr = (type == TimeoutType::CONNECTION) ? "CONNECTION" : "REQUEST";
     
     HTTP_LOG_WARN("TimeoutManager::defaultTimeoutHandler - " + typeStr + " timeout occurred");
     
@@ -279,6 +278,11 @@ void TimeoutManager::defaultTimeoutHandler(std::shared_ptr<PooledSession> sessio
     Logger::getInstance().warn("TimeoutManager", 
                               "Timeout occurred for " + typeStr, 
                               context);
+    
+    // Call the session's timeout handler
+    if (session) {
+        session->handleTimeout(typeStr);
+    }
 }
 
 void TimeoutManager::removeTimer(std::shared_ptr<PooledSession> session, TimeoutType type) {
