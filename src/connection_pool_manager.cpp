@@ -70,7 +70,7 @@ std::shared_ptr<PooledSession> ConnectionPoolManager::acquireConnection(tcp::soc
     }
 
     // If we can create a new connection (not at max capacity)
-    if (getTotalConnections() < maxConnections_) {
+    if ((activeConnections_.size() + idleConnections_.size()) < maxConnections_) {
         auto session = createNewSession(std::move(socket));
         activeConnections_.insert(session);
         
@@ -278,10 +278,7 @@ std::chrono::seconds ConnectionPoolManager::getIdleTimeout() const {
     return idleTimeout_;
 }
 
-bool ConnectionPoolManager::isAtMaxCapacity() const {
-    std::lock_guard<std::mutex> lock(poolMutex_);
-    return getTotalConnections() >= maxConnections_;
-}
+
 
 size_t ConnectionPoolManager::getConnectionReuseCount() const {
     std::lock_guard<std::mutex> lock(poolMutex_);
@@ -291,6 +288,11 @@ size_t ConnectionPoolManager::getConnectionReuseCount() const {
 size_t ConnectionPoolManager::getTotalConnectionsCreated() const {
     std::lock_guard<std::mutex> lock(poolMutex_);
     return totalConnectionsCreated_;
+}
+
+bool ConnectionPoolManager::isAtMaxCapacity() const {
+    std::lock_guard<std::mutex> lock(poolMutex_);
+    return (activeConnections_.size() + idleConnections_.size()) >= maxConnections_;
 }
 
 void ConnectionPoolManager::resetStatistics() {
@@ -303,6 +305,13 @@ void ConnectionPoolManager::resetStatistics() {
 // Private methods
 
 std::shared_ptr<PooledSession> ConnectionPoolManager::createNewSession(tcp::socket&& socket) {
+    // For testing purposes, if handler_ or wsManager_ are null, return null
+    if (!handler_ || !wsManager_) {
+        Logger::getInstance().log(LogLevel::DEBUG, "ConnectionPoolManager", 
+            "Cannot create session with null dependencies");
+        return nullptr;
+    }
+    
     auto session = std::make_shared<PooledSession>(
         std::move(socket), 
         handler_, 
