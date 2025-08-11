@@ -14,6 +14,8 @@ using tcp = boost::asio::ip::tcp;
 
 // Forward declarations
 class PooledSession;
+class RequestHandler;
+class WebSocketManager;
 class TimeoutManager;
 
 /**
