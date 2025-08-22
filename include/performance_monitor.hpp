@@ -5,6 +5,8 @@
 #include <mutex>
 #include <vector>
 #include <memory>
+#include <sstream>
+#include <algorithm>
 
 /**
  * @brief Thread-safe performance monitoring class for HTTP server optimization
@@ -246,6 +248,88 @@ public:
         
         size_t index = static_cast<size_t>(percentile * (sortedTimes.size() - 1));
         return sortedTimes[index];
+    }
+    
+    /**
+     * @brief Get metrics in JSON format for external monitoring systems
+     * @return JSON string containing all current metrics
+     * Thread-safe operation for external monitoring integration
+     */
+    std::string getMetricsAsJson() const {
+        auto metrics = getMetrics();
+        
+        std::ostringstream json;
+        json << "{\n";
+        json << "  \"totalRequests\": " << metrics.totalRequests.load() << ",\n";
+        json << "  \"activeRequests\": " << metrics.activeRequests.load() << ",\n";
+        json << "  \"averageResponseTime\": " << metrics.averageResponseTime.load() << ",\n";
+        json << "  \"connectionReuses\": " << metrics.connectionReuses.load() << ",\n";
+        json << "  \"totalConnections\": " << metrics.totalConnections.load() << ",\n";
+        json << "  \"connectionTimeouts\": " << metrics.connectionTimeouts.load() << ",\n";
+        json << "  \"requestTimeouts\": " << metrics.requestTimeouts.load() << ",\n";
+        json << "  \"connectionReuseRate\": " << metrics.connectionReuseRate << ",\n";
+        json << "  \"requestsPerSecond\": " << metrics.requestsPerSecond << ",\n";
+        json << "  \"p95ResponseTime\": " << getPercentileResponseTime(0.95).count() << ",\n";
+        json << "  \"p99ResponseTime\": " << getPercentileResponseTime(0.99).count() << "\n";
+        json << "}";
+        
+        return json.str();
+    }
+    
+    /**
+     * @brief Get metrics in Prometheus format for monitoring systems
+     * @return Prometheus-formatted metrics string
+     * Thread-safe operation for Prometheus integration
+     */
+    std::string getMetricsAsPrometheus() const {
+        auto metrics = getMetrics();
+        
+        std::ostringstream prometheus;
+        prometheus << "# HELP http_requests_total Total number of HTTP requests\n";
+        prometheus << "# TYPE http_requests_total counter\n";
+        prometheus << "http_requests_total " << metrics.totalRequests.load() << "\n\n";
+        
+        prometheus << "# HELP http_requests_active Current number of active HTTP requests\n";
+        prometheus << "# TYPE http_requests_active gauge\n";
+        prometheus << "http_requests_active " << metrics.activeRequests.load() << "\n\n";
+        
+        prometheus << "# HELP http_request_duration_ms Average HTTP request duration in milliseconds\n";
+        prometheus << "# TYPE http_request_duration_ms gauge\n";
+        prometheus << "http_request_duration_ms " << metrics.averageResponseTime.load() << "\n\n";
+        
+        prometheus << "# HELP http_connections_reused_total Total number of connection reuses\n";
+        prometheus << "# TYPE http_connections_reused_total counter\n";
+        prometheus << "http_connections_reused_total " << metrics.connectionReuses.load() << "\n\n";
+        
+        prometheus << "# HELP http_connections_total Total number of connections created\n";
+        prometheus << "# TYPE http_connections_total counter\n";
+        prometheus << "http_connections_total " << metrics.totalConnections.load() << "\n\n";
+        
+        prometheus << "# HELP http_connection_timeouts_total Total number of connection timeouts\n";
+        prometheus << "# TYPE http_connection_timeouts_total counter\n";
+        prometheus << "http_connection_timeouts_total " << metrics.connectionTimeouts.load() << "\n\n";
+        
+        prometheus << "# HELP http_request_timeouts_total Total number of request timeouts\n";
+        prometheus << "# TYPE http_request_timeouts_total counter\n";
+        prometheus << "http_request_timeouts_total " << metrics.requestTimeouts.load() << "\n\n";
+        
+        prometheus << "# HELP http_connection_reuse_rate Connection reuse rate (0.0 to 1.0)\n";
+        prometheus << "# TYPE http_connection_reuse_rate gauge\n";
+        prometheus << "http_connection_reuse_rate " << metrics.connectionReuseRate << "\n\n";
+        
+        prometheus << "# HELP http_requests_per_second Current requests per second\n";
+        prometheus << "# TYPE http_requests_per_second gauge\n";
+        prometheus << "http_requests_per_second " << metrics.requestsPerSecond << "\n\n";
+        
+        prometheus << "# HELP http_request_duration_p95_ms 95th percentile request duration in milliseconds\n";
+        prometheus << "# TYPE http_request_duration_p95_ms gauge\n";
+        prometheus << "http_request_duration_p95_ms " << getPercentileResponseTime(0.95).count() << "\n\n";
+        
+        prometheus << "# HELP http_request_duration_p99_ms 99th percentile request duration in milliseconds\n";
+        prometheus << "# TYPE http_request_duration_p99_ms gauge\n";
+        prometheus << "http_request_duration_p99_ms " << getPercentileResponseTime(0.99).count() << "\n";
+        
+        return prometheus.str();
     }
 
 private:

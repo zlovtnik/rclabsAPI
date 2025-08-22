@@ -1,6 +1,7 @@
 #include "connection_pool_manager.hpp"
 #include "pooled_session.hpp"
 #include "timeout_manager.hpp"
+#include "performance_monitor.hpp"
 #include "logger.hpp"
 #include <algorithm>
 #include <iostream>
@@ -11,7 +12,10 @@ ConnectionPoolManager::ConnectionPoolManager(net::io_context& ioc,
                                            std::chrono::seconds idleTimeout,
                                            std::shared_ptr<RequestHandler> handler,
                                            std::shared_ptr<WebSocketManager> wsManager,
-                                           std::shared_ptr<TimeoutManager> timeoutManager)
+                                           std::shared_ptr<TimeoutManager> timeoutManager,
+                                           std::shared_ptr<PerformanceMonitor> performanceMonitor,
+                                           size_t maxQueueSize,
+                                           std::chrono::seconds maxQueueWaitTime)
     : ioc_(ioc)
     , minConnections_(minConnections)
     , maxConnections_(maxConnections)
@@ -19,10 +23,14 @@ ConnectionPoolManager::ConnectionPoolManager(net::io_context& ioc,
     , handler_(handler)
     , wsManager_(wsManager)
     , timeoutManager_(timeoutManager)
+    , performanceMonitor_(performanceMonitor)
+    , maxQueueSize_(maxQueueSize)
+    , maxQueueWaitTime_(maxQueueWaitTime)
     , cleanupTimer_(std::make_unique<net::steady_timer>(ioc_))
     , shutdownRequested_(false)
     , connectionReuseCount_(0)
     , totalConnectionsCreated_(0)
+    , rejectedRequestCount_(0)
 {
     if (minConnections_ > maxConnections_) {
         throw std::invalid_argument("minConnections cannot be greater than maxConnections");
@@ -46,8 +54,17 @@ std::shared_ptr<PooledSession> ConnectionPoolManager::acquireConnection(tcp::soc
     std::unique_lock<std::mutex> lock(poolMutex_);
     
     if (shutdownRequested_) {
+        // Send service unavailable response before throwing
+        try {
+            sendErrorResponse(socket, "Service unavailable - server shutting down");
+        } catch (...) {
+            // Ignore errors when sending error response during shutdown
+        }
         throw std::runtime_error("ConnectionPoolManager is shutting down");
     }
+
+    // Clean up expired queued requests first
+    cleanupExpiredQueuedRequests();
 
     // Try to reuse an idle connection first
     if (!idleConnections_.empty()) {
@@ -62,6 +79,11 @@ std::shared_ptr<PooledSession> ConnectionPoolManager::acquireConnection(tcp::soc
         
         ++connectionReuseCount_;
         
+        // Record connection reuse for performance monitoring
+        if (performanceMonitor_) {
+            performanceMonitor_->recordConnectionReuse();
+        }
+        
         Logger::getInstance().log(LogLevel::DEBUG, "ConnectionPoolManager", 
             "Reused idle connection. Active: " + std::to_string(activeConnections_.size()) + 
             ", Idle: " + std::to_string(idleConnections_.size()));
@@ -72,25 +94,87 @@ std::shared_ptr<PooledSession> ConnectionPoolManager::acquireConnection(tcp::soc
     // If we can create a new connection (not at max capacity)
     if ((activeConnections_.size() + idleConnections_.size()) < maxConnections_) {
         auto session = createNewSession(std::move(socket));
-        activeConnections_.insert(session);
-        
-        Logger::getInstance().log(LogLevel::DEBUG, "ConnectionPoolManager", 
-            "Created new connection. Active: " + std::to_string(activeConnections_.size()) + 
-            ", Idle: " + std::to_string(idleConnections_.size()));
-        
-        return session;
+        if (session) {
+            activeConnections_.insert(session);
+            
+            // Record new connection for performance monitoring
+            if (performanceMonitor_) {
+                performanceMonitor_->recordNewConnection();
+            }
+            
+            Logger::getInstance().log(LogLevel::DEBUG, "ConnectionPoolManager", 
+                "Created new connection. Active: " + std::to_string(activeConnections_.size()) + 
+                ", Idle: " + std::to_string(idleConnections_.size()));
+            
+            return session;
+        } else {
+            // Failed to create session, send error response
+            sendErrorResponse(socket, "Failed to create session");
+            ++rejectedRequestCount_;
+            throw std::runtime_error("Failed to create new session");
+        }
     }
 
-    // Pool is at capacity, wait for a connection to become available
-    Logger::getInstance().log(LogLevel::DEBUG, "ConnectionPoolManager", 
-        "Pool at capacity, waiting for available connection");
+    // Pool is at capacity, check if we can queue the request
+    if (requestQueue_.size() >= maxQueueSize_) {
+        Logger::getInstance().log(LogLevel::WARN, "ConnectionPoolManager", 
+            "Request queue full, rejecting request. Queue size: " + std::to_string(requestQueue_.size()));
+        
+        sendErrorResponse(socket, "Server overloaded - request queue full");
+        ++rejectedRequestCount_;
+        throw std::runtime_error("Request queue is full");
+    }
+
+    // Queue the request
+    auto queuedRequest = std::make_unique<QueuedRequest>(std::move(socket));
+    requestQueue_.push(std::move(queuedRequest));
     
-    connectionAvailable_.wait(lock, [this] {
+    Logger::getInstance().log(LogLevel::DEBUG, "ConnectionPoolManager", 
+        "Queued request. Queue size: " + std::to_string(requestQueue_.size()) + 
+        ", Active: " + std::to_string(activeConnections_.size()) + 
+        ", Idle: " + std::to_string(idleConnections_.size()));
+
+    // Wait for a connection to become available or timeout
+    auto waitResult = connectionAvailable_.wait_for(lock, maxQueueWaitTime_, [this] {
         return !idleConnections_.empty() || shutdownRequested_;
     });
 
     if (shutdownRequested_) {
         throw std::runtime_error("ConnectionPoolManager is shutting down");
+    }
+
+    if (!waitResult) {
+        // Timeout occurred, remove from queue and send timeout response
+        Logger::getInstance().log(LogLevel::WARN, "ConnectionPoolManager", 
+            "Request timed out in queue after " + std::to_string(maxQueueWaitTime_.count()) + " seconds");
+        
+        // Find and remove the timed-out request from queue
+        std::queue<std::unique_ptr<QueuedRequest>> tempQueue;
+        bool found = false;
+        while (!requestQueue_.empty() && !found) {
+            auto req = std::move(requestQueue_.front());
+            requestQueue_.pop();
+            
+            auto waitTime = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::steady_clock::now() - req->queueTime);
+            
+            if (waitTime >= maxQueueWaitTime_) {
+                // This is the timed-out request
+                sendErrorResponse(req->socket, "Request timeout - server overloaded");
+                found = true;
+            } else {
+                tempQueue.push(std::move(req));
+            }
+        }
+        
+        // Restore remaining requests to queue
+        while (!tempQueue.empty()) {
+            requestQueue_.push(std::move(tempQueue.front()));
+            tempQueue.pop();
+        }
+        
+        ++rejectedRequestCount_;
+        throw std::runtime_error("Request timed out in queue");
     }
 
     // At this point, there should be an idle connection available
@@ -103,6 +187,11 @@ std::shared_ptr<PooledSession> ConnectionPoolManager::acquireConnection(tcp::soc
         
         ++connectionReuseCount_;
         
+        // Record connection reuse for performance monitoring
+        if (performanceMonitor_) {
+            performanceMonitor_->recordConnectionReuse();
+        }
+        
         Logger::getInstance().log(LogLevel::DEBUG, "ConnectionPoolManager", 
             "Acquired connection after waiting. Active: " + std::to_string(activeConnections_.size()) + 
             ", Idle: " + std::to_string(idleConnections_.size()));
@@ -110,13 +199,13 @@ std::shared_ptr<PooledSession> ConnectionPoolManager::acquireConnection(tcp::soc
         return session;
     }
 
-    // This should not happen, but create a new connection as fallback
-    Logger::getInstance().log(LogLevel::WARN, "ConnectionPoolManager", 
-        "Unexpected state: creating new connection despite being at capacity");
+    // This should not happen, but handle gracefully
+    Logger::getInstance().log(LogLevel::ERROR, "ConnectionPoolManager", 
+        "Unexpected state: no idle connections available after wait");
     
-    auto session = createNewSession(std::move(socket));
-    activeConnections_.insert(session);
-    return session;
+    sendErrorResponse(socket, "Internal server error - no connections available");
+    ++rejectedRequestCount_;
+    throw std::runtime_error("No connections available after wait");
 }
 
 void ConnectionPoolManager::releaseConnection(std::shared_ptr<PooledSession> session) {
@@ -157,12 +246,18 @@ void ConnectionPoolManager::releaseConnection(std::shared_ptr<PooledSession> ses
             "Released connection to idle pool. Active: " + std::to_string(activeConnections_.size()) + 
             ", Idle: " + std::to_string(idleConnections_.size()));
         
+        // Process any queued requests first
+        processQueuedRequests();
+        
         // Notify waiting threads that a connection is available
         connectionAvailable_.notify_one();
     } else {
         Logger::getInstance().log(LogLevel::DEBUG, "ConnectionPoolManager", 
             "Session not idle, not returning to pool. Active: " + std::to_string(activeConnections_.size()) + 
             ", Idle: " + std::to_string(idleConnections_.size()));
+        
+        // Even if this session can't be reused, process queued requests
+        processQueuedRequests();
     }
 }
 
@@ -295,10 +390,25 @@ bool ConnectionPoolManager::isAtMaxCapacity() const {
     return (activeConnections_.size() + idleConnections_.size()) >= maxConnections_;
 }
 
+size_t ConnectionPoolManager::getQueueSize() const {
+    std::lock_guard<std::mutex> lock(poolMutex_);
+    return requestQueue_.size();
+}
+
+size_t ConnectionPoolManager::getMaxQueueSize() const {
+    return maxQueueSize_;
+}
+
+size_t ConnectionPoolManager::getRejectedRequestCount() const {
+    std::lock_guard<std::mutex> lock(poolMutex_);
+    return rejectedRequestCount_;
+}
+
 void ConnectionPoolManager::resetStatistics() {
     std::lock_guard<std::mutex> lock(poolMutex_);
     connectionReuseCount_ = 0;
     totalConnectionsCreated_ = 0;
+    rejectedRequestCount_ = 0;
     Logger::getInstance().log(LogLevel::INFO, "ConnectionPoolManager", "Statistics reset");
 }
 
@@ -316,7 +426,8 @@ std::shared_ptr<PooledSession> ConnectionPoolManager::createNewSession(tcp::sock
         std::move(socket), 
         handler_, 
         wsManager_, 
-        timeoutManager_
+        timeoutManager_,
+        performanceMonitor_
     );
     
     ++totalConnectionsCreated_;
@@ -381,4 +492,125 @@ bool ConnectionPoolManager::shouldCleanupSession(std::shared_ptr<PooledSession> 
     auto timeSinceLastActivity = std::chrono::duration_cast<std::chrono::seconds>(now - sessionLastActivity);
     
     return timeSinceLastActivity >= idleTimeout_;
+}
+
+void ConnectionPoolManager::processQueuedRequests() {
+    // Must be called with poolMutex_ held
+    while (!requestQueue_.empty() && !idleConnections_.empty()) {
+        auto queuedRequest = std::move(requestQueue_.front());
+        requestQueue_.pop();
+        
+        // Check if the request has expired
+        auto waitTime = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::steady_clock::now() - queuedRequest->queueTime);
+        
+        if (waitTime >= maxQueueWaitTime_) {
+            Logger::getInstance().log(LogLevel::WARN, "ConnectionPoolManager", 
+                "Dropping expired queued request (waited " + std::to_string(waitTime.count()) + "s)");
+            
+            try {
+                sendErrorResponse(queuedRequest->socket, "Request timeout - server overloaded");
+            } catch (...) {
+                // Ignore errors when sending error response
+            }
+            ++rejectedRequestCount_;
+            continue;
+        }
+        
+        // Get an idle connection
+        auto session = idleConnections_.front();
+        idleConnections_.pop();
+        
+        // Reset the session and move to active
+        session->reset();
+        activeConnections_.insert(session);
+        ++connectionReuseCount_;
+        
+        // Record connection reuse for performance monitoring
+        if (performanceMonitor_) {
+            performanceMonitor_->recordConnectionReuse();
+        }
+        
+        Logger::getInstance().log(LogLevel::DEBUG, "ConnectionPoolManager", 
+            "Processed queued request. Queue size: " + std::to_string(requestQueue_.size()) + 
+            ", Active: " + std::to_string(activeConnections_.size()) + 
+            ", Idle: " + std::to_string(idleConnections_.size()));
+        
+        // Start the session with the queued socket
+        // Note: This is a simplified approach. In a real implementation,
+        // we would need to properly handle the socket transfer
+        try {
+            session->run();
+        } catch (const std::exception& e) {
+            Logger::getInstance().log(LogLevel::ERROR, "ConnectionPoolManager", 
+                "Error starting session for queued request: " + std::string(e.what()));
+            
+            // Remove from active set and continue
+            activeConnections_.erase(session);
+        }
+    }
+}
+
+size_t ConnectionPoolManager::cleanupExpiredQueuedRequests() {
+    // Must be called with poolMutex_ held
+    size_t cleanedUp = 0;
+    std::queue<std::unique_ptr<QueuedRequest>> newQueue;
+    auto now = std::chrono::steady_clock::now();
+    
+    while (!requestQueue_.empty()) {
+        auto request = std::move(requestQueue_.front());
+        requestQueue_.pop();
+        
+        auto waitTime = std::chrono::duration_cast<std::chrono::seconds>(now - request->queueTime);
+        
+        if (waitTime >= maxQueueWaitTime_) {
+            Logger::getInstance().log(LogLevel::DEBUG, "ConnectionPoolManager", 
+                "Cleaning up expired queued request (waited " + std::to_string(waitTime.count()) + "s)");
+            
+            try {
+                sendErrorResponse(request->socket, "Request timeout - server overloaded");
+            } catch (...) {
+                // Ignore errors when sending error response
+            }
+            ++cleanedUp;
+            ++rejectedRequestCount_;
+        } else {
+            newQueue.push(std::move(request));
+        }
+    }
+    
+    requestQueue_ = std::move(newQueue);
+    return cleanedUp;
+}
+
+void ConnectionPoolManager::sendErrorResponse(tcp::socket& socket, const std::string& errorMessage) {
+    try {
+        // Create a simple HTTP error response
+        std::string response = 
+            "HTTP/1.1 503 Service Unavailable\r\n"
+            "Content-Type: application/json\r\n"
+            "Content-Length: " + std::to_string(errorMessage.length() + 13) + "\r\n"
+            "Connection: close\r\n"
+            "\r\n"
+            "{\"error\":\"" + errorMessage + "\"}";
+        
+        boost::system::error_code ec;
+        boost::asio::write(socket, boost::asio::buffer(response), ec);
+        
+        if (ec) {
+            Logger::getInstance().log(LogLevel::DEBUG, "ConnectionPoolManager", 
+                "Error sending error response: " + ec.message());
+        }
+        
+        // Close the socket
+        socket.shutdown(tcp::socket::shutdown_both, ec);
+        socket.close(ec);
+        
+    } catch (const std::exception& e) {
+        Logger::getInstance().log(LogLevel::ERROR, "ConnectionPoolManager", 
+            "Exception sending error response: " + std::string(e.what()));
+    } catch (...) {
+        Logger::getInstance().log(LogLevel::ERROR, "ConnectionPoolManager", 
+            "Unknown exception sending error response");
+    }
 }

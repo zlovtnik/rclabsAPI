@@ -19,6 +19,7 @@ using tcp = boost::asio::ip::tcp;
 class RequestHandler;
 class WebSocketManager;
 class TimeoutManager;
+class PerformanceMonitor;
 
 /**
  * PooledSession extends the basic Session functionality with connection pooling support.
@@ -32,11 +33,13 @@ public:
      * @param handler Request handler for processing HTTP requests
      * @param wsManager WebSocket manager for handling WebSocket upgrades
      * @param timeoutManager Timeout manager for connection and request timeouts
+     * @param performanceMonitor Performance monitor for metrics collection
      */
     PooledSession(tcp::socket&& socket, 
                   std::shared_ptr<RequestHandler> handler,
                   std::shared_ptr<WebSocketManager> wsManager,
-                  std::shared_ptr<TimeoutManager> timeoutManager);
+                  std::shared_ptr<TimeoutManager> timeoutManager,
+                  std::shared_ptr<PerformanceMonitor> performanceMonitor = nullptr);
 
     /**
      * Destructor - ensures proper cleanup
@@ -101,9 +104,11 @@ private:
     std::shared_ptr<RequestHandler> handler_;
     std::shared_ptr<WebSocketManager> wsManager_;
     std::shared_ptr<TimeoutManager> timeoutManager_;
+    std::shared_ptr<PerformanceMonitor> performanceMonitor_;
     
     // Pooling and state management
     std::chrono::steady_clock::time_point lastActivity_;
+    std::chrono::steady_clock::time_point requestStartTime_;
     bool isIdle_;
     bool processingRequest_;
     

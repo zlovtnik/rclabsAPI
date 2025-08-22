@@ -17,6 +17,7 @@ class PooledSession;
 class RequestHandler;
 class WebSocketManager;
 class TimeoutManager;
+class PerformanceMonitor;
 
 /**
  * ConnectionPoolManager manages a pool of reusable PooledSession connections
@@ -40,6 +41,9 @@ public:
      * @param handler Request handler for new sessions
      * @param wsManager WebSocket manager for new sessions
      * @param timeoutManager Timeout manager for new sessions
+     * @param performanceMonitor Performance monitor for metrics collection
+     * @param maxQueueSize Maximum number of requests to queue when pool is at capacity (default: 100)
+     * @param maxQueueWaitTime Maximum time a request can wait in queue (default: 30s)
      */
     ConnectionPoolManager(net::io_context& ioc,
                          size_t minConnections,
@@ -47,7 +51,10 @@ public:
                          std::chrono::seconds idleTimeout,
                          std::shared_ptr<RequestHandler> handler,
                          std::shared_ptr<WebSocketManager> wsManager,
-                         std::shared_ptr<TimeoutManager> timeoutManager);
+                         std::shared_ptr<TimeoutManager> timeoutManager,
+                         std::shared_ptr<PerformanceMonitor> performanceMonitor = nullptr,
+                         size_t maxQueueSize = 100,
+                         std::chrono::seconds maxQueueWaitTime = std::chrono::seconds(30));
 
     /**
      * Destructor - ensures proper cleanup of all connections
@@ -155,6 +162,24 @@ public:
     size_t getTotalConnectionsCreated() const;
 
     /**
+     * Get the current size of the request queue
+     * @return Number of requests waiting in queue
+     */
+    size_t getQueueSize() const;
+
+    /**
+     * Get the maximum queue size
+     * @return Maximum number of requests that can be queued
+     */
+    size_t getMaxQueueSize() const;
+
+    /**
+     * Get the number of requests that have been rejected due to queue overflow
+     * @return Number of rejected requests
+     */
+    size_t getRejectedRequestCount() const;
+
+    /**
      * Reset all statistics counters
      */
     void resetStatistics();
@@ -170,14 +195,28 @@ private:
     std::shared_ptr<RequestHandler> handler_;
     std::shared_ptr<WebSocketManager> wsManager_;
     std::shared_ptr<TimeoutManager> timeoutManager_;
+    std::shared_ptr<PerformanceMonitor> performanceMonitor_;
 
     // Connection pools
     std::queue<std::shared_ptr<PooledSession>> idleConnections_;
     std::set<std::shared_ptr<PooledSession>> activeConnections_;
 
+    // Request queuing for pool exhaustion scenarios
+    struct QueuedRequest {
+        tcp::socket socket;
+        std::chrono::steady_clock::time_point queueTime;
+        
+        QueuedRequest(tcp::socket&& s) 
+            : socket(std::move(s)), queueTime(std::chrono::steady_clock::now()) {}
+    };
+    std::queue<std::unique_ptr<QueuedRequest>> requestQueue_;
+    size_t maxQueueSize_;
+    std::chrono::seconds maxQueueWaitTime_;
+
     // Thread safety
     mutable std::mutex poolMutex_;
     std::condition_variable connectionAvailable_;
+    std::condition_variable requestQueued_;
 
     // Cleanup timer
     std::unique_ptr<net::steady_timer> cleanupTimer_;
@@ -186,6 +225,7 @@ private:
     // Statistics
     size_t connectionReuseCount_;
     size_t totalConnectionsCreated_;
+    size_t rejectedRequestCount_;
 
     /**
      * Create a new PooledSession with the given socket
@@ -225,4 +265,24 @@ private:
      * @return true if session should be cleaned up
      */
     bool shouldCleanupSession(std::shared_ptr<PooledSession> session) const;
+
+    /**
+     * Process queued requests when connections become available
+     * Must be called with poolMutex_ held
+     */
+    void processQueuedRequests();
+
+    /**
+     * Clean up expired requests from the queue
+     * Must be called with poolMutex_ held
+     * @return Number of expired requests removed
+     */
+    size_t cleanupExpiredQueuedRequests();
+
+    /**
+     * Send error response for rejected request
+     * @param socket The socket to send error response to
+     * @param errorMessage The error message to send
+     */
+    void sendErrorResponse(tcp::socket& socket, const std::string& errorMessage);
 };

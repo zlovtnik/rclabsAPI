@@ -2,6 +2,7 @@
 #include "request_handler.hpp"
 #include "websocket_manager.hpp"
 #include "timeout_manager.hpp"
+#include "performance_monitor.hpp"
 #include "logger.hpp"
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
@@ -25,18 +26,22 @@ using tcp = boost::asio::ip::tcp;
 PooledSession::PooledSession(tcp::socket&& socket, 
                              std::shared_ptr<RequestHandler> handler,
                              std::shared_ptr<WebSocketManager> wsManager,
-                             std::shared_ptr<TimeoutManager> timeoutManager)
+                             std::shared_ptr<TimeoutManager> timeoutManager,
+                             std::shared_ptr<PerformanceMonitor> performanceMonitor)
     : stream_(std::move(socket))
     , handler_(handler)
     , wsManager_(wsManager)
     , timeoutManager_(timeoutManager)
+    , performanceMonitor_(performanceMonitor)
     , lastActivity_(std::chrono::steady_clock::now())
+    , requestStartTime_(std::chrono::steady_clock::now())
     , isIdle_(false)
     , processingRequest_(false) {
     
     HTTP_LOG_DEBUG("PooledSession created with handler: " + std::string(handler ? "valid" : "null") + 
                   ", WebSocket manager: " + std::string(wsManager ? "valid" : "null") +
-                  ", Timeout manager: " + std::string(timeoutManager ? "valid" : "null"));
+                  ", Timeout manager: " + std::string(timeoutManager ? "valid" : "null") +
+                  ", Performance monitor: " + std::string(performanceMonitor ? "valid" : "null"));
 }
 
 PooledSession::~PooledSession() {
@@ -106,6 +111,15 @@ bool PooledSession::isProcessingRequest() const {
 void PooledSession::handleTimeout(const std::string& timeoutType) {
     HTTP_LOG_WARN("PooledSession::handleTimeout() - Timeout occurred: " + timeoutType);
     
+    // Record timeout for performance monitoring
+    if (performanceMonitor_) {
+        if (timeoutType == "CONNECTION") {
+            performanceMonitor_->recordTimeout(PerformanceMonitor::TimeoutType::CONNECTION);
+        } else if (timeoutType == "REQUEST") {
+            performanceMonitor_->recordTimeout(PerformanceMonitor::TimeoutType::REQUEST);
+        }
+    }
+    
     if (timeoutType == "CONNECTION") {
         HTTP_LOG_INFO("PooledSession::handleTimeout() - Connection timeout, closing session");
     } else if (timeoutType == "REQUEST") {
@@ -137,15 +151,23 @@ void PooledSession::doRead() {
     updateLastActivity();
     processingRequest_ = true;
     
-    req_ = {};
+    // Record request start for performance monitoring
+    requestStartTime_ = std::chrono::steady_clock::now();
+    if (performanceMonitor_) {
+        performanceMonitor_->recordRequestStart();
+    }
+    
+    // Optimize memory allocation: reuse existing request object instead of creating new one
+    req_.clear();
     stream_.expires_after(std::chrono::seconds(30));
 
     // Start request timeout
     startRequestTimeout();
 
-    // Set a reasonable limit for request body size (10MB)
-    auto parser = std::make_shared<http::request_parser<http::string_body>>();
-    parser->body_limit(10 * 1024 * 1024); // 10MB limit
+    // Optimize buffer management: reserve capacity if buffer is too small
+    if (buffer_.capacity() < 8192) { // 8KB minimum capacity
+        buffer_.reserve(8192);
+    }
     
     http::async_read(stream_, buffer_, req_,
         beast::bind_front_handler(&PooledSession::onRead, shared_from_this()));
@@ -245,18 +267,32 @@ void PooledSession::sendResponse(http::response<http::string_body>&& msg) {
     updateLastActivity();
     
     try {
-        HTTP_LOG_DEBUG("PooledSession::sendResponse() - Creating shared response object");
-        auto response = std::make_shared<http::response<http::string_body>>(std::move(msg));
-        HTTP_LOG_DEBUG("PooledSession::sendResponse() - Shared response created successfully");
+        // Optimize memory allocation: use move semantics and avoid unnecessary shared_ptr allocation
+        // for small responses that can be sent immediately
+        const bool needsSharedPtr = msg.body().size() > 4096; // 4KB threshold
         
-        // Ensure the session stays alive for the duration of the write operation
-        auto self = shared_from_this();
+        if (needsSharedPtr) {
+            HTTP_LOG_DEBUG("PooledSession::sendResponse() - Creating shared response object for large response");
+            auto response = std::make_shared<http::response<http::string_body>>(std::move(msg));
+            
+            // Ensure the session stays alive for the duration of the write operation
+            auto self = shared_from_this();
+            
+            http::async_write(stream_, *response,
+                [self, response](beast::error_code ec, std::size_t bytes_transferred) {
+                    self->onWrite(response->need_eof(), ec, bytes_transferred);
+                });
+        } else {
+            HTTP_LOG_DEBUG("PooledSession::sendResponse() - Using direct write for small response");
+            bool close = msg.need_eof();
+            auto self = shared_from_this();
+            
+            http::async_write(stream_, msg,
+                [self, close](beast::error_code ec, std::size_t bytes_transferred) {
+                    self->onWrite(close, ec, bytes_transferred);
+                });
+        }
         
-        HTTP_LOG_DEBUG("PooledSession::sendResponse() - About to call http::async_write");
-        http::async_write(stream_, *response,
-            [self, response](beast::error_code ec, std::size_t bytes_transferred) {
-                self->onWrite(response->need_eof(), ec, bytes_transferred);
-            });
         HTTP_LOG_DEBUG("PooledSession::sendResponse() - http::async_write called successfully");
     } catch (const std::exception& e) {
         HTTP_LOG_ERROR("PooledSession::sendResponse() - Exception: " + std::string(e.what()));
@@ -277,6 +313,13 @@ void PooledSession::onWrite(bool close, beast::error_code ec, std::size_t bytes_
     
     updateLastActivity();
     processingRequest_ = false;
+
+    // Record request completion for performance monitoring
+    if (performanceMonitor_) {
+        auto requestDuration = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - requestStartTime_);
+        performanceMonitor_->recordRequestEnd(requestDuration);
+    }
 
     if (ec) {
         HTTP_LOG_ERROR("PooledSession::onWrite() - Error: " + ec.message());
@@ -342,9 +385,14 @@ void PooledSession::resetState() {
 }
 
 void PooledSession::clearBuffers() {
-    // Clear the flat buffer
-    buffer_.clear();
+    // Optimize memory management: don't shrink buffer capacity unless it's too large
+    // This avoids frequent reallocations
+    if (buffer_.capacity() > 64 * 1024) { // 64KB threshold
+        buffer_ = beast::flat_buffer{}; // Reset to default capacity
+    } else {
+        buffer_.clear(); // Keep existing capacity
+    }
     
-    // Reset the request object
-    req_ = {};
+    // Clear the request object but preserve any allocated capacity
+    req_.clear();
 }

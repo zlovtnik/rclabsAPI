@@ -24,6 +24,10 @@ struct ServerConfig {
     size_t maxRequestBodySize = 10 * 1024 * 1024; // 10MB - maximum request body size
     bool enableMetrics = true;                     // Enable performance metrics collection
     
+    // Request Queue Settings (for pool exhaustion scenarios)
+    size_t maxQueueSize = 100;                     // Maximum requests to queue when pool is at capacity
+    std::chrono::seconds maxQueueWaitTime{30};     // Maximum time a request can wait in queue
+    
     // Validation and default value handling
     struct ValidationResult {
         bool isValid = true;
@@ -100,6 +104,26 @@ struct ServerConfig {
                             "MB), consider memory usage implications");
         }
         
+        // Validate queue settings
+        if (maxQueueSize == 0) {
+            result.addError("maxQueueSize must be greater than 0");
+        }
+        
+        if (maxQueueSize > 1000) {
+            result.addWarning("maxQueueSize is very large (" + std::to_string(maxQueueSize) + 
+                            "), consider memory usage implications");
+        }
+        
+        if (maxQueueWaitTime.count() <= 0) {
+            result.addError("maxQueueWaitTime must be positive");
+        }
+        
+        if (maxQueueWaitTime > std::chrono::seconds{300}) { // 5 minutes
+            result.addWarning("maxQueueWaitTime is very long (" + 
+                            std::to_string(maxQueueWaitTime.count()) + 
+                            "s), clients may timeout");
+        }
+        
         return result;
     }
     
@@ -138,6 +162,15 @@ struct ServerConfig {
         if (maxRequestBodySize == 0) {
             maxRequestBodySize = 10 * 1024 * 1024; // 10MB
         }
+        
+        // Apply defaults for queue settings
+        if (maxQueueSize == 0) {
+            maxQueueSize = 100;
+        }
+        
+        if (maxQueueWaitTime.count() <= 0) {
+            maxQueueWaitTime = std::chrono::seconds{30};
+        }
     }
     
     /**
@@ -157,7 +190,9 @@ struct ServerConfig {
                               int connTimeoutSec = 30,
                               int reqTimeoutSec = 60,
                               size_t maxBodySize = 10 * 1024 * 1024,
-                              bool metricsEnabled = true) {
+                              bool metricsEnabled = true,
+                              size_t queueSize = 100,
+                              int queueWaitTimeSec = 30) {
         ServerConfig config;
         config.minConnections = minConn;
         config.maxConnections = maxConn;
@@ -166,6 +201,8 @@ struct ServerConfig {
         config.requestTimeout = std::chrono::seconds{reqTimeoutSec};
         config.maxRequestBodySize = maxBodySize;
         config.enableMetrics = metricsEnabled;
+        config.maxQueueSize = queueSize;
+        config.maxQueueWaitTime = std::chrono::seconds{queueWaitTimeSec};
         
         // Apply defaults for any invalid values
         config.applyDefaults();
@@ -183,7 +220,9 @@ struct ServerConfig {
                connectionTimeout == other.connectionTimeout &&
                requestTimeout == other.requestTimeout &&
                maxRequestBodySize == other.maxRequestBodySize &&
-               enableMetrics == other.enableMetrics;
+               enableMetrics == other.enableMetrics &&
+               maxQueueSize == other.maxQueueSize &&
+               maxQueueWaitTime == other.maxQueueWaitTime;
     }
     
     /**
