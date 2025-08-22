@@ -530,7 +530,7 @@ bool Logger::shouldLog(LogLevel level, const std::string& component) const {
     }
     
     if (!config_.componentFilter.empty() && 
-        !config_.componentFilter.contains(component)) {
+        config_.componentFilter.find(component) == config_.componentFilter.end()) {
         return false;
     }
     

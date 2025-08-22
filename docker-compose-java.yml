@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  oracle-db:
+    image: gvenzl/oracle-free:latest
+    container_name: etl-oracle-db
+    ports:
+      - "1521:1521"
+    environment:
+      - ORACLE_PASSWORD=etlplus123
+      - APP_USER=etlplus
+      - APP_USER_PASSWORD=etlplus123
+    volumes:
+      - oracle_data:/opt/oracle/oradata
+    healthcheck:
+      test: ["CMD", "sqlplus", "-L", "etlplus/etlplus123@//localhost:1521/FREE", "@/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  etl-backend:
+    build: .
+    container_name: etl-plus-backend
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:oracle:thin:@oracle-db:1521:FREE
+      - SPRING_DATASOURCE_USERNAME=etlplus
+      - SPRING_DATASOURCE_PASSWORD=etlplus123
+    depends_on:
+      oracle-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  oracle_data:

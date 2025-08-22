@@ -3,6 +3,10 @@
 #include "request_handler.hpp"
 #include "websocket_manager.hpp"
 #include "etl_exceptions.hpp"
+#include "connection_pool_manager.hpp"
+#include "timeout_manager.hpp"
+#include "pooled_session.hpp"
+#include "server_config.hpp"
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 #include <boost/beast/websocket.hpp>
@@ -24,185 +28,15 @@ namespace http = beast::http;
 namespace net = boost::asio;
 using tcp = boost::asio::ip::tcp;
 
-class Session : public std::enable_shared_from_this<Session> {
-public:
-    Session(tcp::socket&& socket, std::shared_ptr<RequestHandler> handler, std::shared_ptr<WebSocketManager> wsManager)
-        : stream_(std::move(socket))
-        , handler_(handler)
-        , wsManager_(wsManager) {
-        HTTP_LOG_DEBUG("Session created with handler: " + std::string(handler ? "valid" : "null") + 
-                      ", WebSocket manager: " + std::string(wsManager ? "valid" : "null"));
-    }
 
-    void run() {
-        HTTP_LOG_DEBUG("Session::run() - Starting session");
-        net::dispatch(stream_.get_executor(),
-                     beast::bind_front_handler(&Session::doRead, shared_from_this()));
-    }
-
-private:
-    beast::tcp_stream stream_;
-    beast::flat_buffer buffer_;
-    http::request<http::string_body> req_;
-    std::shared_ptr<RequestHandler> handler_;
-    std::shared_ptr<WebSocketManager> wsManager_;
-
-    void doRead() {
-        HTTP_LOG_DEBUG("Session::doRead() - Starting read operation");
-        req_ = {};
-        stream_.expires_after(std::chrono::seconds(30));
-
-        // Set a reasonable limit for request body size (10MB)
-        auto parser = std::make_shared<http::request_parser<http::string_body>>();
-        parser->body_limit(10 * 1024 * 1024); // 10MB limit
-        
-        http::async_read(stream_, buffer_, req_,
-            beast::bind_front_handler(&Session::onRead, shared_from_this()));
-    }
-
-    void onRead(beast::error_code ec, std::size_t bytes_transferred) {
-        HTTP_LOG_DEBUG("Session::onRead() - Read completed, bytes: " + std::to_string(bytes_transferred));
-        boost::ignore_unused(bytes_transferred);
-
-        if (ec == http::error::end_of_stream) {
-            HTTP_LOG_DEBUG("Session::onRead() - End of stream, closing");
-            return doClose();
-        }
-
-        if (ec) {
-            HTTP_LOG_ERROR("Session::onRead() - Error: " + ec.message());
-            return;
-        }
-
-        HTTP_LOG_INFO("Session::onRead() - Processing request: " + std::string(req_.method_string()) + " " + std::string(req_.target()));
-        
-        // Check if this is a WebSocket upgrade request
-        if (beast::websocket::is_upgrade(req_)) {
-            HTTP_LOG_INFO("Session::onRead() - WebSocket upgrade request detected");
-            
-            if (!wsManager_) {
-                HTTP_LOG_ERROR("Session::onRead() - WebSocket manager not available for upgrade");
-                http::response<http::string_body> error_res{http::status::service_unavailable, req_.version()};
-                error_res.set(http::field::server, "ETL Plus Backend");
-                error_res.set(http::field::content_type, "application/json");
-                error_res.keep_alive(false);
-                error_res.body() = "{\"error\":\"WebSocket service not available\"}";
-                error_res.prepare_payload();
-                sendResponse(std::move(error_res));
-                return;
-            }
-            
-            // Release the socket from the HTTP stream and pass it to WebSocket manager
-            tcp::socket socket = stream_.release_socket();
-            wsManager_->handleUpgrade(std::move(socket));
-            return;
-        }
-        
-        if (!handler_) {
-            HTTP_LOG_ERROR("Session::onRead() - Handler is null!");
-            // Send a proper error response instead of just returning
-            http::response<http::string_body> error_res{http::status::internal_server_error, req_.version()};
-            error_res.set(http::field::server, "ETL Plus Backend");
-            error_res.set(http::field::content_type, "application/json");
-            error_res.keep_alive(false);
-            error_res.body() = "{\"error\":\"Internal server error - handler not available\"}";
-            error_res.prepare_payload();
-            sendResponse(std::move(error_res));
-            return;
-        }
-        
-        try {
-            HTTP_LOG_DEBUG("Session::onRead() - Calling handler->handleRequest()");
-            auto response = handler_->handleRequest(std::move(req_));
-            HTTP_LOG_DEBUG("Session::onRead() - Handler completed, sending response");
-            sendResponse(std::move(response));
-        } catch (const std::exception& e) {
-            HTTP_LOG_ERROR("Session::onRead() - Exception in handler: " + std::string(e.what()));
-            // Send proper error response for exceptions
-            http::response<http::string_body> error_res{http::status::internal_server_error, req_.version()};
-            error_res.set(http::field::server, "ETL Plus Backend");
-            error_res.set(http::field::content_type, "application/json");
-            error_res.keep_alive(false);
-            error_res.body() = "{\"error\":\"Internal server error\"}";
-            error_res.prepare_payload();
-            sendResponse(std::move(error_res));
-        } catch (...) {
-            HTTP_LOG_ERROR("Session::onRead() - Unknown exception in handler");
-            // Send proper error response for unknown exceptions
-            http::response<http::string_body> error_res{http::status::internal_server_error, req_.version()};
-            error_res.set(http::field::server, "ETL Plus Backend");
-            error_res.set(http::field::content_type, "application/json");
-            error_res.keep_alive(false);
-            error_res.body() = "{\"error\":\"Internal server error\"}";
-            error_res.prepare_payload();
-            sendResponse(std::move(error_res));
-        }
-    }
-
-    void sendResponse(http::response<http::string_body>&& msg) {
-        HTTP_LOG_DEBUG("Session::sendResponse() - Sending response with status: " + std::to_string(msg.result_int()));
-        HTTP_LOG_DEBUG("Session::sendResponse() - Response body size: " + std::to_string(msg.body().size()));
-        
-        try {
-            HTTP_LOG_DEBUG("Session::sendResponse() - Creating shared response object");
-            auto response = std::make_shared<http::response<http::string_body>>(std::move(msg));
-            HTTP_LOG_DEBUG("Session::sendResponse() - Shared response created successfully");
-            
-            // Ensure the session stays alive for the duration of the write operation
-            auto self = shared_from_this();
-            
-            HTTP_LOG_DEBUG("Session::sendResponse() - About to call http::async_write");
-            http::async_write(stream_, *response,
-                [self, response](beast::error_code ec, std::size_t bytes_transferred) {
-                    self->onWrite(response->need_eof(), ec, bytes_transferred);
-                });
-            HTTP_LOG_DEBUG("Session::sendResponse() - http::async_write called successfully");
-        } catch (const std::exception& e) {
-            HTTP_LOG_ERROR("Session::sendResponse() - Exception: " + std::string(e.what()));
-            // Close the connection on error
-            doClose();
-        } catch (...) {
-            HTTP_LOG_ERROR("Session::sendResponse() - Unknown exception occurred");
-            // Close the connection on unknown error
-            doClose();
-        }
-    }
-
-    void onWrite(bool close, beast::error_code ec, std::size_t bytes_transferred) {
-        HTTP_LOG_DEBUG("Session::onWrite() - Write completed, bytes: " + std::to_string(bytes_transferred) + ", close: " + (close ? "true" : "false"));
-        boost::ignore_unused(bytes_transferred);
-
-        if (ec) {
-            HTTP_LOG_ERROR("Session::onWrite() - Error: " + ec.message());
-            return;
-        }
-
-        if (close) {
-            HTTP_LOG_DEBUG("Session::onWrite() - Closing connection");
-            return doClose();
-        }
-
-        HTTP_LOG_DEBUG("Session::onWrite() - Continuing to read");
-        doRead();
-    }
-
-    void doClose() {
-        HTTP_LOG_DEBUG("Session::doClose() - Closing session");
-        beast::error_code ec;
-        stream_.socket().shutdown(tcp::socket::shutdown_send, ec);
-        if (ec) {
-            HTTP_LOG_WARN("Session::doClose() - Shutdown error: " + ec.message());
-        }
-    }
-};
 
 class Listener : public std::enable_shared_from_this<Listener> {
 public:
-    Listener(net::io_context& ioc, tcp::endpoint endpoint, std::shared_ptr<RequestHandler> handler, std::shared_ptr<WebSocketManager> wsManager)
+    Listener(net::io_context& ioc, tcp::endpoint endpoint, 
+             std::shared_ptr<ConnectionPoolManager> poolManager)
         : ioc_(ioc)
         , acceptor_(net::make_strand(ioc))
-        , handler_(handler)
-        , wsManager_(wsManager) {
+        , poolManager_(poolManager) {
         beast::error_code ec;
 
         acceptor_.open(endpoint.protocol(), ec);
@@ -237,8 +71,7 @@ public:
 private:
     net::io_context& ioc_;
     tcp::acceptor acceptor_;
-    std::shared_ptr<RequestHandler> handler_;
-    std::shared_ptr<WebSocketManager> wsManager_;
+    std::shared_ptr<ConnectionPoolManager> poolManager_;
 
     void fail(beast::error_code ec, char const* what) {
         std::cerr << what << ": " << ec.message() << "\n";
@@ -258,11 +91,20 @@ private:
             return;
         } else {
             HTTP_LOG_INFO("Listener::onAccept() - New connection accepted");
-            if (!handler_) {
-                HTTP_LOG_ERROR("Listener::onAccept() - Handler is null!");
+            if (!poolManager_) {
+                HTTP_LOG_ERROR("Listener::onAccept() - ConnectionPoolManager is null!");
             } else {
-                HTTP_LOG_DEBUG("Listener::onAccept() - Creating session with valid handler");
-                std::make_shared<Session>(std::move(socket), handler_, wsManager_)->run();
+                HTTP_LOG_DEBUG("Listener::onAccept() - Acquiring connection from pool");
+                try {
+                    auto session = poolManager_->acquireConnection(std::move(socket));
+                    if (session) {
+                        session->run();
+                    } else {
+                        HTTP_LOG_ERROR("Listener::onAccept() - Failed to acquire connection from pool");
+                    }
+                } catch (const std::exception& e) {
+                    HTTP_LOG_ERROR("Listener::onAccept() - Exception acquiring connection: " + std::string(e.what()));
+                }
             }
         }
 
@@ -275,8 +117,11 @@ struct HttpServer::Impl {
     std::string address;
     unsigned short port;
     int threads;
+    ServerConfig config;
     std::shared_ptr<RequestHandler> handler;
     std::shared_ptr<WebSocketManager> wsManager;
+    std::shared_ptr<ConnectionPoolManager> poolManager;
+    std::shared_ptr<TimeoutManager> timeoutManager;
     std::unique_ptr<net::io_context> ioc;
     std::vector<std::thread> threadPool;
     bool running = false;
@@ -287,6 +132,33 @@ HttpServer::HttpServer(const std::string& address, unsigned short port, int thre
     pImpl->address = address;
     pImpl->port = port;
     pImpl->threads = std::max<int>(1, threads);
+    pImpl->config = ServerConfig::create(); // Use default configuration
+}
+
+HttpServer::HttpServer(const std::string& address, unsigned short port, int threads, const ServerConfig& config)
+    : pImpl(std::make_unique<Impl>()) {
+    pImpl->address = address;
+    pImpl->port = port;
+    pImpl->threads = std::max<int>(1, threads);
+    pImpl->config = config;
+    
+    // Validate and apply defaults to the configuration
+    auto validation = pImpl->config.validate();
+    if (!validation.isValid) {
+        HTTP_LOG_ERROR("HttpServer constructor - Invalid configuration:");
+        for (const auto& error : validation.errors) {
+            HTTP_LOG_ERROR("  - " + error);
+        }
+        pImpl->config.applyDefaults();
+        HTTP_LOG_INFO("HttpServer constructor - Applied default values for invalid configuration");
+    }
+    
+    if (!validation.warnings.empty()) {
+        HTTP_LOG_WARN("HttpServer constructor - Configuration warnings:");
+        for (const auto& warning : validation.warnings) {
+            HTTP_LOG_WARN("  - " + warning);
+        }
+    }
 }
 
 HttpServer::~HttpServer() {
@@ -312,11 +184,36 @@ void HttpServer::start() {
         HTTP_LOG_DEBUG("HttpServer::start() - Creating IO context with " + std::to_string(pImpl->threads) + " threads");
         pImpl->ioc = std::make_unique<net::io_context>(pImpl->threads);
         
+        // Initialize TimeoutManager
+        HTTP_LOG_DEBUG("HttpServer::start() - Creating TimeoutManager");
+        pImpl->timeoutManager = std::make_shared<TimeoutManager>(
+            *pImpl->ioc,
+            pImpl->config.connectionTimeout,
+            pImpl->config.requestTimeout
+        );
+        
+        // Initialize ConnectionPoolManager
+        HTTP_LOG_DEBUG("HttpServer::start() - Creating ConnectionPoolManager");
+        pImpl->poolManager = std::make_shared<ConnectionPoolManager>(
+            *pImpl->ioc,
+            pImpl->config.minConnections,
+            pImpl->config.maxConnections,
+            pImpl->config.idleTimeout,
+            pImpl->handler,
+            pImpl->wsManager,
+            pImpl->timeoutManager,
+            pImpl->config.maxQueueSize,
+            pImpl->config.maxQueueWaitTime
+        );
+        
+        // Start the cleanup timer for the connection pool
+        pImpl->poolManager->startCleanupTimer();
+        
         auto const address = net::ip::make_address(pImpl->address);
         HTTP_LOG_DEBUG("HttpServer::start() - Address parsed: " + address.to_string());
         
-        HTTP_LOG_DEBUG("HttpServer::start() - Creating listener");
-        std::make_shared<Listener>(*pImpl->ioc, tcp::endpoint{address, pImpl->port}, pImpl->handler, pImpl->wsManager)->run();
+        HTTP_LOG_DEBUG("HttpServer::start() - Creating listener with connection pool");
+        std::make_shared<Listener>(*pImpl->ioc, tcp::endpoint{address, pImpl->port}, pImpl->poolManager)->run();
 
         HTTP_LOG_DEBUG("HttpServer::start() - Starting thread pool");
         pImpl->threadPool.reserve(pImpl->threads);
@@ -333,7 +230,10 @@ void HttpServer::start() {
         }
 
         pImpl->running = true;
-        HTTP_LOG_INFO("HttpServer::start() - HTTP server started successfully");
+        HTTP_LOG_INFO("HttpServer::start() - HTTP server started successfully with connection pooling");
+        HTTP_LOG_INFO("HttpServer::start() - Pool config: min=" + std::to_string(pImpl->config.minConnections) + 
+                     ", max=" + std::to_string(pImpl->config.maxConnections) + 
+                     ", idleTimeout=" + std::to_string(pImpl->config.idleTimeout.count()) + "s");
     } catch (const std::exception& e) {
         HTTP_LOG_ERROR("HttpServer::start() - Error starting server: " + std::string(e.what()));
         std::cerr << "Error starting server: " << e.what() << std::endl;
@@ -346,8 +246,18 @@ void HttpServer::stop() {
         return;
     }
 
+    HTTP_LOG_INFO("HttpServer::stop() - Stopping HTTP server");
+
+    // Stop the connection pool cleanup timer first
+    if (pImpl->poolManager) {
+        HTTP_LOG_DEBUG("HttpServer::stop() - Stopping connection pool cleanup timer");
+        pImpl->poolManager->stopCleanupTimer();
+    }
+
+    // Stop the IO context
     pImpl->ioc->stop();
 
+    // Wait for all threads to finish
     for (auto& t : pImpl->threadPool) {
         if (t.joinable()) {
             t.join();
@@ -355,7 +265,21 @@ void HttpServer::stop() {
     }
 
     pImpl->threadPool.clear();
+
+    // Shutdown the connection pool
+    if (pImpl->poolManager) {
+        HTTP_LOG_DEBUG("HttpServer::stop() - Shutting down connection pool");
+        pImpl->poolManager->shutdown();
+    }
+
+    // Cancel all timeouts
+    if (pImpl->timeoutManager) {
+        HTTP_LOG_DEBUG("HttpServer::stop() - Canceling all timeouts");
+        pImpl->timeoutManager->cancelAllTimers();
+    }
+
     pImpl->running = false;
+    HTTP_LOG_INFO("HttpServer::stop() - HTTP server stopped successfully");
 }
 
 bool HttpServer::isRunning() const {
@@ -365,10 +289,92 @@ bool HttpServer::isRunning() const {
 void HttpServer::setRequestHandler(std::shared_ptr<RequestHandler> handler) {
     HTTP_LOG_INFO("HttpServer::setRequestHandler() - Setting request handler: " + std::string(handler ? "valid" : "null"));
     pImpl->handler = handler;
+    
+    // If the pool manager already exists, we need to recreate it with the new handler
+    if (pImpl->poolManager && pImpl->ioc && pImpl->timeoutManager) {
+        HTTP_LOG_DEBUG("HttpServer::setRequestHandler() - Recreating connection pool with new handler");
+        pImpl->poolManager->shutdown();
+        pImpl->poolManager = std::make_shared<ConnectionPoolManager>(
+            *pImpl->ioc,
+            pImpl->config.minConnections,
+            pImpl->config.maxConnections,
+            pImpl->config.idleTimeout,
+            pImpl->handler,
+            pImpl->wsManager,
+            pImpl->timeoutManager,
+            pImpl->config.maxQueueSize,
+            pImpl->config.maxQueueWaitTime
+        );
+        if (pImpl->running) {
+            pImpl->poolManager->startCleanupTimer();
+        }
+    }
 }
 
 void HttpServer::setWebSocketManager(std::shared_ptr<WebSocketManager> wsManager) {
     pImpl->wsManager = wsManager;
+    
+    // If the pool manager already exists, we need to recreate it with the new WebSocket manager
+    if (pImpl->poolManager && pImpl->ioc && pImpl->timeoutManager) {
+        HTTP_LOG_DEBUG("HttpServer::setWebSocketManager() - Recreating connection pool with new WebSocket manager");
+        pImpl->poolManager->shutdown();
+        pImpl->poolManager = std::make_shared<ConnectionPoolManager>(
+            *pImpl->ioc,
+            pImpl->config.minConnections,
+            pImpl->config.maxConnections,
+            pImpl->config.idleTimeout,
+            pImpl->handler,
+            pImpl->wsManager,
+            pImpl->timeoutManager,
+            pImpl->config.maxQueueSize,
+            pImpl->config.maxQueueWaitTime
+        );
+        if (pImpl->running) {
+            pImpl->poolManager->startCleanupTimer();
+        }
+    }
+}
+
+void HttpServer::setServerConfig(const ServerConfig& config) {
+    pImpl->config = config;
+    
+    // Validate and apply defaults
+    auto validation = pImpl->config.validate();
+    if (!validation.isValid) {
+        HTTP_LOG_ERROR("HttpServer::setServerConfig() - Invalid configuration:");
+        for (const auto& error : validation.errors) {
+            HTTP_LOG_ERROR("  - " + error);
+        }
+        pImpl->config.applyDefaults();
+        HTTP_LOG_INFO("HttpServer::setServerConfig() - Applied default values for invalid configuration");
+    }
+    
+    if (!validation.warnings.empty()) {
+        HTTP_LOG_WARN("HttpServer::setServerConfig() - Configuration warnings:");
+        for (const auto& warning : validation.warnings) {
+            HTTP_LOG_WARN("  - " + warning);
+        }
+    }
+    
+    // Update timeout manager if it exists
+    if (pImpl->timeoutManager) {
+        pImpl->timeoutManager->setConnectionTimeout(pImpl->config.connectionTimeout);
+        pImpl->timeoutManager->setRequestTimeout(pImpl->config.requestTimeout);
+    }
+    
+    HTTP_LOG_INFO("HttpServer::setServerConfig() - Configuration updated");
+}
+
+ServerConfig HttpServer::getServerConfig() const {
+    return pImpl->config;
+}
+
+std::shared_ptr<ConnectionPoolManager> HttpServer::getConnectionPoolManager() {
+    return pImpl->poolManager;
+}
+
+std::shared_ptr<TimeoutManager> HttpServer::getTimeoutManager() {
+    return pImpl->timeoutManager;
 }
 
 std::shared_ptr<ETLJobManager> HttpServer::getJobManager() {
