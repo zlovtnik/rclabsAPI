@@ -125,6 +125,7 @@ set(COMMON_SOURCES
     src/etl_job_manager.cpp
     src/input_validator.cpp
     src/request_validator.cpp
+    src/response_builder.cpp
     src/exception_handler.cpp
     src/error_codes.cpp
     src/etl_exceptions.cpp
@@ -230,6 +231,7 @@ create_test_executable(test_server_config_and_metrics scripts/test_server_config
 create_test_executable(test_pooled_session scripts/test_pooled_session.cpp)
 create_test_executable(test_pooled_session_integration scripts/test_pooled_session_integration.cpp)
 create_test_executable(demo_request_validator scripts/demo_request_validator.cpp)
+create_test_executable(demo_response_builder_simple scripts/demo_response_builder_simple.cpp)
 
 # GTest-based targets
 if(GTest_FOUND AND ENABLE_TESTS)
@@ -252,6 +254,10 @@ if(GTest_FOUND AND ENABLE_TESTS)
   # RequestValidator unit tests
   create_test_executable(test_request_validator tests/unit/test_request_validator.cpp)
   target_link_libraries(test_request_validator GTest::gtest GTest::gtest_main)
+
+  # ResponseBuilder unit tests
+  create_test_executable(test_response_builder tests/unit/test_response_builder.cpp)
+  target_link_libraries(test_response_builder GTest::gtest GTest::gtest_main)
 
   # Add custom target to run integration tests
   add_custom_target(run_integration_tests
