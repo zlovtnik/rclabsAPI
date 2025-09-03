@@ -7,7 +7,7 @@
 #include <mutex>
 
 // Component logger specialization
-template<> struct ComponentTrait<RequestValidator> {
+template<> struct etl::ComponentTrait<RequestValidator> {
     static constexpr const char* name = "RequestValidator";
 };
 
@@ -15,7 +15,7 @@ RequestValidator::RequestValidator(ValidationConfig config)
     : config_(std::move(config)) {
     initializeKnownEndpoints();
     initializeAllowedMethods();
-    ComponentLogger<RequestValidator>::info("RequestValidator initialized with config");
+    etl::ComponentLogger<RequestValidator>::info("RequestValidator initialized with config");
 }
 
 RequestValidator::ValidationResult RequestValidator::validateRequest(
@@ -23,7 +23,7 @@ RequestValidator::ValidationResult RequestValidator::validateRequest(
     
     stats_.totalRequests++;
     
-    ComponentLogger<RequestValidator>::debug("Validating request: " + 
+    etl::ComponentLogger<RequestValidator>::debug("Validating request: " + 
         std::string(req.method_string()) + " " + std::string(req.target()));
     
     ValidationResult result;
@@ -106,10 +106,10 @@ RequestValidator::ValidationResult RequestValidator::validateRequest(
     
     if (result.isValid) {
         stats_.validRequests++;
-        ComponentLogger<RequestValidator>::debug("Request validation successful");
+        etl::ComponentLogger<RequestValidator>::debug("Request validation successful");
     } else {
         stats_.invalidRequests++;
-        ComponentLogger<RequestValidator>::warn("Request validation failed with " + 
+        etl::ComponentLogger<RequestValidator>::warn("Request validation failed with " + 
             std::to_string(result.errors.size()) + " errors");
     }
     
@@ -199,7 +199,7 @@ RequestValidator::SecurityValidationResult RequestValidator::validateSecurity(
     if (config_.maxRequestsPerMinute > 0) {
         result.rateLimitExceeded = !checkRateLimit(result.clientIp);
         if (result.rateLimitExceeded) {
-            ComponentLogger<RequestValidator>::warn("Rate limit exceeded for IP: " + 
+            etl::ComponentLogger<RequestValidator>::warn("Rate limit exceeded for IP: " + 
                 sanitizeLogString(result.clientIp));
         }
     }
@@ -214,7 +214,7 @@ RequestValidator::SecurityValidationResult RequestValidator::validateSecurity(
         std::string target = std::string(req.target());
         if (checkForSqlInjection(target) || checkForSqlInjection(req.body())) {
             result.addIssue("Potential SQL injection attempt detected");
-            ComponentLogger<RequestValidator>::error("SQL injection attempt from IP: " + 
+            etl::ComponentLogger<RequestValidator>::error("SQL injection attempt from IP: " + 
                 sanitizeLogString(result.clientIp));
         }
     }
@@ -224,7 +224,7 @@ RequestValidator::SecurityValidationResult RequestValidator::validateSecurity(
         std::string target = std::string(req.target());
         if (checkForXssAttempts(target) || checkForXssAttempts(req.body())) {
             result.addIssue("Potential XSS attempt detected");
-            ComponentLogger<RequestValidator>::error("XSS attempt from IP: " + 
+            etl::ComponentLogger<RequestValidator>::error("XSS attempt from IP: " + 
                 sanitizeLogString(result.clientIp));
         }
     }
@@ -232,10 +232,10 @@ RequestValidator::SecurityValidationResult RequestValidator::validateSecurity(
     return result;
 }
 
-std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>
+std::unordered_map<std::string, std::string>
 RequestValidator::extractHeaders(const http::request<http::string_body>& req) {
     
-    std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> headers;
+    std::unordered_map<std::string, std::string> headers;
     
     for (auto const& field : req) {
         try {
@@ -246,7 +246,7 @@ RequestValidator::extractHeaders(const http::request<http::string_body>& req) {
             std::transform(name.begin(), name.end(), name.begin(), ::tolower);
             headers[name] = value;
         } catch (const std::exception& e) {
-            ComponentLogger<RequestValidator>::warn("Failed to extract header: " + 
+            etl::ComponentLogger<RequestValidator>::warn("Failed to extract header: " + 
                 std::string(e.what()));
         }
     }
@@ -254,10 +254,10 @@ RequestValidator::extractHeaders(const http::request<http::string_body>& req) {
     return headers;
 }
 
-std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>
+std::unordered_map<std::string, std::string>
 RequestValidator::extractQueryParams(std::string_view target) {
     
-    std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> params;
+    std::unordered_map<std::string, std::string> params;
     
     size_t queryPos = target.find('?');
     if (queryPos == std::string::npos) {
@@ -281,8 +281,9 @@ RequestValidator::extractQueryParams(std::string_view target) {
     }
     
     return params;
-}RequestVa
-lidator::ValidationResult RequestValidator::validatePath(std::string_view path) {
+}
+
+RequestValidator::ValidationResult RequestValidator::validatePath(std::string_view path) {
     ValidationResult result;
     
     if (path.empty()) {
@@ -833,8 +834,9 @@ std::string RequestValidator::ValidationResult::toJsonString() const {
     
     oss << "}";
     return oss.str();
-}RequestValid
-ator::ValidationResult RequestValidator::validateAuthenticationHeader(
+}
+
+RequestValidator::ValidationResult RequestValidator::validateAuthenticationHeader(
     const std::string& authHeader) {
     
     ValidationResult result;
@@ -953,12 +955,12 @@ bool RequestValidator::validateHttpsRequirement(const http::request<http::string
 
 void RequestValidator::updateConfig(const ValidationConfig& newConfig) {
     config_ = newConfig;
-    ComponentLogger<RequestValidator>::info("RequestValidator configuration updated");
+    etl::ComponentLogger<RequestValidator>::info("RequestValidator configuration updated");
 }
 
 void RequestValidator::resetStats() {
     stats_ = ValidationStats{};
-    ComponentLogger<RequestValidator>::info("RequestValidator statistics reset");
+    etl::ComponentLogger<RequestValidator>::info("RequestValidator statistics reset");
 }
 
 bool RequestValidator::isValidMethod(const std::string& method, const std::string& endpoint) {

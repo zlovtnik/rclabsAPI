@@ -124,9 +124,13 @@ void AuthManager::cleanupExpiredSessions() {
     }
     
     // Remove expired sessions
-    std::erase_if(sessions_, [](const auto& pair) {
-        return !pair.second->isValid;
-    });
+    for (auto it = sessions_.begin(); it != sessions_.end(); ) {
+        if (!it->second->isValid) {
+            it = sessions_.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 bool AuthManager::hasPermission(std::string_view userId, std::string_view resource, std::string_view action) const {
@@ -136,7 +140,7 @@ bool AuthManager::hasPermission(std::string_view userId, std::string_view resour
     }
     
     // Simple role-based permissions
-    return std::ranges::any_of(user->roles, [&](std::string_view role) {
+    return std::any_of(user->roles.begin(), user->roles.end(), [&](const std::string& role) {
         if (role == "admin") {
             return true; // Admin has all permissions
         } else if (role == "user" && resource == "jobs" && (action == "read" || action == "create")) {
@@ -147,7 +151,7 @@ bool AuthManager::hasPermission(std::string_view userId, std::string_view resour
 }
 
 void AuthManager::assignRole(const std::string& userId, const std::string& role) {
-    if (auto user = getUser(userId); user && std::ranges::find(user->roles, role) == user->roles.end()) {
+    if (auto user = getUser(userId); user && std::find(user->roles.begin(), user->roles.end(), role) == user->roles.end()) {
         user->roles.push_back(role);
         std::cout << "Assigned role '" << role << "' to user: " << userId << std::endl;
     }
@@ -156,7 +160,10 @@ void AuthManager::assignRole(const std::string& userId, const std::string& role)
 void AuthManager::revokeRole(const std::string& userId, const std::string& role) {
     auto user = getUser(userId);
     if (user) {
-        std::erase(user->roles, role);
+        auto it = std::find(user->roles.begin(), user->roles.end(), role);
+        if (it != user->roles.end()) {
+            user->roles.erase(it);
+        }
         std::cout << "Revoked role '" << role << "' from user: " << userId << std::endl;
     }
 }
@@ -167,7 +174,9 @@ std::string AuthManager::hashPassword(std::string_view password, std::string_vie
 }
 
 std::string AuthManager::generateSalt() const {
-    return std::format("salt_{}", std::chrono::system_clock::now().time_since_epoch().count());
+    std::stringstream ss;
+    ss << "salt_" << std::chrono::system_clock::now().time_since_epoch().count();
+    return ss.str();
 }
 
 std::string AuthManager::generateSessionId() const {

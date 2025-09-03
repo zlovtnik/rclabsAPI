@@ -77,7 +77,7 @@ public:
     };
 
 public:
-    explicit ResponseBuilder(ResponseConfig config = ResponseConfig{});
+    explicit ResponseBuilder(ResponseConfig config);
     
     // Fluent interface methods for building responses
     ResponseBuilder& setStatus(http::status status);

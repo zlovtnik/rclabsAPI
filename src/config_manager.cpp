@@ -409,38 +409,51 @@ ConfigValidationResult WebSocketConfig::validate() const {
     ConfigValidationResult result;
     
     if (port <= 0 || port > 65535) {
-        result.addError(std::format("WebSocket port must be between 1 and 65535, got: {}", port));
+        std::stringstream ss;
+        ss << "WebSocket port must be between 1 and 65535, got: " << port;
+        result.addError(ss.str());
     }
     
     if (port < 1024) {
-        result.addWarning(std::format("WebSocket port {} is in privileged range (< 1024)", port));
+        std::stringstream ss;
+        ss << "WebSocket port " << port << " is in privileged range (< 1024)";
+        result.addWarning(ss.str());
     }
     
     if (maxConnections <= 0) {
-        result.addError(std::format("WebSocket max_connections must be positive, got: {}", maxConnections));
+        std::stringstream ss;
+        ss << "WebSocket max_connections must be positive, got: " << maxConnections;
+        result.addError(ss.str());
     }
     
     if (maxConnections > 10000) {
-        result.addWarning(std::format("WebSocket max_connections is very high ({}), this may cause resource issues", 
-                                     maxConnections));
+        std::stringstream ss;
+        ss << "WebSocket max_connections is very high (" << maxConnections << "), this may cause resource issues";
+        result.addWarning(ss.str());
     }
     
     if (heartbeatInterval <= 0) {
-        result.addError(std::format("WebSocket heartbeat_interval must be positive, got: {}", heartbeatInterval));
+        std::stringstream ss;
+        ss << "WebSocket heartbeat_interval must be positive, got: " << heartbeatInterval;
+        result.addError(ss.str());
     }
     
     if (heartbeatInterval < 5) {
-        result.addWarning(std::format("WebSocket heartbeat_interval is very low ({} seconds), this may cause unnecessary network traffic", 
-                                     heartbeatInterval));
+        std::stringstream ss;
+        ss << "WebSocket heartbeat_interval is very low (" << heartbeatInterval << " seconds), this may cause unnecessary network traffic";
+        result.addWarning(ss.str());
     }
     
     if (messageQueueSize <= 0) {
-        result.addError(std::format("WebSocket message_queue_size must be positive, got: {}", messageQueueSize));
+        std::stringstream ss;
+        ss << "WebSocket message_queue_size must be positive, got: " << messageQueueSize;
+        result.addError(ss.str());
     }
     
     if (messageQueueSize > 100000) {
-        result.addWarning(std::format("WebSocket message_queue_size is very high ({}), this may cause memory issues", 
-                                     messageQueueSize));
+        std::stringstream ss;
+        ss << "WebSocket message_queue_size is very high (" << messageQueueSize << "), this may cause memory issues";
+        result.addWarning(ss.str());
     }
     
     return result;
@@ -471,28 +484,33 @@ ConfigValidationResult JobTrackingConfig::validate() const {
     ConfigValidationResult result;
     
     if (progressUpdateInterval <= 0) {
-        result.addError(std::format("Job tracking progress_update_interval must be positive, got: {}", 
-                                   progressUpdateInterval));
+        std::stringstream ss;
+        ss << "Job tracking progress_update_interval must be positive, got: " << progressUpdateInterval;
+        result.addError(ss.str());
     }
     
     if (progressUpdateInterval < 1) {
-        result.addWarning(std::format("Job tracking progress_update_interval is very low ({} seconds), this may cause performance issues", 
-                                     progressUpdateInterval));
+        std::stringstream ss;
+        ss << "Job tracking progress_update_interval is very low (" << progressUpdateInterval << " seconds), this may cause performance issues";
+        result.addWarning(ss.str());
     }
     
     if (progressUpdateInterval > 300) {
-        result.addWarning(std::format("Job tracking progress_update_interval is very high ({} seconds), updates may seem delayed", 
-                                     progressUpdateInterval));
+        std::stringstream ss;
+        ss << "Job tracking progress_update_interval is very high (" << progressUpdateInterval << " seconds), updates may seem delayed";
+        result.addWarning(ss.str());
     }
     
     if (timeoutWarningThreshold <= 0) {
-        result.addError(std::format("Job tracking timeout_warning_threshold must be positive, got: {}", 
-                                   timeoutWarningThreshold));
+        std::stringstream ss;
+        ss << "Job tracking timeout_warning_threshold must be positive, got: " << timeoutWarningThreshold;
+        result.addError(ss.str());
     }
     
     if (timeoutWarningThreshold < 5) {
-        result.addWarning(std::format("Job tracking timeout_warning_threshold is very low ({} minutes), may cause false alarms", 
-                                     timeoutWarningThreshold));
+        std::stringstream ss;
+        ss << "Job tracking timeout_warning_threshold is very low (" << timeoutWarningThreshold << " minutes), may cause false alarms";
+        result.addWarning(ss.str());
     }
     
     return result;
@@ -541,8 +559,9 @@ ConfigValidationResult MonitoringConfig::validate() const {
     
     // Cross-validation checks
     if (websocket.enabled && jobTracking.progressUpdateInterval > websocket.heartbeatInterval) {
-        result.addWarning(std::format("Job progress update interval ({}s) is greater than WebSocket heartbeat interval ({}s)", 
-                                     jobTracking.progressUpdateInterval, websocket.heartbeatInterval));
+        std::stringstream ss;
+        ss << "Job progress update interval (" << jobTracking.progressUpdateInterval << "s) is greater than WebSocket heartbeat interval (" << websocket.heartbeatInterval << "s)";
+        result.addWarning(ss.str());
     }
     
     return result;

@@ -375,7 +375,7 @@ InputValidator::ValidationResult InputValidator::validateAuthorizationHeader(con
         return result;
     }
     
-    if (!authHeader.starts_with("Bearer ")) {
+    if (authHeader.size() < 7 || authHeader.substr(0, 7) != "Bearer ") {
         result.addError("authorization", "Invalid authorization scheme", "INVALID_AUTH_SCHEME");
         return result;
     }

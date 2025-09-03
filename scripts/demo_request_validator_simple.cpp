@@ -5,6 +5,7 @@
 #include <regex>
 #include <algorithm>
 #include <sstream>
+#include <cstdlib>
 
 /**
  * Simplified RequestValidator Demo (without Boost Beast dependency)
@@ -51,6 +52,44 @@ private:
         "/api/health"
     };
 
+    std::string percentDecode(const std::string& input) {
+        std::string result;
+        for (size_t i = 0; i < input.size(); ++i) {
+            if (input[i] == '%' && i + 2 < input.size()) {
+                char hex[3] = {input[i+1], input[i+2], '\0'};
+                char ch = (char)strtol(hex, nullptr, 16);
+                result += ch;
+                i += 2;
+            } else {
+                result += input[i];
+            }
+        }
+        return result;
+    }
+
+    std::string normalizePath(const std::string& path) {
+        std::vector<std::string> segments;
+        std::stringstream ss(path);
+        std::string segment;
+        while (std::getline(ss, segment, '/')) {
+            if (segment == "." || segment.empty()) {
+                continue;
+            } else if (segment == "..") {
+                if (!segments.empty()) {
+                    segments.pop_back();
+                }
+            } else {
+                segments.push_back(segment);
+            }
+        }
+        std::string normalized;
+        for (const auto& seg : segments) {
+            normalized += "/" + seg;
+        }
+        if (normalized.empty()) normalized = "/";
+        return normalized;
+    }
+
 public:
     ValidationResult validateRequest(const std::string& method, const std::string& url, 
                                    const std::unordered_map<std::string, std::string>& headers,
@@ -81,9 +120,23 @@ public:
             result.addError("Path must start with '/'");
         }
         
-        // Check for path traversal
-        if (result.path.find("..") != std::string::npos) {
-            result.addError("Path traversal not allowed");
+        // Enhanced path traversal check
+        {
+            // Percent-decode the path
+            std::string decodedPath = percentDecode(result.path);
+            
+            // Check for percent-encoded traversal sequences
+            if (decodedPath.find("..") != std::string::npos) {
+                result.addError("Path traversal not allowed (percent-encoded or direct)");
+            }
+            
+            // Normalize the path
+            std::string normalizedPath = normalizePath(decodedPath);
+            
+            // Reject if normalized path contains ".." or is different from expected
+            if (normalizedPath.find("..") != std::string::npos || normalizedPath != decodedPath) {
+                result.addError("Path traversal not allowed");
+            }
         }
         
         // Validate endpoint
@@ -98,10 +151,18 @@ public:
         
         // Validate authentication for protected endpoints
         if (requiresAuth(result.path)) {
-            auto authIt = headers.find("authorization");
-            if (authIt == headers.end()) {
+            std::string authHeader;
+            for (const auto& header : headers) {
+                std::string lowerKey = header.first;
+                std::transform(lowerKey.begin(), lowerKey.end(), lowerKey.begin(), ::tolower);
+                if (lowerKey == "authorization") {
+                    authHeader = header.second;
+                    break;
+                }
+            }
+            if (authHeader.empty()) {
                 result.addError("Authorization header required");
-            } else if (!isValidAuthHeader(authIt->second)) {
+            } else if (!isValidAuthHeader(authHeader)) {
                 result.addError("Invalid authorization header format");
             }
         }
@@ -133,8 +194,16 @@ public:
         }
         
         // Check for suspicious user agents
-        auto uaIt = headers.find("user-agent");
-        if (uaIt != headers.end() && isSuspiciousUserAgent(uaIt->second)) {
+        std::string userAgent;
+        for (const auto& header : headers) {
+            std::string lowerKey = header.first;
+            std::transform(lowerKey.begin(), lowerKey.end(), lowerKey.begin(), ::tolower);
+            if (lowerKey == "user-agent") {
+                userAgent = header.second;
+                break;
+            }
+        }
+        if (!userAgent.empty() && isSuspiciousUserAgent(userAgent)) {
             result.addIssue("Suspicious user agent detected");
         }
         
@@ -166,7 +235,8 @@ private:
         }
         
         // Check parameterized endpoints
-        if (path.find("/api/jobs/") == 0 && path.length() > 10) {
+        const std::string jobsPrefix = "/api/jobs/";
+        if (path.compare(0, jobsPrefix.size(), jobsPrefix) == 0 && path.size() > jobsPrefix.size()) {
             return true; // Individual job endpoints
         }
         
@@ -183,10 +253,13 @@ private:
         if (path == "/api/jobs") {
             return method == "GET" || method == "POST";
         }
-        if (path.find("/api/jobs/") == 0) {
+        const std::string jobsPrefix = "/api/jobs/";
+        if (path.compare(0, jobsPrefix.size(), jobsPrefix) == 0) {
             return method == "GET" || method == "PUT" || method == "DELETE";
         }
-        return true; // Default allow
+        // Default deny for unknown endpoints or methods
+        std::cout << "Rejected request: method '" << method << "' for unknown endpoint '" << path << "'" << std::endl;
+        return false;
     }
     
     bool requiresAuth(const std::string& path) {
@@ -198,7 +271,8 @@ private:
     }
     
     bool isValidAuthHeader(const std::string& auth) {
-        return auth.find("Bearer ") == 0 && auth.length() > 7;
+        const std::string bearerPrefix = "Bearer ";
+        return auth.compare(0, bearerPrefix.size(), bearerPrefix) == 0 && auth.size() > bearerPrefix.size();
     }
     
     bool isValidJson(const std::string& body) {
@@ -340,6 +414,15 @@ int main() {
         printResult("Valid Authenticated Request", result);
     }
     
+    // Test 3.5: Valid authenticated request with different header casing
+    {
+        auto result = validator.validateRequest("GET", "/api/jobs?status=running&limit=10", {
+            {"Authorization", "Bearer eyJhbGciOiJIUzI1NiJ9.token"},
+            {"User-Agent", "Demo/1.0"}
+        });
+        printResult("Valid Authenticated Request (Different Casing)", result);
+    }
+    
     // Test 4: Invalid - Unknown endpoint
     {
         auto result = validator.validateRequest("GET", "/api/unknown", {
@@ -362,6 +445,14 @@ int main() {
             {"user-agent", "Demo/1.0"}
         });
         printResult("Path Traversal Attempt", result);
+    }
+    
+    // Test 6.5: Invalid - Percent-encoded path traversal
+    {
+        auto result = validator.validateRequest("GET", "/api/%2e%2e/%2e%2e/etc/passwd", {
+            {"user-agent", "Demo/1.0"}
+        });
+        printResult("Percent-Encoded Path Traversal", result);
     }
     
     // Test 7: Invalid - Missing auth
@@ -415,6 +506,14 @@ int main() {
             {"user-agent", "sqlmap/1.0 (http://sqlmap.org)"}
         });
         printSecurityResult("Suspicious User Agent", secResult);
+    }
+    
+    // Test 11.5: Suspicious user agent with different casing
+    {
+        auto secResult = validator.validateSecurity("/api/health", "", {
+            {"User-Agent", "nikto/1.0"}
+        });
+        printSecurityResult("Suspicious User Agent (Different Casing)", secResult);
     }
     
     // Test 12: Individual job endpoint

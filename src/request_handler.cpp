@@ -292,12 +292,11 @@ http::response<http::string_body>
 RequestHandler::handleAuth(const http::request<http::string_body> &req) const {
   auto target = std::string(req.target());
   auto method = std::string(req.method_string());
-  using enum http::field;
 
   // Handle CORS preflight
   if (req.method() == http::verb::options) {
   http::response<http::string_body> res{http::status::ok, 11};
-  res.set(server, "ETL Plus Backend");
+  res.set(http::field::server, "ETL Plus Backend");
   res.set(access_control_allow_origin, "*");
   res.set(access_control_allow_methods, "GET, POST, OPTIONS");
   res.set(access_control_allow_headers, "Content-Type, Authorization");
@@ -363,15 +362,14 @@ http::response<http::string_body>
 RequestHandler::handleLogs(const http::request<http::string_body> &req) const {
   auto target = std::string(req.target());
   auto method = std::string(req.method_string());
-  using enum http::field;
 
   // Handle CORS preflight
   if (req.method() == http::verb::options) {
     http::response<http::string_body> res{http::status::ok, 11};
-    res.set(server, "ETL Plus Backend");
-    res.set(access_control_allow_origin, "*");
-    res.set(access_control_allow_methods, "GET, POST, OPTIONS");
-    res.set(access_control_allow_headers, "Content-Type, Authorization");
+    res.set(http::field::server, "ETL Plus Backend");
+    res.set(http::field::access_control_allow_origin, "*");
+    res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
+    res.set(http::field::access_control_allow_headers, "Content-Type, Authorization");
     res.keep_alive(false);
     res.prepare_payload();
     return res;
@@ -406,7 +404,7 @@ http::response<http::string_body>
 RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const {
   auto target = std::string(req.target());
   auto method = std::string(req.method_string());
-  using enum http::field;
+  
 
   // Handle CORS preflight
   if (req.method() == http::verb::options) {
@@ -429,7 +427,7 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
 
   // Handle GET /api/jobs/{id}/status - detailed job status
   if (req.method() == http::verb::get && target.rfind("/api/jobs/", 0) == 0 && 
-      target.size() > 7 && std::string_view(target).ends_with("/status")) {
+      target.size() > 7 && target.substr(target.size() - 7) == "/status") {
     auto jobId = extractJobIdFromPath(target, "/api/jobs/", "/status");
     if (!InputValidator::isValidJobId(jobId)) {
       return createErrorResponse(http::status::bad_request, "Invalid job ID format");
@@ -472,7 +470,7 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
 
   // Handle GET /api/jobs/{id}/metrics - job execution metrics
   if (req.method() == http::verb::get && target.rfind("/api/jobs/", 0) == 0 && 
-      target.size() > 8 && std::string_view(target).ends_with("/metrics")) {
+      target.size() > 8 && target.substr(target.size() - 8) == "/metrics") {
     auto jobId = extractJobIdFromPath(target, "/api/jobs/", "/metrics");
     if (!InputValidator::isValidJobId(jobId)) {
       return createErrorResponse(http::status::bad_request, "Invalid job ID format");
@@ -587,13 +585,17 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
   using namespace std::chrono;
   const auto now = system_clock::now();
   const auto secs = duration_cast<seconds>(now.time_since_epoch()).count();
-  config.jobId = std::format("job_{}", secs);
+  std::stringstream ss;
+  ss << "job_" << secs;
+  config.jobId = ss.str();
       config.type = JobType::FULL_ETL;
       config.sourceConfig = "mock_source";
       config.targetConfig = "mock_target";
 
       std::string jobId = etlManager_->scheduleJob(config);
-  return createSuccessResponse(std::format(R"({{"job_id":"{}","status":"scheduled"}})", jobId));
+  std::stringstream ss2;
+  ss2 << R"({{"job_id":")" << jobId << R"(","status":"scheduled"}})";
+  return createSuccessResponse(ss2.str());
     } catch (const etl::ETLException &e) {
       REQ_LOG_ERROR(
           "RequestHandler::handleETLJobs() - Exception during job creation: " +
@@ -618,7 +620,9 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
       return createValidationErrorResponse(validation);
     }
 
-  return createSuccessResponse(std::format(R"({{"job_id":"{}","status":"updated"}})", jobId));
+  std::stringstream ss;
+  ss << R"({{"job_id":")" << jobId << R"(","status":"updated"}})";
+  return createSuccessResponse(ss.str());
   }
 
   return createErrorResponse(http::status::bad_request,
@@ -629,7 +633,7 @@ http::response<http::string_body>
 RequestHandler::handleMonitoring(const http::request<http::string_body> &req) const {
   auto target = std::string(req.target());
   auto method = std::string(req.method_string());
-  using enum http::field;
+  
 
   // Handle CORS preflight
   if (req.method() == http::verb::options) {
@@ -810,7 +814,7 @@ RequestHandler::handleMonitoring(const http::request<http::string_body> &req) co
 http::response<http::string_body>
 RequestHandler::createErrorResponse(http::status status,
                                     const std::string &message) const {
-  using enum http::field;
+  
   http::response<http::string_body> res{status, 11};
   res.set(server, "ETL Plus Backend");
   res.set(content_type, "application/json");
@@ -889,7 +893,7 @@ http::response<http::string_body> RequestHandler::createExceptionResponse(
 
 http::response<http::string_body> RequestHandler::createValidationErrorResponse(
   const InputValidator::ValidationResult &result) const {
-  using enum http::field;
+  
   http::response<http::string_body> res{http::status::bad_request, 11};
   res.set(server, "ETL Plus Backend");
   res.set(content_type, "application/json");
@@ -907,7 +911,7 @@ http::response<http::string_body> RequestHandler::createValidationErrorResponse(
 
 http::response<http::string_body>
 RequestHandler::createSuccessResponse(std::string_view data) const {
-  using enum http::field;
+  
   http::response<http::string_body> res{http::status::ok, 11};
   res.set(server, "ETL Plus Backend");
   res.set(content_type, "application/json");

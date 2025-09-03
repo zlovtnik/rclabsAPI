@@ -53,8 +53,8 @@ public:
     struct ValidationResult {
         bool isValid = true;
         std::vector<InputValidator::ValidationError> errors;
-        std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> headers;
-        std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> queryParams;
+        std::unordered_map<std::string, std::string> headers;
+        std::unordered_map<std::string, std::string> queryParams;
         std::string extractedPath;
         std::string method;
         
@@ -98,7 +98,7 @@ public:
     };
 
 public:
-    explicit RequestValidator(ValidationConfig config = ValidationConfig{});
+    explicit RequestValidator(ValidationConfig config);
     
     // Main validation methods
     ValidationResult validateRequest(const http::request<http::string_body>& req);
@@ -116,12 +116,12 @@ public:
     
     // Header validation
     ValidationResult validateHeaders(const http::request<http::string_body>& req);
-    std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>
+    std::unordered_map<std::string, std::string>
     extractHeaders(const http::request<http::string_body>& req);
     
     // Query parameter validation
     ValidationResult validateQueryParameters(std::string_view target);
-    std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>
+    std::unordered_map<std::string, std::string>
     extractQueryParams(std::string_view target);
     
     // Body validation

@@ -7,14 +7,14 @@
 #include <fstream>
 
 // Component logger specialization
-template<> struct ComponentTrait<ResponseBuilder> {
+template<> struct etl::ComponentTrait<ResponseBuilder> {
     static constexpr const char* name = "ResponseBuilder";
 };
 
 ResponseBuilder::ResponseBuilder(ResponseConfig config) 
     : config_(std::move(config)), currentContentType_(config_.defaultContentType) {
     resetState();
-    ComponentLogger<ResponseBuilder>::info("ResponseBuilder initialized");
+    etl::ComponentLogger<ResponseBuilder>::info("ResponseBuilder initialized");
 }
 
 ResponseBuilder& ResponseBuilder::setStatus(http::status status) {
@@ -39,7 +39,7 @@ ResponseBuilder& ResponseBuilder::setHeader(const std::string& name, const std::
         std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
         currentHeaders_[lowerName] = sanitizeHeaderValue(value);
     } else {
-        ComponentLogger<ResponseBuilder>::warn("Invalid header name: " + name);
+        etl::ComponentLogger<ResponseBuilder>::warn("Invalid header name: " + name);
     }
     return *this;
 }
@@ -343,8 +343,9 @@ http::response<http::string_body> ResponseBuilder::buildResponse(const std::stri
     resetState();
     
     return response;
-}vo
-id ResponseBuilder::applyDefaultHeaders(http::response<http::string_body>& response) {
+}
+
+void ResponseBuilder::applyDefaultHeaders(http::response<http::string_body>& response) {
     response.set(http::field::server, config_.serverName);
     response.set(http::field::content_type, getContentTypeString());
     
@@ -541,13 +542,19 @@ void ResponseBuilder::resetState() {
 }
 
 void ResponseBuilder::updateConfig(const ResponseConfig& newConfig) {
-    config_ = newConfig;
-    ComponentLogger<ResponseBuilder>::info("ResponseBuilder configuration updated");
+    config_.serverName = newConfig.serverName;
+    config_.enableCors = newConfig.enableCors;
+    config_.corsConfig = newConfig.corsConfig;
+    config_.defaultContentType = newConfig.defaultContentType;
+    config_.prettyPrintJson = newConfig.prettyPrintJson;
+    config_.includeTimestamp = newConfig.includeTimestamp;
+    config_.includeRequestId = newConfig.includeRequestId;
+    etl::ComponentLogger<ResponseBuilder>::info("ResponseBuilder configuration updated");
 }
 
 void ResponseBuilder::resetStats() {
     stats_ = ResponseStats{};
-    ComponentLogger<ResponseBuilder>::info("ResponseBuilder statistics reset");
+    etl::ComponentLogger<ResponseBuilder>::info("ResponseBuilder statistics reset");
 }
 
 // Static utility methods

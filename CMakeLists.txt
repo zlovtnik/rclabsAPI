@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.16)
 cmake_policy(SET CMP0167 NEW)
 project(ETLPlusBackend)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Option to enable tests
@@ -21,7 +21,7 @@ endif()
 # Or enable parallel builds: make -j$(nproc) or cmake --build . --parallel
 
 # Find required packages
-find_package(Boost REQUIRED COMPONENTS system filesystem thread)
+find_package(Boost REQUIRED COMPONENTS filesystem thread)
 find_package(GTest)
 find_package(Threads REQUIRED)
 
