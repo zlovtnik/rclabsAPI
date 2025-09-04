@@ -33,7 +33,8 @@ protected:
         // Use null pointers for handler and wsManager since we're only testing pool logic
         poolManager_ = std::make_unique<ConnectionPoolManager>(
             ioc_, minConnections_, maxConnections_, idleTimeout_,
-            nullptr, nullptr, timeoutManager_
+            nullptr, nullptr, timeoutManager_,
+            nullptr, 100, std::chrono::seconds(30)
         );
     }
 
@@ -61,13 +62,15 @@ TEST_F(ConnectionPoolManagerSimpleTest, ConstructorValidatesParameters) {
     // Invalid parameters should throw
     EXPECT_THROW({
         ConnectionPoolManager invalidPool(ioc_, 10, 5, idleTimeout_, 
-                                        nullptr, nullptr, timeoutManager_);
+                                        nullptr, nullptr, timeoutManager_,
+                                        nullptr, 100, std::chrono::seconds(30));
     }, std::invalid_argument);
     
     EXPECT_THROW({
         ConnectionPoolManager invalidPool(ioc_, minConnections_, maxConnections_, 
                                         std::chrono::seconds(-1),
-                                        nullptr, nullptr, timeoutManager_);
+                                        nullptr, nullptr, timeoutManager_,
+                                        nullptr, 100, std::chrono::seconds(30));
     }, std::invalid_argument);
 }
 
