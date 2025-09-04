@@ -99,6 +99,17 @@ private:
 template<LockLevel Level>
 std::atomic<uint64_t> OrderedSharedMutex<Level>::counter_{0};
 
+// Convenience type aliases for common lock types
+using ConfigMutex = OrderedMutex<LockLevel::CONFIG>;
+using ContainerMutex = OrderedMutex<LockLevel::CONTAINER>;
+using ResourceMutex = OrderedMutex<LockLevel::RESOURCE>;
+using StateMutex = OrderedMutex<LockLevel::STATE>;
+
+using ConfigSharedMutex = OrderedSharedMutex<LockLevel::CONFIG>;
+using ContainerSharedMutex = OrderedSharedMutex<LockLevel::CONTAINER>;
+using ResourceSharedMutex = OrderedSharedMutex<LockLevel::RESOURCE>;
+using StateSharedMutex = OrderedSharedMutex<LockLevel::STATE>;
+
 /**
  * @brief RAII lock helper with timeout and deadlock detection
  */
@@ -430,29 +441,18 @@ private:
     void validateLockOrdering(std::thread::id threadId, LockLevel newLevel);
 };
 
-// Convenience type aliases for common lock types
-using ConfigMutex = OrderedMutex<LockLevel::CONFIG>;
-using ContainerMutex = OrderedMutex<LockLevel::CONTAINER>;
-using ResourceMutex = OrderedMutex<LockLevel::RESOURCE>;
-using StateMutex = OrderedMutex<LockLevel::STATE>;
-
-using ConfigSharedMutex = OrderedSharedMutex<LockLevel::CONFIG>;
-using ContainerSharedMutex = OrderedSharedMutex<LockLevel::CONTAINER>;
-using ResourceSharedMutex = OrderedSharedMutex<LockLevel::RESOURCE>;
-using StateSharedMutex = OrderedSharedMutex<LockLevel::STATE>;
-
 // Convenience macros for common locking patterns
 #define SCOPED_LOCK(mutex) \
-    ScopedTimedLock lock(mutex, std::chrono::milliseconds(5000), #mutex)
+    etl_plus::ScopedTimedLock lock(mutex, std::chrono::milliseconds(5000), #mutex)
 
 #define SCOPED_LOCK_TIMEOUT(mutex, timeout_ms) \
-    ScopedTimedLock lock(mutex, std::chrono::milliseconds(timeout_ms), #mutex)
+    etl_plus::ScopedTimedLock lock(mutex, std::chrono::milliseconds(timeout_ms), #mutex)
 
 #define SCOPED_SHARED_LOCK(mutex) \
-    ScopedTimedSharedLock lock(mutex, std::chrono::milliseconds(5000), #mutex)
+    etl_plus::ScopedTimedSharedLock lock(mutex, std::chrono::milliseconds(5000), #mutex)
 
 #define SCOPED_SHARED_LOCK_TIMEOUT(mutex, timeout_ms) \
-    ScopedTimedSharedLock lock(mutex, std::chrono::milliseconds(timeout_ms), #mutex)
+    etl_plus::ScopedTimedSharedLock lock(mutex, std::chrono::milliseconds(timeout_ms), #mutex)
 
 // Template method implementations (must be after class definitions)
 template<typename Mutex>
