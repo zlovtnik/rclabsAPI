@@ -202,9 +202,8 @@ void HttpServer::start() {
             pImpl->handler,
             pImpl->wsManager,
             pImpl->timeoutManager,
-            nullptr,  // performanceMonitor
-            pImpl->config.maxQueueSize,
-            pImpl->config.maxQueueWaitTime
+            ConnectionPoolManager::MonitorConfig{nullptr},  // performanceMonitor
+            ConnectionPoolManager::QueueConfig{pImpl->config.maxQueueSize, pImpl->config.maxQueueWaitTime}
         );
         
         // Start the cleanup timer for the connection pool
@@ -303,9 +302,8 @@ void HttpServer::setRequestHandler(std::shared_ptr<RequestHandler> handler) {
             pImpl->handler,
             pImpl->wsManager,
             pImpl->timeoutManager,
-            nullptr,  // performanceMonitor
-            pImpl->config.maxQueueSize,
-            pImpl->config.maxQueueWaitTime
+            ConnectionPoolManager::MonitorConfig{nullptr},  // performanceMonitor
+            ConnectionPoolManager::QueueConfig{pImpl->config.maxQueueSize, pImpl->config.maxQueueWaitTime}
         );
         if (pImpl->running) {
             pImpl->poolManager->startCleanupTimer();
@@ -328,9 +326,8 @@ void HttpServer::setWebSocketManager(std::shared_ptr<WebSocketManager> wsManager
             pImpl->handler,
             pImpl->wsManager,
             pImpl->timeoutManager,
-            nullptr,  // performanceMonitor
-            pImpl->config.maxQueueSize,
-            pImpl->config.maxQueueWaitTime
+            ConnectionPoolManager::MonitorConfig{nullptr},  // performanceMonitor
+            ConnectionPoolManager::QueueConfig{pImpl->config.maxQueueSize, pImpl->config.maxQueueWaitTime}
         );
         if (pImpl->running) {
             pImpl->poolManager->startCleanupTimer();

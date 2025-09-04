@@ -5,6 +5,7 @@
 #include "etl_exceptions.hpp"
 #include "exception_handler.hpp"
 #include "system_metrics.hpp"
+#include "lock_utils.hpp"
 #include <iostream>
 #include <random>
 #include <sstream>
@@ -18,6 +19,8 @@ public:
     virtual void updateJobMetrics(const std::string& jobId, const JobMetrics& metrics) = 0;
 };
 
+namespace { constexpr auto kLockTO_Read = std::chrono::milliseconds(500); }
+
 ETLJobManager::ETLJobManager(std::shared_ptr<DatabaseManager> dbManager,
                            std::shared_ptr<DataTransformer> transformer)
     : dbManager_(dbManager)
@@ -30,7 +33,7 @@ ETLJobManager::~ETLJobManager() {
 }
 
 std::string ETLJobManager::scheduleJob(const ETLJobConfig& config) {
-    std::scoped_lock lock(jobMutex_);
+    SCOPED_LOCK_TIMEOUT(jobMutex_, 2000);
     
     auto job = std::make_shared<ETLJob>();
     job->jobId = config.jobId.empty() ? generateJobId() : config.jobId;
@@ -53,7 +56,7 @@ std::string ETLJobManager::scheduleJob(const ETLJobConfig& config) {
 }
 
 bool ETLJobManager::cancelJob(const std::string& jobId) {
-    std::scoped_lock lock(jobMutex_);
+    SCOPED_LOCK_TIMEOUT(jobMutex_, 1000);
     
     for (auto& job : jobs_) {
         if (job->jobId == jobId && job->status == JobStatus::PENDING) {
@@ -79,24 +82,28 @@ bool ETLJobManager::resumeJob(const std::string& jobId) {
 }
 
 std::shared_ptr<ETLJob> ETLJobManager::getJob(const std::string& jobId) const {
-    std::scoped_lock lock(jobMutex_);
-    
-    for (const auto& job : jobs_) {
-        if (job->jobId == jobId) {
-            return job;
+    try {
+        SCOPED_LOCK_TIMEOUT(jobMutex_, kLockTO_Read.count());
+        
+        for (const auto& job : jobs_) {
+            if (job->jobId == jobId) {
+                return job;
+            }
         }
+        
+        return nullptr;
+    } catch (const etl_plus::LockTimeoutException&) {
+        return nullptr; // Timeout treated as not found
     }
-    
-    return nullptr;
 }
 
 std::vector<std::shared_ptr<ETLJob>> ETLJobManager::getAllJobs() const {
-    std::scoped_lock lock(jobMutex_);
+    SCOPED_LOCK_TIMEOUT(jobMutex_, kLockTO_Read.count());
     return jobs_;
 }
 
 std::vector<std::shared_ptr<ETLJob>> ETLJobManager::getJobsByStatus(JobStatus status) const {
-    std::scoped_lock lock(jobMutex_);
+    SCOPED_LOCK_TIMEOUT(jobMutex_, kLockTO_Read.count());
     
     std::vector<std::shared_ptr<ETLJob>> result;
     for (const auto& job : jobs_) {
@@ -182,7 +189,7 @@ void ETLJobManager::setMetricsUpdateInterval(std::chrono::milliseconds interval)
 }
 
 JobMetrics ETLJobManager::getJobMetrics(const std::string& jobId) const {
-    std::scoped_lock lock(jobMutex_);
+    SCOPED_LOCK_TIMEOUT(jobMutex_, kLockTO_Read.count());
     
     for (const auto& job : jobs_) {
         if (job->jobId == jobId) {
@@ -213,7 +220,7 @@ JobMetrics ETLJobManager::getJobMetrics(const std::string& jobId) const {
 
 void ETLJobManager::workerLoop() {
     while (running_) {
-        std::unique_lock<std::mutex> lock(jobMutex_);
+        std::unique_lock<std::timed_mutex> lock(jobMutex_);
         
         jobCondition_.wait(lock, [this] { return !jobQueue_.empty() || !running_; });
         
@@ -689,9 +696,9 @@ void ETLJobManager::setupMetricsCallback(std::shared_ptr<ETLJob> job) {
         const std::string& callbackJobId,
         const ETLPlus::Metrics::JobMetricsCollector::MetricsSnapshot& snapshot) {
         JobMetrics metricsCopy;
-        {
+        try {
             // Find the job and update its metrics
-            std::scoped_lock lock(jobMutex_);
+            SCOPED_LOCK_TIMEOUT(jobMutex_, kLockTO_Read.count());
             for (auto& jobPtr : jobs_) {
                 if (jobPtr->jobId == callbackJobId) {
                     // Update metrics from snapshot
@@ -710,6 +717,9 @@ void ETLJobManager::setupMetricsCallback(std::shared_ptr<ETLJob> job) {
                     break;
                 }
             }
+        } catch (const etl_plus::LockTimeoutException&) {
+            // Skip publishing on timeout to avoid blocking
+            return;
         }
         // Publish outside of lock to avoid deadlocks/re-entrancy
         if (metricsCopy.lastUpdateTime.time_since_epoch().count() != 0) {

@@ -1,5 +1,6 @@
 #include "config_manager.hpp"
 #include "logger.hpp"
+#include "lock_utils.hpp"
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -9,7 +10,7 @@
 #include <stdexcept>
 #include <format>
 
-static std::mutex configMutex;
+static std::timed_mutex configMutex;
 
 ConfigManager& ConfigManager::getInstance() {
     static ConfigManager instance;
@@ -17,7 +18,7 @@ ConfigManager& ConfigManager::getInstance() {
 }
 
 bool ConfigManager::loadConfig(const std::string& configPath) {
-    std::scoped_lock lock(configMutex);
+    etl_plus::ScopedTimedLock<std::timed_mutex> lock(configMutex, std::chrono::milliseconds(5000), "configMutex");
     std::cout << "Loading configuration from: " << configPath << std::endl;
     
     configFilePath = configPath;  // Store for reload functionality

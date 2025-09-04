@@ -1,5 +1,6 @@
 #include "websocket_manager.hpp"
 #include "logger.hpp"
+#include "lock_utils.hpp"
 #include <algorithm>
 
 WebSocketManager::WebSocketManager() {
@@ -29,7 +30,7 @@ void WebSocketManager::stop() {
     running_.store(false);
     
     // Close all connections
-    std::scoped_lock lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 2000);
     for (auto& [id, connection] : connections_) {
         if (connection && connection->isOpen()) {
             connection->close();
@@ -51,7 +52,7 @@ void WebSocketManager::handleUpgrade(tcp::socket socket) {
     // Create new WebSocket connection
     auto connection = std::make_shared<WebSocketConnection>(
         std::move(socket), 
-        weak_from_this()
+        std::weak_ptr<WebSocketManager>(shared_from_this())
     );
     
     // Start the connection (this will trigger the handshake)
@@ -64,7 +65,7 @@ void WebSocketManager::addConnection(std::shared_ptr<WebSocketConnection> connec
         return;
     }
 
-    std::scoped_lock lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
     connections_[connection->getId()] = connection;
     
     WS_LOG_INFO("WebSocket connection added: " + connection->getId() + 
@@ -72,7 +73,7 @@ void WebSocketManager::addConnection(std::shared_ptr<WebSocketConnection> connec
 }
 
 void WebSocketManager::removeConnection(const std::string& connectionId) {
-    std::scoped_lock lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
     auto it = connections_.find(connectionId);
     if (it != connections_.end()) {
         connections_.erase(it);
@@ -87,7 +88,7 @@ void WebSocketManager::broadcastMessage(const std::string& message) {
         return;
     }
 
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
     
     WS_LOG_DEBUG("Broadcasting message to " + std::to_string(connections_.size()) + " connections");
     
@@ -111,7 +112,7 @@ void WebSocketManager::sendToConnection(const std::string& connectionId, const s
         return;
     }
 
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
     auto it = connections_.find(connectionId);
     if (it != connections_.end() && it->second && it->second->isOpen()) {
         it->second->send(message);
@@ -122,12 +123,12 @@ void WebSocketManager::sendToConnection(const std::string& connectionId, const s
 }
 
 size_t WebSocketManager::getConnectionCount() const {
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 500);
     return connections_.size();
 }
 
 std::vector<std::string> WebSocketManager::getConnectionIds() const {
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 500);
     std::vector<std::string> ids;
     ids.reserve(connections_.size());
     
@@ -156,7 +157,7 @@ void WebSocketManager::broadcastLogMessage(const std::string& message, const std
         return;
     }
 
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
     
     int sentCount = 0;
     for (auto it = connections_.begin(); it != connections_.end();) {
@@ -182,7 +183,7 @@ void WebSocketManager::broadcastByMessageType(const std::string& message, Messag
         return;
     }
 
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
     
     int sentCount = 0;
     for (auto it = connections_.begin(); it != connections_.end();) {
@@ -209,7 +210,7 @@ void WebSocketManager::broadcastToFilteredConnections(const std::string& message
         return;
     }
 
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
     
     int sentCount = 0;
     for (auto it = connections_.begin(); it != connections_.end();) {
@@ -230,7 +231,7 @@ void WebSocketManager::broadcastToFilteredConnections(const std::string& message
 }
 
 void WebSocketManager::setConnectionFilters(const std::string& connectionId, const ConnectionFilters& filters) {
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
     auto it = connections_.find(connectionId);
     if (it != connections_.end() && it->second && it->second->isOpen()) {
         it->second->setFilters(filters);
@@ -241,7 +242,7 @@ void WebSocketManager::setConnectionFilters(const std::string& connectionId, con
 }
 
 ConnectionFilters WebSocketManager::getConnectionFilters(const std::string& connectionId) const {
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 500);
     auto it = connections_.find(connectionId);
     if (it != connections_.end() && it->second && it->second->isOpen()) {
         return it->second->getFilters();
@@ -252,7 +253,7 @@ ConnectionFilters WebSocketManager::getConnectionFilters(const std::string& conn
 }
 
 void WebSocketManager::updateConnectionFilters(const std::string& connectionId, const ConnectionFilters& filters) {
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
     auto it = connections_.find(connectionId);
     if (it != connections_.end() && it->second && it->second->isOpen()) {
         it->second->updateFilterPreferences(filters);
@@ -263,7 +264,7 @@ void WebSocketManager::updateConnectionFilters(const std::string& connectionId, 
 }
 
 void WebSocketManager::addJobFilterToConnection(const std::string& connectionId, const std::string& jobId) {
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
     auto it = connections_.find(connectionId);
     if (it != connections_.end() && it->second && it->second->isOpen()) {
         it->second->addJobIdFilter(jobId);
@@ -274,7 +275,7 @@ void WebSocketManager::addJobFilterToConnection(const std::string& connectionId,
 }
 
 void WebSocketManager::removeJobFilterFromConnection(const std::string& connectionId, const std::string& jobId) {
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
     auto it = connections_.find(connectionId);
     if (it != connections_.end() && it->second && it->second->isOpen()) {
         it->second->removeJobIdFilter(jobId);
@@ -285,7 +286,7 @@ void WebSocketManager::removeJobFilterFromConnection(const std::string& connecti
 }
 
 void WebSocketManager::addMessageTypeFilterToConnection(const std::string& connectionId, MessageType messageType) {
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
     auto it = connections_.find(connectionId);
     if (it != connections_.end() && it->second && it->second->isOpen()) {
         it->second->addMessageTypeFilter(messageType);
@@ -296,7 +297,7 @@ void WebSocketManager::addMessageTypeFilterToConnection(const std::string& conne
 }
 
 void WebSocketManager::removeMessageTypeFilterFromConnection(const std::string& connectionId, MessageType messageType) {
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
     auto it = connections_.find(connectionId);
     if (it != connections_.end() && it->second && it->second->isOpen()) {
         it->second->removeMessageTypeFilter(messageType);
@@ -307,7 +308,7 @@ void WebSocketManager::removeMessageTypeFilterFromConnection(const std::string& 
 }
 
 void WebSocketManager::addLogLevelFilterToConnection(const std::string& connectionId, const std::string& logLevel) {
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
     auto it = connections_.find(connectionId);
     if (it != connections_.end() && it->second && it->second->isOpen()) {
         it->second->addLogLevelFilter(logLevel);
@@ -318,7 +319,7 @@ void WebSocketManager::addLogLevelFilterToConnection(const std::string& connecti
 }
 
 void WebSocketManager::removeLogLevelFilterFromConnection(const std::string& connectionId, const std::string& logLevel) {
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
     auto it = connections_.find(connectionId);
     if (it != connections_.end() && it->second && it->second->isOpen()) {
         it->second->removeLogLevelFilter(logLevel);
@@ -329,7 +330,7 @@ void WebSocketManager::removeLogLevelFilterFromConnection(const std::string& con
 }
 
 void WebSocketManager::clearConnectionFilters(const std::string& connectionId) {
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
     auto it = connections_.find(connectionId);
     if (it != connections_.end() && it->second && it->second->isOpen()) {
         it->second->clearFilters();
@@ -340,7 +341,7 @@ void WebSocketManager::clearConnectionFilters(const std::string& connectionId) {
 }
 
 std::vector<std::string> WebSocketManager::getConnectionsForJob(const std::string& jobId) const {
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 500);
     std::vector<std::string> matchingConnections;
     
     for (const auto& [id, connection] : connections_) {
@@ -356,7 +357,7 @@ std::vector<std::string> WebSocketManager::getConnectionsForJob(const std::strin
 }
 
 std::vector<std::string> WebSocketManager::getConnectionsForMessageType(MessageType messageType) const {
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 500);
     std::vector<std::string> matchingConnections;
     
     for (const auto& [id, connection] : connections_) {
@@ -372,7 +373,7 @@ std::vector<std::string> WebSocketManager::getConnectionsForMessageType(MessageT
 }
 
 std::vector<std::string> WebSocketManager::getConnectionsForLogLevel(const std::string& logLevel) const {
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 500);
     std::vector<std::string> matchingConnections;
     
     for (const auto& [id, connection] : connections_) {
@@ -388,7 +389,7 @@ std::vector<std::string> WebSocketManager::getConnectionsForLogLevel(const std::
 }
 
 size_t WebSocketManager::getFilteredConnectionCount() const {
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 500);
     size_t filteredCount = 0;
     
     for (const auto& [id, connection] : connections_) {
@@ -405,7 +406,7 @@ size_t WebSocketManager::getFilteredConnectionCount() const {
 }
 
 size_t WebSocketManager::getUnfilteredConnectionCount() const {
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 500);
     size_t unfilteredCount = 0;
     
     for (const auto& [id, connection] : connections_) {
@@ -427,7 +428,7 @@ void WebSocketManager::broadcastWithAdvancedRouting(const WebSocketMessage& mess
         return;
     }
     
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
     
     int sentCount = 0;
     for (auto it = connections_.begin(); it != connections_.end();) {
@@ -454,7 +455,7 @@ void WebSocketManager::sendToMatchingConnections(const WebSocketMessage& message
         return;
     }
     
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
     
     int sentCount = 0;
     for (auto it = connections_.begin(); it != connections_.end();) {
@@ -475,7 +476,7 @@ void WebSocketManager::sendToMatchingConnections(const WebSocketMessage& message
 }
 
 bool WebSocketManager::testConnectionFilter(const std::string& connectionId, const WebSocketMessage& testMessage) const {
-    std::lock_guard<std::mutex> lock(connectionsMutex_);
+    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 500);
     auto it = connections_.find(connectionId);
     if (it != connections_.end() && it->second && it->second->isOpen()) {
         return it->second->shouldReceiveMessage(testMessage);

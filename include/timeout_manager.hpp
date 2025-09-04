@@ -7,6 +7,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include "lock_utils.hpp"
 
 namespace net = boost::asio;
 
@@ -144,7 +145,7 @@ private:
     std::map<std::shared_ptr<PooledSession>, std::unique_ptr<TimerInfo>> connectionTimers_;
     std::map<std::shared_ptr<PooledSession>, std::unique_ptr<TimerInfo>> requestTimers_;
 
-    mutable std::mutex timerMutex_;
+    mutable std::timed_mutex timerMutex_;
 
     /**
      * Handle timeout event

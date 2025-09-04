@@ -8,6 +8,8 @@
 #include <queue>
 #include <set>
 #include <thread>
+#include "lock_utils.hpp"
+#include "lock_utils.hpp"
 
 namespace net = boost::asio;
 using tcp = boost::asio::ip::tcp;
@@ -32,6 +34,14 @@ class PerformanceMonitor;
  */
 class ConnectionPoolManager {
 public:
+    struct QueueConfig {
+        size_t maxSize;
+        std::chrono::seconds maxWait;
+    };
+    struct MonitorConfig {
+        std::shared_ptr<PerformanceMonitor> perf;
+    };
+public:
     /**
      * Constructor
      * @param ioc IO context for asynchronous operations
@@ -42,19 +52,18 @@ public:
      * @param wsManager WebSocket manager for new sessions
      * @param timeoutManager Timeout manager for new sessions
      * @param performanceMonitor Performance monitor for metrics collection
-     * @param maxQueueSize Maximum number of requests to queue when pool is at capacity (default: 100)
-     * @param maxQueueWaitTime Maximum time a request can wait in queue (default: 30s)
+     * @param maxQueueSize Maximum number of requests to queue when pool is at capacity
+     * @param maxQueueWaitTime Maximum time a request can wait in queue
      */
     ConnectionPoolManager(net::io_context& ioc,
-                         size_t minConnections,
-                         size_t maxConnections,
-                         std::chrono::seconds idleTimeout,
-                         std::shared_ptr<RequestHandler> handler,
-                         std::shared_ptr<WebSocketManager> wsManager,
-                         std::shared_ptr<TimeoutManager> timeoutManager,
-                         std::shared_ptr<PerformanceMonitor> performanceMonitor = nullptr,
-                         size_t maxQueueSize = 100,
-                         std::chrono::seconds maxQueueWaitTime = std::chrono::seconds(30));
+                          size_t minConnections,
+                          size_t maxConnections,
+                          std::chrono::seconds idleTimeout,
+                          std::shared_ptr<RequestHandler> handler,
+                          std::shared_ptr<WebSocketManager> wsManager,
+                          std::shared_ptr<TimeoutManager> timeoutManager,
+                          MonitorConfig monitor,
+                          QueueConfig queue);
 
     /**
      * Destructor - ensures proper cleanup of all connections
@@ -111,25 +120,25 @@ public:
      * Get the number of currently active connections
      * @return Number of active connections
      */
-    size_t getActiveConnections() const;
+    [[nodiscard]] size_t getActiveConnections() const noexcept;
 
     /**
      * Get the number of currently idle connections
      * @return Number of idle connections
      */
-    size_t getIdleConnections() const;
+    [[nodiscard]] size_t getIdleConnections() const noexcept;
 
     /**
      * Get the total number of connections in the pool
      * @return Total number of connections (active + idle)
      */
-    size_t getTotalConnections() const;
+    [[nodiscard]] size_t getTotalConnections() const noexcept;
 
     /**
      * Get the maximum number of connections allowed
      * @return Maximum connection limit
      */
-    size_t getMaxConnections() const;
+    [[nodiscard]] size_t getMaxConnections() const noexcept;
 
     /**
      * Get the minimum number of connections to maintain
@@ -171,13 +180,13 @@ public:
      * Get the maximum queue size
      * @return Maximum number of requests that can be queued
      */
-    size_t getMaxQueueSize() const;
+    [[nodiscard]] size_t getMaxQueueSize() const noexcept;
 
     /**
      * Get the number of requests that have been rejected due to queue overflow
      * @return Number of rejected requests
      */
-    size_t getRejectedRequestCount() const;
+    [[nodiscard]] size_t getRejectedRequestCount() const noexcept;
 
     /**
      * Reset all statistics counters
@@ -209,17 +218,17 @@ private:
         QueuedRequest(tcp::socket&& s) 
             : socket(std::move(s)), queueTime(std::chrono::steady_clock::now()) {}
     };
-    std::queue<std::unique_ptr<QueuedRequest>> requestQueue_;
+    std::queue<QueuedRequest, std::deque<QueuedRequest>> requestQueue_;
     size_t maxQueueSize_;
     std::chrono::seconds maxQueueWaitTime_;
 
     // Thread safety
-    mutable std::mutex poolMutex_;
-    std::condition_variable connectionAvailable_;
-    std::condition_variable requestQueued_;
+    mutable std::timed_mutex poolMutex_;
+    std::condition_variable_any connectionAvailable_;
+    std::condition_variable_any requestQueued_;
 
     // Cleanup timer
-    std::unique_ptr<net::steady_timer> cleanupTimer_;
+    std::optional<net::steady_timer> cleanupTimer_;
     bool shutdownRequested_;
 
     // Statistics

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "websocket_connection.hpp"
+#include "lock_utils.hpp"
 #include <boost/asio/io_context.hpp>
 #include <unordered_map>
 #include <memory>
@@ -64,7 +65,7 @@ public:
     bool testConnectionFilter(const std::string& connectionId, const WebSocketMessage& testMessage) const;
 
 private:
-    mutable std::mutex connectionsMutex_;
+    mutable etl_plus::ContainerMutex connectionsMutex_;
     std::unordered_map<std::string, std::shared_ptr<WebSocketConnection>> connections_;
     std::atomic<bool> running_{false};
 };
