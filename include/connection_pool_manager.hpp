@@ -52,9 +52,9 @@ public:
                          std::shared_ptr<RequestHandler> handler,
                          std::shared_ptr<WebSocketManager> wsManager,
                          std::shared_ptr<TimeoutManager> timeoutManager,
-                         std::shared_ptr<PerformanceMonitor> performanceMonitor = nullptr,
-                         size_t maxQueueSize = 100,
-                         std::chrono::seconds maxQueueWaitTime = std::chrono::seconds(30));
+                         std::shared_ptr<PerformanceMonitor> performanceMonitor,
+                         size_t maxQueueSize,
+                         std::chrono::seconds maxQueueWaitTime);
 
     /**
      * Destructor - ensures proper cleanup of all connections
