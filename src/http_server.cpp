@@ -202,6 +202,7 @@ void HttpServer::start() {
             pImpl->handler,
             pImpl->wsManager,
             pImpl->timeoutManager,
+            nullptr,  // performanceMonitor
             pImpl->config.maxQueueSize,
             pImpl->config.maxQueueWaitTime
         );
@@ -302,6 +303,7 @@ void HttpServer::setRequestHandler(std::shared_ptr<RequestHandler> handler) {
             pImpl->handler,
             pImpl->wsManager,
             pImpl->timeoutManager,
+            nullptr,  // performanceMonitor
             pImpl->config.maxQueueSize,
             pImpl->config.maxQueueWaitTime
         );
@@ -326,6 +328,7 @@ void HttpServer::setWebSocketManager(std::shared_ptr<WebSocketManager> wsManager
             pImpl->handler,
             pImpl->wsManager,
             pImpl->timeoutManager,
+            nullptr,  // performanceMonitor
             pImpl->config.maxQueueSize,
             pImpl->config.maxQueueWaitTime
         );

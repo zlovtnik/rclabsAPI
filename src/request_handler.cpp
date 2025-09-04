@@ -297,9 +297,9 @@ RequestHandler::handleAuth(const http::request<http::string_body> &req) const {
   if (req.method() == http::verb::options) {
   http::response<http::string_body> res{http::status::ok, 11};
   res.set(http::field::server, "ETL Plus Backend");
-  res.set(access_control_allow_origin, "*");
-  res.set(access_control_allow_methods, "GET, POST, OPTIONS");
-  res.set(access_control_allow_headers, "Content-Type, Authorization");
+  res.set(http::field::access_control_allow_origin, "*");
+  res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
+  res.set(http::field::access_control_allow_headers, "Content-Type, Authorization");
     res.keep_alive(false);
     res.prepare_payload();
     return res;
@@ -409,10 +409,10 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
   // Handle CORS preflight
   if (req.method() == http::verb::options) {
   http::response<http::string_body> res{http::status::ok, 11};
-  res.set(server, "ETL Plus Backend");
-  res.set(access_control_allow_origin, "*");
-  res.set(access_control_allow_methods, "GET, POST, PUT, DELETE, OPTIONS");
-  res.set(access_control_allow_headers, "Content-Type, Authorization");
+  res.set(http::field::server, "ETL Plus Backend");
+  res.set(http::field::access_control_allow_origin, "*");
+  res.set(http::field::access_control_allow_methods, "GET, POST, PUT, DELETE, OPTIONS");
+  res.set(http::field::access_control_allow_headers, "Content-Type, Authorization");
     res.keep_alive(false);
     res.prepare_payload();
     return res;
@@ -638,10 +638,10 @@ RequestHandler::handleMonitoring(const http::request<http::string_body> &req) co
   // Handle CORS preflight
   if (req.method() == http::verb::options) {
     http::response<http::string_body> res{http::status::ok, 11};
-    res.set(server, "ETL Plus Backend");
-    res.set(access_control_allow_origin, "*");
-    res.set(access_control_allow_methods, "GET, OPTIONS");
-    res.set(access_control_allow_headers, "Content-Type, Authorization");
+    res.set(http::field::server, "ETL Plus Backend");
+    res.set(http::field::access_control_allow_origin, "*");
+    res.set(http::field::access_control_allow_methods, "GET, OPTIONS");
+    res.set(http::field::access_control_allow_headers, "Content-Type, Authorization");
     res.keep_alive(false);
     res.prepare_payload();
     return res;
@@ -816,9 +816,9 @@ RequestHandler::createErrorResponse(http::status status,
                                     const std::string &message) const {
   
   http::response<http::string_body> res{status, 11};
-  res.set(server, "ETL Plus Backend");
-  res.set(content_type, "application/json");
-  res.set(access_control_allow_origin, "*");
+  res.set(http::field::server, "ETL Plus Backend");
+  res.set(http::field::content_type, "application/json");
+  res.set(http::field::access_control_allow_origin, "*");
   res.keep_alive(false);
 
   // Escape quotes in the message to prevent JSON injection
@@ -895,9 +895,9 @@ http::response<http::string_body> RequestHandler::createValidationErrorResponse(
   const InputValidator::ValidationResult &result) const {
   
   http::response<http::string_body> res{http::status::bad_request, 11};
-  res.set(server, "ETL Plus Backend");
-  res.set(content_type, "application/json");
-  res.set(access_control_allow_origin, "*");
+  res.set(http::field::server, "ETL Plus Backend");
+  res.set(http::field::content_type, "application/json");
+  res.set(http::field::access_control_allow_origin, "*");
   res.keep_alive(false);
 
   std::ostringstream json;
@@ -913,9 +913,9 @@ http::response<http::string_body>
 RequestHandler::createSuccessResponse(std::string_view data) const {
   
   http::response<http::string_body> res{http::status::ok, 11};
-  res.set(server, "ETL Plus Backend");
-  res.set(content_type, "application/json");
-  res.set(access_control_allow_origin, "*");
+  res.set(http::field::server, "ETL Plus Backend");
+  res.set(http::field::content_type, "application/json");
+  res.set(http::field::access_control_allow_origin, "*");
   res.keep_alive(false);
   res.body() = std::string(data);
   res.prepare_payload();
@@ -991,10 +991,12 @@ std::string RequestHandler::formatTimestamp(const std::chrono::system_clock::tim
 #else
   gmtime_r(&tt, &tm);
 #endif
-  return std::format("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
-                     tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-                     tm.tm_hour, tm.tm_min, tm.tm_sec,
-                     static_cast<int>(ms.count()));
+  char buffer[32];
+  sprintf(buffer, "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ",
+          tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+          tm.tm_hour, tm.tm_min, tm.tm_sec,
+          static_cast<int>(ms.count()));
+  return std::string(buffer);
 }
 
 std::chrono::system_clock::time_point RequestHandler::parseTimestamp(std::string_view timestampStr) const {
@@ -1027,120 +1029,138 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const 
   
   // Basic health check
   if (target == "/api/health" || target == "/api/status") {
-    return createSuccessResponse(std::format(R"({{"status":"healthy","timestamp":"{}"}})", timestamp));
+    return createSuccessResponse("{\"status\":\"healthy\",\"timestamp\":\"" + std::to_string(timestamp) + "\"}");
   }
   
   // Detailed health endpoints
   if (target == "/api/health/status") {
-    std::string healthData = std::format(R"({{
+    std::stringstream ss;
+    ss << R"({
       "status": "healthy",
-      "timestamp": "{}",
+      "timestamp": ")" << timestamp << R"(",
       "version": "1.0.0",
-      "uptime": {}
-    }})", timestamp, timestamp - 1754851364); // Approximate uptime
+      "uptime": )" << (timestamp - 1754851364) << R"(
+    })";
+    std::string healthData = ss.str();
     return createSuccessResponse(healthData);
   }
   
   if (target == "/api/health/ready") {
-    std::string readinessData = std::format(R"({{
+    std::stringstream ss;
+    ss << R"({
       "status": "ready",
-      "timestamp": "{}",
+      "timestamp": ")" << timestamp << R"(",
       "database": "connected",
       "websocket": "running"
-    }})", timestamp);
+    })";
+    std::string readinessData = ss.str();
     return createSuccessResponse(readinessData);
   }
   
   if (target == "/api/health/live") {
-    std::string livenessData = std::format(R"({{
+    std::stringstream ss;
+    ss << R"({
       "status": "alive",
-      "timestamp": "{}",
-      "pid": {},
+      "timestamp": ")" << timestamp << R"(",
+      "pid": )" << getpid() << R"(,
       "memory": "OK"
-    }})", timestamp, getpid());
+    })";
+    std::string livenessData = ss.str();
     return createSuccessResponse(livenessData);
   }
   
   if (target == "/api/health/metrics") {
-    std::string metricsData = std::format(R"({{
+    std::stringstream ss;
+    ss << R"({
       "status": "healthy",
-      "timestamp": "{}",
-      "metrics": {{
+      "timestamp": ")" << timestamp << R"(",
+      "metrics": {
         "cpu_usage": "12.5%",
         "memory_usage": "45.2%",
         "disk_usage": "23.1%",
         "active_connections": 1,
         "requests_per_minute": 15
-      }}
-    }})", timestamp);
+      }
+    })";
+    std::string metricsData = ss.str();
     return createSuccessResponse(metricsData);
   }
   
   if (target == "/api/health/database") {
-    std::string dbHealthData = std::format(R"({{
+    std::stringstream ss;
+    ss << R"({
       "status": "healthy",
-      "timestamp": "{}",
-      "database": {{
+      "timestamp": ")" << timestamp << R"(",
+      "database": {
         "connection": "active",
         "response_time": "5ms",
         "pool_size": 10,
         "active_connections": 3
-      }}
-    }})", timestamp);
+      }
+    })";
+    std::string dbHealthData = ss.str();
     return createSuccessResponse(dbHealthData);
   }
   
   if (target == "/api/health/websocket") {
-    std::string wsHealthData = std::format(R"({{
+    std::stringstream ss;
+    ss << R"({
       "status": "healthy",
-      "timestamp": "{}",
-      "websocket": {{
+      "timestamp": ")" << timestamp << R"(",
+      "websocket": {
         "server": "running",
         "connections": 0,
         "message_queue": "empty"
-      }}
-    }})", timestamp);
+      }
+    })";
+    std::string wsHealthData = ss.str();
     return createSuccessResponse(wsHealthData);
   }
   
   if (target == "/api/health/memory") {
-    std::string memoryData = std::format(R"({{
+    std::stringstream ss;
+    ss << R"({
       "status": "healthy",
-      "timestamp": "{}",
-      "memory": {{
+      "timestamp": ")" << timestamp << R"(",
+      "memory": {
         "used": "45.2MB",
         "available": "512MB",
         "percentage": "8.8%"
-      }}
-    }})", timestamp);
+      }
+    })";
+    std::string memoryData = ss.str();
     return createSuccessResponse(memoryData);
   }
   
   if (target == "/api/health/system") {
-    std::string systemData = std::format(R"({{
+    std::stringstream ss;
+    ss << R"({
       "status": "healthy",
-      "timestamp": "{}",
-      "system": {{
+      "timestamp": ")" << timestamp << R"(",
+      "system": {
         "cpu_cores": 8,
         "load_average": "0.75",
         "disk_space": "2.1TB available"
-      }}
-    }})", timestamp);
+      }
+    })";
+    std::string systemData = ss.str();
     return createSuccessResponse(systemData);
   }
   
   if (target == "/api/health/jobs") {
     // Get job stats from ETL manager if available
-    std::string jobsData = std::format(R"({{
+    std::stringstream ss;
+    ss << R"({
       "status": "healthy",
-      "timestamp": "{}",
-      "jobs": {{
+      "timestamp": ")" << timestamp << R"(",
+      "jobs": {
         "total": 0,
         "running": 0,
         "completed": 0,
         "failed": 0
-      }}
-    }})", timestamp);
+      }
+    })";
+    std::string jobsData = ss.str();
     return createSuccessResponse(jobsData);
   }
   
@@ -1169,20 +1189,22 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const 
     
     std::string healthData;
     if (detailed) {
-      healthData = std::format(R"({{
+      std::stringstream ss;
+      ss << R"({
         "status": "healthy",
-        "timestamp": "{}",
-        "detailed": {{
+        "timestamp": ")" << timestamp << R"(",
+        "detailed": {
           "version": "1.0.0",
-          "uptime": {},
+          "uptime": )" << (timestamp - 1754851364) << R"(,
           "database": "connected",
           "websocket": "running",
           "memory_usage": "45.2%",
           "cpu_usage": "12.5%"
-        }}
-      }})", timestamp, timestamp - 1754851364);
+        }
+      })";
+      healthData = ss.str();
     } else {
-      healthData = std::format(R"({{"status":"healthy","timestamp":"{}"}})", timestamp);
+      healthData = "{\"status\":\"healthy\",\"timestamp\":\"" + std::to_string(timestamp) + "\"}";
     }
     
     return createSuccessResponse(healthData);
