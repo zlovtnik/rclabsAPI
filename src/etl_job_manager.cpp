@@ -5,6 +5,7 @@
 #include "etl_exceptions.hpp"
 #include "exception_handler.hpp"
 #include "system_metrics.hpp"
+#include "lock_utils.hpp"
 #include <iostream>
 #include <random>
 #include <sstream>
@@ -30,7 +31,7 @@ ETLJobManager::~ETLJobManager() {
 }
 
 std::string ETLJobManager::scheduleJob(const ETLJobConfig& config) {
-    std::scoped_lock lock(jobMutex_);
+    SCOPED_LOCK_TIMEOUT(jobMutex_, 2000);
     
     auto job = std::make_shared<ETLJob>();
     job->jobId = config.jobId.empty() ? generateJobId() : config.jobId;
@@ -53,7 +54,7 @@ std::string ETLJobManager::scheduleJob(const ETLJobConfig& config) {
 }
 
 bool ETLJobManager::cancelJob(const std::string& jobId) {
-    std::scoped_lock lock(jobMutex_);
+    SCOPED_LOCK_TIMEOUT(jobMutex_, 1000);
     
     for (auto& job : jobs_) {
         if (job->jobId == jobId && job->status == JobStatus::PENDING) {
@@ -79,7 +80,7 @@ bool ETLJobManager::resumeJob(const std::string& jobId) {
 }
 
 std::shared_ptr<ETLJob> ETLJobManager::getJob(const std::string& jobId) const {
-    std::scoped_lock lock(jobMutex_);
+    SCOPED_LOCK_TIMEOUT(jobMutex_, 500);
     
     for (const auto& job : jobs_) {
         if (job->jobId == jobId) {
@@ -91,12 +92,12 @@ std::shared_ptr<ETLJob> ETLJobManager::getJob(const std::string& jobId) const {
 }
 
 std::vector<std::shared_ptr<ETLJob>> ETLJobManager::getAllJobs() const {
-    std::scoped_lock lock(jobMutex_);
+    SCOPED_LOCK_TIMEOUT(jobMutex_, 500);
     return jobs_;
 }
 
 std::vector<std::shared_ptr<ETLJob>> ETLJobManager::getJobsByStatus(JobStatus status) const {
-    std::scoped_lock lock(jobMutex_);
+    SCOPED_LOCK_TIMEOUT(jobMutex_, 500);
     
     std::vector<std::shared_ptr<ETLJob>> result;
     for (const auto& job : jobs_) {
@@ -182,7 +183,7 @@ void ETLJobManager::setMetricsUpdateInterval(std::chrono::milliseconds interval)
 }
 
 JobMetrics ETLJobManager::getJobMetrics(const std::string& jobId) const {
-    std::scoped_lock lock(jobMutex_);
+    SCOPED_LOCK_TIMEOUT(jobMutex_, 500);
     
     for (const auto& job : jobs_) {
         if (job->jobId == jobId) {
