@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
-cmake_policy(SET CMP0167 NEW)
+
+if(POLICY CMP0167)
+    cmake_policy(SET CMP0167 NEW)
+endif()
+
 project(ETLPlusBackend)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -233,8 +237,10 @@ create_test_executable(test_pooled_session scripts/test_pooled_session.cpp)
 create_test_executable(test_pooled_session_integration scripts/test_pooled_session_integration.cpp)
 create_test_executable(demo_request_validator scripts/demo_request_validator.cpp)
 create_test_executable(demo_response_builder_simple scripts/demo_response_builder_simple.cpp)
-create_test_executable(test_lock_utils scripts/test_lock_utils.cpp)
-create_test_executable(demo_lock_utils scripts/demo_lock_utils.cpp)
+if(ENABLE_TESTS)
+  create_test_executable(test_lock_utils scripts/test_lock_utils.cpp)
+  create_test_executable(demo_lock_utils scripts/demo_lock_utils.cpp)
+endif()
 
 # GTest-based targets
 if(GTest_FOUND AND ENABLE_TESTS)

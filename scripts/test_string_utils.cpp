@@ -12,6 +12,9 @@ int main() {
     assert(trim("  hello world  ") == "hello world");
     assert(trim_left("  hello world  ") == "hello world  ");
     assert(trim_right("  hello world  ") == "  hello world");
+    assert(trim("") == "");
+    assert(trim("   ") == "");
+    assert(trim("no spaces") == "no spaces");
     std::cout << "✓ String trimming working correctly" << std::endl;
     
     // Test 2: Case-insensitive comparison
@@ -87,6 +90,38 @@ int main() {
     assert(replace_all("hello world hello", "hello", "hi") == "hi world hi");
     assert(replace_first("hello world hello", "hello", "hi") == "hi world hello");
     std::cout << "✓ String replacement working correctly" << std::endl;
+    
+    // Test 11: String joining with different types
+    // Test with strings
+    std::vector<std::string> strings = {"hello", "world", "test"};
+    assert(join(strings, " ") == "hello world test");
+    assert(join(strings, ", ") == "hello, world, test");
+    
+    // Test with string_views
+    std::vector<std::string_view> string_views = {"foo", "bar", "baz"};
+    assert(join(string_views, "-") == "foo-bar-baz");
+    
+    // Test with const char*
+    std::vector<const char*> c_strings = {"one", "two", "three"};
+    assert(join(c_strings, "/") == "one/two/three");
+    
+    // Test with integers
+    std::vector<int> numbers = {1, 2, 3, 4};
+    assert(join(numbers, "+") == "1+2+3+4");
+    
+    // Test with doubles
+    std::vector<double> doubles = {1.1, 2.2, 3.3};
+    assert(join(doubles, " | ") == "1.100000 | 2.200000 | 3.300000");
+    
+    // Test empty container
+    std::vector<std::string> empty;
+    assert(join(empty, ",") == "");
+    
+    // Test single element
+    std::vector<std::string> single = {"only"};
+    assert(join(single, ",") == "only");
+    
+    std::cout << "✓ String joining working correctly" << std::endl;
     
     std::cout << "All string utility tests passed!" << std::endl;
     return 0;

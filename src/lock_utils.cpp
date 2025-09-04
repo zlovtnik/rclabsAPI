@@ -13,9 +13,44 @@ LockMonitor& LockMonitor::getInstance() {
 }
 
 void LockMonitor::recordAcquisition(const std::string& lockName, std::chrono::microseconds waitTime) {
-    std::shared_lock<std::shared_mutex> lock(statsMutex_);
+    // Phase 1: Try to find existing entry with shared lock
+    {
+        std::shared_lock<std::shared_mutex> sharedLock(statsMutex_);
+        auto it = lockStats_.find(lockName);
+        if (it != lockStats_.end()) {
+            // Entry exists, update with shared lock
+            auto& stats = it->second;
+            stats.acquisitions.fetch_add(1);
+            stats.totalWaitTime.fetch_add(waitTime.count());
+            
+            // Update max wait time atomically
+            uint64_t currentMax = stats.maxWaitTime.load();
+            uint64_t newWaitTime = waitTime.count();
+            while (newWaitTime > currentMax && 
+                   !stats.maxWaitTime.compare_exchange_weak(currentMax, newWaitTime)) {
+                // Keep trying until we successfully update or find a larger value
+            }
+            
+            // Record contention if wait time is significant (> 1ms)
+            if (waitTime.count() > 1000) {
+                stats.contentions.fetch_add(1);
+            }
+            
+            if (detailedLogging_.load()) {
+                std::cout << "[LockMonitor] Acquired lock '" << lockName 
+                          << "' after " << waitTime.count() << "μs" << std::endl;
+            }
+            return;
+        }
+    }
     
+    // Phase 2: Entry doesn't exist, acquire unique lock and insert
+    std::unique_lock<std::shared_mutex> uniqueLock(statsMutex_);
+    
+    // Use operator[] to insert (will create default-constructed LockStats)
     auto& stats = lockStats_[lockName];
+    
+    // Now update the stats
     stats.acquisitions.fetch_add(1);
     stats.totalWaitTime.fetch_add(waitTime.count());
     

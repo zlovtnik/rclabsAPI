@@ -229,16 +229,20 @@ bool is_numeric(std::string_view str) noexcept {
     }
     
     bool has_dot = false;
+    bool has_digit = false;
     for (std::size_t i = start; i < str.size(); ++i) {
         if (str[i] == '.') {
             if (has_dot) return false; // Multiple dots
             has_dot = true;
-        } else if (!std::isdigit(static_cast<unsigned char>(str[i]))) {
-            return false;
+        } else if (std::isdigit(static_cast<unsigned char>(str[i]))) {
+            has_digit = true;
+        } else {
+            return false; // Invalid character
         }
     }
     
-    return true;
+    // Must have at least one digit to be considered numeric
+    return has_digit;
 }
 
 bool is_integer(std::string_view str) noexcept {

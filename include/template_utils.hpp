@@ -10,6 +10,7 @@
 #include <functional>
 #include <chrono>
 #include <sstream>
+#include <stdexcept>
 
 namespace etl {
 namespace template_utils {
@@ -216,13 +217,13 @@ class ScopedTimer {
 public:
     explicit ScopedTimer(std::string operation_name)
         : operation_name_(std::move(operation_name))
-        , start_time_(std::chrono::high_resolution_clock::now()) {
+        , start_time_(std::chrono::steady_clock::now()) {
         static_assert(has_component_trait_v<Component>, 
                      "Component must have ComponentTrait specialization");
     }
     
     ~ScopedTimer() {
-        auto end_time = std::chrono::high_resolution_clock::now();
+        auto end_time = std::chrono::steady_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
             end_time - start_time_).count();
         
@@ -234,7 +235,7 @@ public:
     
     // Get elapsed time without destroying the timer
     double elapsed_ms() const {
-        auto current_time = std::chrono::high_resolution_clock::now();
+        auto current_time = std::chrono::steady_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
             current_time - start_time_).count();
         return static_cast<double>(duration) / 1000.0;
@@ -242,7 +243,7 @@ public:
     
 private:
     std::string operation_name_;
-    std::chrono::high_resolution_clock::time_point start_time_;
+    std::chrono::steady_clock::time_point start_time_;
 };
 
 /**
@@ -333,9 +334,15 @@ public:
         static_assert(std::is_base_of_v<BaseType, DerivedType>,
                      "DerivedType must inherit from BaseType");
         
-        creators_[key] = []() -> std::unique_ptr<BaseType> {
+        auto creator = []() -> std::unique_ptr<BaseType> {
             return std::make_unique<DerivedType>();
         };
+        
+        auto [it, inserted] = creators_.emplace(key, creator);
+        if (!inserted) {
+            throw std::runtime_error("Type registration failed: key '" + 
+                                   std::string(key) + "' is already registered");
+        }
     }
     
     std::unique_ptr<BaseType> create(const KeyType& key) const {
@@ -393,7 +400,8 @@ public:
     }
     
     void dispatch(const EventType& event) {
-        for (const auto& [id, handler] : handlers_) {
+        auto snapshot = handlers_; // copy handlers (cheap if small)
+        for (const auto& [id, handler] : snapshot) {
             try {
                 handler(event);
             } catch (const std::exception& e) {

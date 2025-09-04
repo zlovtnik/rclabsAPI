@@ -14,6 +14,20 @@
 
 namespace etl_plus {
 
+// Trait to check if a mutex type supports try_lock_for
+template<typename T, typename = void>
+struct has_try_lock_for : std::false_type {};
+
+template<typename T>
+struct has_try_lock_for<T, std::void_t<decltype(std::declval<T&>().try_lock_for(std::chrono::milliseconds(1)))>> : std::true_type {};
+
+// Trait to check if a shared mutex type supports try_lock_shared_for
+template<typename T, typename = void>
+struct has_try_lock_shared_for : std::false_type {};
+
+template<typename T>
+struct has_try_lock_shared_for<T, std::void_t<decltype(std::declval<T&>().try_lock_shared_for(std::chrono::milliseconds(1)))>> : std::true_type {};
+
 // Forward declarations
 class LockMonitor;
 class DeadlockDetector;
@@ -138,20 +152,8 @@ public:
         auto startTime = std::chrono::steady_clock::now();
         
         // Attempt to acquire lock with timeout
-        if constexpr (std::is_same_v<Mutex, std::mutex> || std::is_same_v<Mutex, std::recursive_mutex>) {
-            // Standard mutex doesn't have try_lock_for, use try_lock with polling
-            auto endTime = startTime + timeout;
-            while (std::chrono::steady_clock::now() < endTime) {
-                if (mutex_.try_lock()) {
-                    locked_ = true;
-                    break;
-                }
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            }
-        } else {
-            // Timed mutex types have try_lock_for
-            locked_ = mutex_.try_lock_for(timeout);
-        }
+        static_assert(has_try_lock_for<Mutex>::value, "Mutex must support try_lock_for for efficient timeout handling");
+        locked_ = mutex_.try_lock_for(timeout);
         
         auto endTime = std::chrono::steady_clock::now();
         auto waitTime = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime);
@@ -166,9 +168,7 @@ public:
         recordLockAcquisition(lockName_, waitTime);
         
         // Register with deadlock detector if available
-        if constexpr (hasLockLevel<Mutex>()) {
-            registerLockAcquisition(mutex.getLevel(), mutex.getId());
-        }
+        // Registration already handled in checkLockOrdering above
     }
     
     /**
@@ -231,7 +231,6 @@ private:
     }
     
     void checkLockOrdering(LockLevel level);
-    void registerLockAcquisition(LockLevel level, const std::string& mutexId);
     void unregisterLockAcquisition(LockLevel level, const std::string& mutexId);
     void recordLockAcquisition(const std::string& lockName, std::chrono::microseconds waitTime);
     void recordLockFailure(const std::string& lockName, std::chrono::milliseconds timeout, std::chrono::microseconds waitTime);
@@ -258,20 +257,8 @@ public:
         
         auto startTime = std::chrono::steady_clock::now();
         
-        if constexpr (std::is_same_v<SharedMutex, std::shared_mutex>) {
-            // shared_mutex doesn't have try_lock_shared_for, use try_lock_shared with polling
-            auto endTime = startTime + timeout;
-            while (std::chrono::steady_clock::now() < endTime) {
-                if (mutex_.try_lock_shared()) {
-                    locked_ = true;
-                    break;
-                }
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            }
-        } else {
-            // shared_timed_mutex has try_lock_shared_for
-            locked_ = mutex_.try_lock_shared_for(timeout);
-        }
+        static_assert(has_try_lock_shared_for<SharedMutex>::value, "SharedMutex must support try_lock_shared_for for efficient timeout handling");
+        locked_ = mutex_.try_lock_shared_for(timeout);
         
         auto endTime = std::chrono::steady_clock::now();
         auto waitTime = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime);
@@ -284,9 +271,8 @@ public:
         
         recordLockAcquisition(lockName_, waitTime);
         
-        if constexpr (hasLockLevel<SharedMutex>()) {
-            registerSharedLockAcquisition(mutex.getLevel(), mutex.getId());
-        }
+        // Register with deadlock detector if available
+        // Registration already handled in checkLockOrdering above
     }
     
     ~ScopedTimedSharedLock() {
@@ -338,7 +324,6 @@ private:
     }
     
     void checkLockOrdering(LockLevel level);
-    void registerSharedLockAcquisition(LockLevel level, const std::string& mutexId);
     void unregisterSharedLockAcquisition(LockLevel level, const std::string& mutexId);
     void recordLockAcquisition(const std::string& lockName, std::chrono::microseconds waitTime);
     void recordLockFailure(const std::string& lockName, std::chrono::milliseconds timeout, std::chrono::microseconds waitTime);
@@ -463,11 +448,6 @@ void ScopedTimedLock<Mutex>::checkLockOrdering(LockLevel level) {
 }
 
 template<typename Mutex>
-void ScopedTimedLock<Mutex>::registerLockAcquisition(LockLevel level, const std::string& mutexId) {
-    // This is handled in checkLockOrdering for simplicity
-}
-
-template<typename Mutex>
 void ScopedTimedLock<Mutex>::unregisterLockAcquisition(LockLevel level, const std::string& mutexId) {
     DeadlockDetector::getInstance().unregisterLockAcquisition(
         std::this_thread::get_id(), level, mutexId
@@ -494,11 +474,6 @@ void ScopedTimedSharedLock<SharedMutex>::checkLockOrdering(LockLevel level) {
     DeadlockDetector::getInstance().registerSharedLockAcquisition(
         std::this_thread::get_id(), level, getMutexId()
     );
-}
-
-template<typename SharedMutex>
-void ScopedTimedSharedLock<SharedMutex>::registerSharedLockAcquisition(LockLevel level, const std::string& mutexId) {
-    // This is handled in checkLockOrdering for simplicity
 }
 
 template<typename SharedMutex>

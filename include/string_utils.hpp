@@ -9,9 +9,31 @@
 #include <locale>
 #include <memory>
 #include <type_traits>
+#include <cstring>
 
 namespace etl {
 namespace string_utils {
+
+// ============================================================================
+// Type Traits for String Joining
+// ============================================================================
+
+// Trait to detect if a type has a size() method
+template<typename T, typename = void>
+struct has_size_method : std::false_type {};
+
+template<typename T>
+struct has_size_method<T, decltype(std::declval<T>().size(), void())> : std::true_type {};
+
+// Trait to detect string-like types (string, string_view, const char*, or has size())
+template<typename T>
+struct is_string_like {
+    static constexpr bool value = 
+        std::is_same_v<std::decay_t<T>, std::string> ||
+        std::is_same_v<std::decay_t<T>, std::string_view> ||
+        std::is_same_v<std::decay_t<T>, const char*> ||
+        (has_size_method<T>::value && !std::is_arithmetic_v<T>);
+};
 
 // ============================================================================
 // String View Utilities for Performance
@@ -107,23 +129,37 @@ std::string join(const Container& container, std::string_view separator) {
         return {};
     }
     
+    using ValueType = typename Container::value_type;
+    
     // Calculate total size to avoid reallocations
     std::size_t total_size = 0;
     std::size_t count = 0;
+    bool can_precompute_size = true;
+    
     for (const auto& item : container) {
-        if constexpr (std::is_same_v<typename Container::value_type, std::string>) {
-            total_size += item.size();
-        } else {
+        if constexpr (is_string_like<ValueType>::value) {
+            // String-like types: use size() method or strlen for const char*
+            if constexpr (std::is_same_v<std::decay_t<ValueType>, const char*>) {
+                total_size += std::strlen(item);
+            } else {
+                total_size += item.size();
+            }
+        } else if constexpr (std::is_arithmetic_v<ValueType>) {
+            // Arithmetic types: use std::to_string
             total_size += std::to_string(item).size();
+        } else {
+            // Other types: cannot precompute size efficiently
+            can_precompute_size = false;
+            break;
         }
         ++count;
     }
     
-    if (count > 1) {
+    if (count > 1 && can_precompute_size) {
         total_size += separator.size() * (count - 1);
     }
     
-    StringBuilder builder(total_size);
+    StringBuilder builder(can_precompute_size ? total_size : 0);
     bool first = true;
     for (const auto& item : container) {
         if (!first) {

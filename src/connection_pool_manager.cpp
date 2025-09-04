@@ -13,9 +13,8 @@ ConnectionPoolManager::ConnectionPoolManager(net::io_context& ioc,
                                            std::shared_ptr<RequestHandler> handler,
                                            std::shared_ptr<WebSocketManager> wsManager,
                                            std::shared_ptr<TimeoutManager> timeoutManager,
-                                           std::shared_ptr<PerformanceMonitor> performanceMonitor,
-                                           size_t maxQueueSize,
-                                           std::chrono::seconds maxQueueWaitTime)
+                                           MonitorConfig monitor,
+                                           QueueConfig queue)
     : ioc_(ioc)
     , minConnections_(minConnections)
     , maxConnections_(maxConnections)
@@ -23,10 +22,10 @@ ConnectionPoolManager::ConnectionPoolManager(net::io_context& ioc,
     , handler_(handler)
     , wsManager_(wsManager)
     , timeoutManager_(timeoutManager)
-    , performanceMonitor_(performanceMonitor)
-    , maxQueueSize_(maxQueueSize)
-    , maxQueueWaitTime_(maxQueueWaitTime)
-    , cleanupTimer_(std::make_unique<net::steady_timer>(ioc_))
+    , performanceMonitor_(monitor.perf)
+    , maxQueueSize_(queue.maxSize)
+    , maxQueueWaitTime_(queue.maxWait)
+    , cleanupTimer_(std::nullopt)
     , shutdownRequested_(false)
     , connectionReuseCount_(0)
     , totalConnectionsCreated_(0)
@@ -51,7 +50,7 @@ ConnectionPoolManager::~ConnectionPoolManager() {
 }
 
 std::shared_ptr<PooledSession> ConnectionPoolManager::acquireConnection(tcp::socket&& socket) {
-    std::unique_lock<std::mutex> lock(poolMutex_);
+    std::unique_lock<std::timed_mutex> lock(poolMutex_);
     
     if (shutdownRequested_) {
         // Send service unavailable response before throwing
@@ -126,8 +125,7 @@ std::shared_ptr<PooledSession> ConnectionPoolManager::acquireConnection(tcp::soc
     }
 
     // Queue the request
-    auto queuedRequest = std::make_unique<QueuedRequest>(std::move(socket));
-    requestQueue_.push(std::move(queuedRequest));
+    requestQueue_.emplace(std::move(socket));
     
     Logger::getInstance().log(LogLevel::DEBUG, "ConnectionPoolManager", 
         "Queued request. Queue size: " + std::to_string(requestQueue_.size()) + 
@@ -149,18 +147,18 @@ std::shared_ptr<PooledSession> ConnectionPoolManager::acquireConnection(tcp::soc
             "Request timed out in queue after " + std::to_string(maxQueueWaitTime_.count()) + " seconds");
         
         // Find and remove the timed-out request from queue
-        std::queue<std::unique_ptr<QueuedRequest>> tempQueue;
+        std::queue<QueuedRequest, std::deque<QueuedRequest>> tempQueue;
         bool found = false;
         while (!requestQueue_.empty() && !found) {
             auto req = std::move(requestQueue_.front());
             requestQueue_.pop();
             
             auto waitTime = std::chrono::duration_cast<std::chrono::seconds>(
-                std::chrono::steady_clock::now() - req->queueTime);
+                std::chrono::steady_clock::now() - req.queueTime);
             
             if (waitTime >= maxQueueWaitTime_) {
                 // This is the timed-out request
-                sendErrorResponse(req->socket, "Request timeout - server overloaded");
+                sendErrorResponse(req.socket, "Request timeout - server overloaded");
                 found = true;
             } else {
                 tempQueue.push(std::move(req));
@@ -215,7 +213,7 @@ void ConnectionPoolManager::releaseConnection(std::shared_ptr<PooledSession> ses
         return;
     }
 
-    std::lock_guard<std::mutex> lock(poolMutex_);
+    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     
     if (shutdownRequested_) {
         // During shutdown, just remove from active set
@@ -262,7 +260,7 @@ void ConnectionPoolManager::releaseConnection(std::shared_ptr<PooledSession> ses
 }
 
 void ConnectionPoolManager::startCleanupTimer() {
-    std::lock_guard<std::mutex> lock(poolMutex_);
+    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     if (!shutdownRequested_) {
         scheduleCleanup();
         Logger::getInstance().log(LogLevel::INFO, "ConnectionPoolManager", "Started cleanup timer");
@@ -270,7 +268,7 @@ void ConnectionPoolManager::startCleanupTimer() {
 }
 
 void ConnectionPoolManager::stopCleanupTimer() {
-    std::lock_guard<std::mutex> lock(poolMutex_);
+    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     if (cleanupTimer_) {
         cleanupTimer_->cancel();
         Logger::getInstance().log(LogLevel::INFO, "ConnectionPoolManager", "Stopped cleanup timer");
@@ -278,7 +276,7 @@ void ConnectionPoolManager::stopCleanupTimer() {
 }
 
 size_t ConnectionPoolManager::cleanupIdleConnections() {
-    std::lock_guard<std::mutex> lock(poolMutex_);
+    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     
     size_t cleanedUp = 0;
     auto now = std::chrono::steady_clock::now();
@@ -315,7 +313,7 @@ size_t ConnectionPoolManager::cleanupIdleConnections() {
 }
 
 void ConnectionPoolManager::shutdown() {
-    std::lock_guard<std::mutex> lock(poolMutex_);
+    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     
     if (shutdownRequested_) {
         return;
@@ -346,22 +344,22 @@ void ConnectionPoolManager::shutdown() {
 
 // Metrics and monitoring methods
 
-size_t ConnectionPoolManager::getActiveConnections() const {
-    std::lock_guard<std::mutex> lock(poolMutex_);
+size_t ConnectionPoolManager::getActiveConnections() const noexcept {
+    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     return activeConnections_.size();
 }
 
-size_t ConnectionPoolManager::getIdleConnections() const {
-    std::lock_guard<std::mutex> lock(poolMutex_);
+size_t ConnectionPoolManager::getIdleConnections() const noexcept {
+    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     return idleConnections_.size();
 }
 
-size_t ConnectionPoolManager::getTotalConnections() const {
-    std::lock_guard<std::mutex> lock(poolMutex_);
+size_t ConnectionPoolManager::getTotalConnections() const noexcept {
+    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     return activeConnections_.size() + idleConnections_.size();
 }
 
-size_t ConnectionPoolManager::getMaxConnections() const {
+size_t ConnectionPoolManager::getMaxConnections() const noexcept {
     return maxConnections_;
 }
 
@@ -376,36 +374,36 @@ std::chrono::seconds ConnectionPoolManager::getIdleTimeout() const {
 
 
 size_t ConnectionPoolManager::getConnectionReuseCount() const {
-    std::lock_guard<std::mutex> lock(poolMutex_);
+    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     return connectionReuseCount_;
 }
 
 size_t ConnectionPoolManager::getTotalConnectionsCreated() const {
-    std::lock_guard<std::mutex> lock(poolMutex_);
+    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     return totalConnectionsCreated_;
 }
 
 bool ConnectionPoolManager::isAtMaxCapacity() const {
-    std::lock_guard<std::mutex> lock(poolMutex_);
+    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     return (activeConnections_.size() + idleConnections_.size()) >= maxConnections_;
 }
 
 size_t ConnectionPoolManager::getQueueSize() const {
-    std::lock_guard<std::mutex> lock(poolMutex_);
+    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     return requestQueue_.size();
 }
 
-size_t ConnectionPoolManager::getMaxQueueSize() const {
+size_t ConnectionPoolManager::getMaxQueueSize() const noexcept {
     return maxQueueSize_;
 }
 
-size_t ConnectionPoolManager::getRejectedRequestCount() const {
-    std::lock_guard<std::mutex> lock(poolMutex_);
+size_t ConnectionPoolManager::getRejectedRequestCount() const noexcept {
+    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     return rejectedRequestCount_;
 }
 
 void ConnectionPoolManager::resetStatistics() {
-    std::lock_guard<std::mutex> lock(poolMutex_);
+    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     connectionReuseCount_ = 0;
     totalConnectionsCreated_ = 0;
     rejectedRequestCount_ = 0;
@@ -439,8 +437,12 @@ std::shared_ptr<PooledSession> ConnectionPoolManager::createNewSession(tcp::sock
 }
 
 void ConnectionPoolManager::scheduleCleanup() {
-    if (shutdownRequested_ || !cleanupTimer_) {
+    if (shutdownRequested_) {
         return;
+    }
+    
+    if (!cleanupTimer_) {
+        cleanupTimer_.emplace(ioc_);
     }
     
     // Schedule cleanup to run every half of the idle timeout period
@@ -502,14 +504,14 @@ void ConnectionPoolManager::processQueuedRequests() {
         
         // Check if the request has expired
         auto waitTime = std::chrono::duration_cast<std::chrono::seconds>(
-            std::chrono::steady_clock::now() - queuedRequest->queueTime);
+            std::chrono::steady_clock::now() - queuedRequest.queueTime);
         
         if (waitTime >= maxQueueWaitTime_) {
             Logger::getInstance().log(LogLevel::WARN, "ConnectionPoolManager", 
                 "Dropping expired queued request (waited " + std::to_string(waitTime.count()) + "s)");
             
             try {
-                sendErrorResponse(queuedRequest->socket, "Request timeout - server overloaded");
+                sendErrorResponse(queuedRequest.socket, "Request timeout - server overloaded");
             } catch (...) {
                 // Ignore errors when sending error response
             }
@@ -554,21 +556,21 @@ void ConnectionPoolManager::processQueuedRequests() {
 size_t ConnectionPoolManager::cleanupExpiredQueuedRequests() {
     // Must be called with poolMutex_ held
     size_t cleanedUp = 0;
-    std::queue<std::unique_ptr<QueuedRequest>> newQueue;
+    std::queue<QueuedRequest, std::deque<QueuedRequest>> newQueue;
     auto now = std::chrono::steady_clock::now();
     
     while (!requestQueue_.empty()) {
         auto request = std::move(requestQueue_.front());
         requestQueue_.pop();
         
-        auto waitTime = std::chrono::duration_cast<std::chrono::seconds>(now - request->queueTime);
+        auto waitTime = std::chrono::duration_cast<std::chrono::seconds>(now - request.queueTime);
         
         if (waitTime >= maxQueueWaitTime_) {
             Logger::getInstance().log(LogLevel::DEBUG, "ConnectionPoolManager", 
                 "Cleaning up expired queued request (waited " + std::to_string(waitTime.count()) + "s)");
             
             try {
-                sendErrorResponse(request->socket, "Request timeout - server overloaded");
+                sendErrorResponse(request.socket, "Request timeout - server overloaded");
             } catch (...) {
                 // Ignore errors when sending error response
             }

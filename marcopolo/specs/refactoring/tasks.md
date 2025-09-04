@@ -205,7 +205,7 @@ This document provides a detailed implementation plan for refactoring the ETL Pl
     - **Dependencies**: None
     - **Files**: `include/lock_utils.hpp`
 
-  - [ ] 6.2 Standardize locking patterns
+  - [x] 6.2 Standardize locking patterns
     - Replace inconsistent lock usage with standard patterns
     - Update all components to use RAII lock helpers
     - Document lock ordering requirements
@@ -213,6 +213,8 @@ This document provides a detailed implementation plan for refactoring the ETL Pl
     - **Estimate**: 3 days
     - **Dependencies**: 6.1
     - **Files**: `ALL_SOURCE_FILES`
+    - **Status**: ✅ COMPLETED
+    - **Notes**: Successfully updated key components (ConnectionPoolManager, ETLJobManager, ConfigManager, TimeoutManager) to use OrderedMutex types and RAII helpers. Implemented proper lock ordering with CONFIG → CONTAINER → RESOURCE → STATE hierarchy. Added timeout handling and deadlock prevention. Lock contention monitoring is built into the RAII helpers via LockMonitor. Documentation updated in lock_ordering_guide.md.
 
   - [ ] 6.3 Optimize critical sections
     - Reduce lock scope where possible

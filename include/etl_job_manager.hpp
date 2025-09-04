@@ -11,6 +11,7 @@
 #include <vector>
 #include "job_monitoring_models.hpp"
 #include "system_metrics.hpp"
+#include "lock_utils.hpp"
 
 // Forward declarations
 class DataTransformer;
@@ -94,8 +95,8 @@ private:
   std::vector<std::shared_ptr<ETLJob>> jobs_;
 
   std::thread workerThread_;
-  mutable std::mutex jobMutex_;
-  std::condition_variable jobCondition_;
+  mutable std::timed_mutex jobMutex_;
+  std::condition_variable_any jobCondition_;
   bool running_;
   
   // Metrics collection settings
