@@ -242,7 +242,7 @@ TEST_F(RequestValidatorTest, ValidateJobsEndpointGet) {
 }
 
 TEST_F(RequestValidatorTest, ValidateJobsEndpointPost) {
-    auto req = createRequest("POST", "/api/jobs", R"({"name":"test-job","type":"etl"})");
+    auto req = createRequest("POST", "/api/jobs", R"({"name":"test-job","type":"FULL_ETL","source_config":"test-source","target_config":"test-target"})");
     req.set(http::field::content_type, "application/json");
     
     auto result = validator_->validateJobsEndpoint(req);

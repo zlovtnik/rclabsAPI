@@ -1,5 +1,6 @@
 #include "input_validator.hpp"
 #include "logger.hpp"
+#include "job_monitoring_models.hpp"
 #include <sstream>
 #include <algorithm>
 #include <cctype>
@@ -250,7 +251,16 @@ InputValidator::ValidationResult InputValidator::validateJobQueryParams(const st
     
     for (const auto& [key, value] : params) {
         if (key == "status") {
-            if (value != "PENDING" && value != "RUNNING" && value != "COMPLETED" && value != "FAILED" && value != "CANCELLED") {
+            // Use the canonical stringToJobStatus function for validation
+            JobStatus status;
+            try {
+                status = stringToJobStatus(value);
+                // If stringToJobStatus doesn't throw and returns a valid status, it's valid
+                // Note: stringToJobStatus returns PENDING as default for unknown values
+                if (value != jobStatusToString(status)) {
+                    result.addError("status", "Invalid status filter", "INVALID_STATUS_FILTER");
+                }
+            } catch (const std::exception&) {
                 result.addError("status", "Invalid status filter", "INVALID_STATUS_FILTER");
             }
         } else if (key == "limit") {
