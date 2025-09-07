@@ -4,6 +4,7 @@
 #include "etl_job_manager.hpp"
 #include "websocket_filter_manager.hpp"
 #include "exception_handler.hpp"
+#include "exception_mapper.hpp"
 #include "etl_exceptions.hpp"
 #include "input_validator.hpp"
 #include "logger.hpp"
@@ -19,11 +20,19 @@ RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
                                std::shared_ptr<AuthManager> authManager,
                                std::shared_ptr<ETLJobManager> etlManager)
     : dbManager_(dbManager), authManager_(authManager),
-      etlManager_(etlManager) {
+      etlManager_(etlManager), exceptionMapper_() {
   REQ_LOG_INFO("RequestHandler created with components - DB: " +
                std::string(dbManager ? "valid" : "null") +
                ", Auth: " + std::string(authManager ? "valid" : "null") +
                ", ETL: " + std::string(etlManager ? "valid" : "null"));
+  
+  // Configure the exception mapper for RequestHandler
+  ETLPlus::ExceptionHandling::ExceptionMappingConfig config;
+  config.serverHeader = "ETL Plus Backend";
+  config.corsOrigin = "*";
+  config.keepAlive = false;
+  config.includeInternalDetails = false; // Don't expose internal details in production
+  exceptionMapper_.updateConfig(config);
 }
 
 template <class Body, class Allocator>
@@ -72,37 +81,11 @@ http::response<http::string_body> RequestHandler::handleRequest(
     return validateAndHandleRequest(string_req);
 
   } catch (const etl::ETLException &ex) {
-    REQ_LOG_ERROR("RequestHandler::handleRequest() - ETL Exception caught: " +
-                  ex.toLogString());
-    return createExceptionResponse(ex);
-  } catch (const boost::system::system_error &e) {
-    REQ_LOG_ERROR("RequestHandler::handleRequest() - Boost system_error: " +
-                  std::string(e.what()));
-    auto convertedException =
-        ETLPlus::ExceptionHandling::ExceptionHandler::convertException(
-            e, "handleRequest");
-    return createExceptionResponse(*convertedException);
-  } catch (const std::bad_alloc &e) {
-    REQ_LOG_ERROR("RequestHandler::handleRequest() - bad_alloc: " +
-                  std::string(e.what()));
-    auto convertedException =
-        ETLPlus::ExceptionHandling::ExceptionHandler::convertException(
-            e, "handleRequest");
-    return createExceptionResponse(*convertedException);
-  } catch (const std::logic_error &e) {
-    REQ_LOG_ERROR("RequestHandler::handleRequest() - Logic exception: " +
-                  std::string(e.what()));
-    auto convertedException =
-        ETLPlus::ExceptionHandling::ExceptionHandler::convertException(
-            e, "handleRequest");
-    return createExceptionResponse(*convertedException);
+    return exceptionMapper_.mapToResponse(ex, "handleRequest");
   } catch (const std::exception &e) {
-    REQ_LOG_ERROR("RequestHandler::handleRequest() - Standard exception: " +
-                  std::string(e.what()));
-    auto convertedException =
-        ETLPlus::ExceptionHandling::ExceptionHandler::convertException(
-            e, "handleRequest");
-    return createExceptionResponse(*convertedException);
+    return exceptionMapper_.mapToResponse(e, "handleRequest");
+  } catch (...) {
+    return exceptionMapper_.mapToResponse("handleRequest");
   }
 }
 
@@ -307,15 +290,24 @@ RequestHandler::handleAuth(const http::request<http::string_body> &req) const {
 
   // Validate allowed methods for auth endpoints
   if (!InputValidator::isValidHttpMethod(method, {"POST", "GET"})) {
-  return createErrorResponse(http::status::method_not_allowed,
-                 "Method not allowed for auth endpoint");
+  throw etl::ValidationException(
+      etl::ErrorCode::INVALID_INPUT,
+      "Method not allowed for auth endpoint",
+      "method",
+      std::string(req.method_string())
+  );
   }
 
   if (req.method() == http::verb::post && target == "/api/auth/login") {
     // Validate login request body
     if (auto validation = InputValidator::validateLoginRequest(req.body()); !validation.isValid) {
       REQ_LOG_WARN("RequestHandler::handleAuth() - Login validation failed");
-      return createValidationErrorResponse(validation);
+      throw etl::ValidationException(
+          etl::ErrorCode::INVALID_INPUT,
+          "Login validation failed",
+          "body",
+          req.body()
+      );
     }
 
     REQ_LOG_INFO(
@@ -329,7 +321,12 @@ RequestHandler::handleAuth(const http::request<http::string_body> &req) const {
     if (!req.body().empty()) {
       if (auto validation = InputValidator::validateLogoutRequest(req.body()); !validation.isValid) {
         REQ_LOG_WARN("RequestHandler::handleAuth() - Logout validation failed");
-        return createValidationErrorResponse(validation);
+        throw etl::ValidationException(
+            etl::ErrorCode::INVALID_INPUT,
+            "Logout validation failed",
+            "body",
+            req.body()
+        );
       }
     }
 
@@ -344,18 +341,31 @@ RequestHandler::handleAuth(const http::request<http::string_body> &req) const {
       if (!authValidation.isValid) {
         REQ_LOG_WARN(
             "RequestHandler::handleAuth() - Profile auth validation failed");
-        return createValidationErrorResponse(authValidation);
+        throw etl::ValidationException(
+            etl::ErrorCode::UNAUTHORIZED,
+            "Profile auth validation failed",
+            "authorization",
+            authIt->second
+        );
       }
     } else {
-  return createErrorResponse(http::status::unauthorized,
-             "Authorization header required");
+  throw etl::ValidationException(
+      etl::ErrorCode::UNAUTHORIZED,
+      "Authorization header required",
+      "authorization",
+      ""
+  );
     }
 
   return createSuccessResponse(R"({"user_id":"123","username":"testuser","email":"test@example.com"})");
   }
 
-  return createErrorResponse(http::status::bad_request,
-                             "Invalid auth endpoint");
+  throw etl::ValidationException(
+      etl::ErrorCode::INVALID_INPUT,
+      "Invalid auth endpoint",
+      "target",
+      target
+  );
 }
 
 http::response<http::string_body>
@@ -377,8 +387,12 @@ RequestHandler::handleLogs(const http::request<http::string_body> &req) const {
 
   // Validate allowed methods for logs endpoints
   if (!InputValidator::isValidHttpMethod(method, {"GET", "POST"})) {
-    return createErrorResponse(http::status::method_not_allowed,
-                               "Method not allowed for logs endpoint");
+    throw etl::ValidationException(
+        etl::ErrorCode::INVALID_INPUT,
+        "Method not allowed for logs endpoint",
+        "method",
+        method
+    );
   }
 
   // Handle different log endpoints
@@ -396,8 +410,12 @@ RequestHandler::handleLogs(const http::request<http::string_body> &req) const {
     return createSuccessResponse(R"({"results":[],"total":0,"message":"Log search endpoint implemented"})");
   }
 
-  return createErrorResponse(http::status::bad_request,
-                             "Invalid logs endpoint");
+  throw etl::ValidationException(
+      etl::ErrorCode::INVALID_INPUT,
+      "Invalid logs endpoint",
+      "target",
+      target
+  );
 }
 
 http::response<http::string_body>
@@ -421,8 +439,12 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
   // Validate allowed methods for jobs endpoints
   if (!InputValidator::isValidHttpMethod(method,
                                          {"GET", "POST", "PUT", "DELETE"})) {
-    return createErrorResponse(http::status::method_not_allowed,
-                               "Method not allowed for jobs endpoint");
+    throw etl::ValidationException(
+        etl::ErrorCode::INVALID_INPUT,
+        "Method not allowed for jobs endpoint",
+        "method",
+        method
+    );
   }
 
   // Handle GET /api/jobs/{id}/status - detailed job status
@@ -430,12 +452,22 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
       target.size() > 7 && target.substr(target.size() - 7) == "/status") {
     auto jobId = extractJobIdFromPath(target, "/api/jobs/", "/status");
     if (!InputValidator::isValidJobId(jobId)) {
-      return createErrorResponse(http::status::bad_request, "Invalid job ID format");
+      throw etl::ValidationException(
+          etl::ErrorCode::INVALID_INPUT,
+          "Invalid job ID format",
+          "jobId",
+          jobId
+      );
     }
 
     auto job = etlManager_->getJob(jobId);
     if (!job) {
-      return createErrorResponse(http::status::not_found, "Job not found");
+      throw etl::BusinessException(
+          etl::ErrorCode::JOB_NOT_FOUND,
+          "Job not found",
+          "getJob",
+          etl::ErrorContext{{"jobId", jobId}}
+      );
     }
 
     // Create detailed job status response
@@ -473,12 +505,22 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
       target.size() > 8 && target.substr(target.size() - 8) == "/metrics") {
     auto jobId = extractJobIdFromPath(target, "/api/jobs/", "/metrics");
     if (!InputValidator::isValidJobId(jobId)) {
-      return createErrorResponse(http::status::bad_request, "Invalid job ID format");
+      throw etl::ValidationException(
+          etl::ErrorCode::INVALID_INPUT,
+          "Invalid job ID format",
+          "jobId",
+          jobId
+      );
     }
 
     auto job = etlManager_->getJob(jobId);
     if (!job) {
-      return createErrorResponse(http::status::not_found, "Job not found");
+      throw etl::BusinessException(
+          etl::ErrorCode::JOB_NOT_FOUND,
+          "Job not found",
+          "getJob",
+          etl::ErrorContext{{"jobId", jobId}}
+      );
     }
 
     // Calculate metrics
@@ -533,7 +575,12 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
     if (auto queryValidation = InputValidator::validateJobQueryParams(convertedParams); !queryValidation.isValid) {
       REQ_LOG_WARN("RequestHandler::handleETLJobs() - Query parameter "
                    "validation failed");
-      return createValidationErrorResponse(queryValidation);
+      throw etl::ValidationException(
+          etl::ErrorCode::INVALID_INPUT,
+          "Query parameter validation failed",
+          "query",
+          std::string(req.target())
+      );
     }
 
     // Return list of jobs
@@ -573,7 +620,12 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
     if (!validation.isValid) {
       REQ_LOG_WARN(
           "RequestHandler::handleETLJobs() - Job creation validation failed");
-      return createValidationErrorResponse(validation);
+      throw etl::ValidationException(
+          etl::ErrorCode::INVALID_INPUT,
+          "Job creation validation failed",
+          "body",
+          req.body()
+      );
     }
 
     REQ_LOG_INFO("RequestHandler::handleETLJobs() - Processing validated job "
@@ -600,8 +652,11 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
       REQ_LOG_ERROR(
           "RequestHandler::handleETLJobs() - Exception during job creation: " +
           std::string(e.what()));
-      return createErrorResponse(http::status::internal_server_error,
-                                 "Failed to create job");
+      throw etl::SystemException(
+          etl::ErrorCode::PROCESSING_FAILED,
+          "Failed to create job",
+          "ETLJobManager"
+      );
     }
 
   } else if (req.method() == http::verb::put &&
@@ -609,15 +664,24 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
     // Extract job ID from path
     std::string jobId = target.substr(11); // Remove "/api/jobs/"
     if (!InputValidator::isValidJobId(jobId)) {
-      return createErrorResponse(http::status::bad_request,
-                                 "Invalid job ID format");
+      throw etl::ValidationException(
+          etl::ErrorCode::INVALID_INPUT,
+          "Invalid job ID format",
+          "jobId",
+          jobId
+      );
     }
 
     // Validate job update request
   if (auto validation = InputValidator::validateJobUpdateRequest(req.body()); !validation.isValid) {
       REQ_LOG_WARN(
           "RequestHandler::handleETLJobs() - Job update validation failed");
-      return createValidationErrorResponse(validation);
+      throw etl::ValidationException(
+          etl::ErrorCode::INVALID_INPUT,
+          "Job creation validation failed",
+          "body",
+          req.body()
+      );
     }
 
   std::stringstream ss;
@@ -625,8 +689,12 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
   return createSuccessResponse(ss.str());
   }
 
-  return createErrorResponse(http::status::bad_request,
-                             "Invalid jobs endpoint");
+  throw etl::ValidationException(
+      etl::ErrorCode::INVALID_INPUT,
+      "Invalid jobs endpoint",
+      "target",
+      target
+  );
 }
 
 http::response<http::string_body>
@@ -649,8 +717,12 @@ RequestHandler::handleMonitoring(const http::request<http::string_body> &req) co
 
   // Validate allowed methods for monitoring endpoints
   if (!InputValidator::isValidHttpMethod(method, {"GET"})) {
-    return createErrorResponse(http::status::method_not_allowed,
-                               "Method not allowed for monitoring endpoint");
+    throw etl::ValidationException(
+        etl::ErrorCode::INVALID_INPUT,
+        "Method not allowed for monitoring endpoint",
+        "method",
+        method
+    );
   }
 
   // Handle GET /api/monitor/jobs - filtered job monitoring
@@ -665,7 +737,12 @@ RequestHandler::handleMonitoring(const http::request<http::string_body> &req) co
     
     if (auto queryValidation = InputValidator::validateMonitoringParams(standardParams); !queryValidation.isValid) {
       REQ_LOG_WARN("RequestHandler::handleMonitoring() - Jobs query validation failed");
-      return createValidationErrorResponse(queryValidation);
+      throw etl::ValidationException(
+          etl::ErrorCode::INVALID_INPUT,
+          "Query parameter validation failed",
+          "query",
+          std::string(req.target())
+      );
     }
 
     // Get all jobs from ETL manager
@@ -730,9 +807,19 @@ RequestHandler::handleMonitoring(const http::request<http::string_body> &req) co
           filteredJobs.resize(limit);
         }
       } catch (const std::invalid_argument&) {
-        return createErrorResponse(http::status::bad_request, "Invalid limit parameter");
+        throw etl::ValidationException(
+            etl::ErrorCode::INVALID_RANGE,
+            "Invalid limit parameter",
+            "limit",
+            limitIt->second
+        );
       } catch (const std::out_of_range&) {
-        return createErrorResponse(http::status::bad_request, "Invalid limit parameter");
+        throw etl::ValidationException(
+            etl::ErrorCode::INVALID_RANGE,
+            "Invalid limit parameter",
+            "limit",
+            limitIt->second
+        );
       }
     }
 
@@ -801,112 +888,23 @@ RequestHandler::handleMonitoring(const http::request<http::string_body> &req) co
         InputValidator::validateMetricsParams(standardParams); !queryValidation.isValid) {
       REQ_LOG_WARN("RequestHandler::handleMonitoring() - Metrics query "
                    "validation failed");
-      return createValidationErrorResponse(queryValidation);
+      throw etl::ValidationException(
+          etl::ErrorCode::INVALID_INPUT,
+          "Query parameter validation failed",
+          "query",
+          std::string(req.target())
+      );
     }
 
   return createSuccessResponse(R"({"total_jobs":0,"running_jobs":0,"completed_jobs":0,"failed_jobs":0})");
   }
 
-  return createErrorResponse(http::status::bad_request,
-                             "Invalid monitoring endpoint");
-}
-
-http::response<http::string_body>
-RequestHandler::createErrorResponse(http::status status,
-                                    const std::string &message) const {
-  
-  http::response<http::string_body> res{status, 11};
-  res.set(http::field::server, "ETL Plus Backend");
-  res.set(http::field::content_type, "application/json");
-  res.set(http::field::access_control_allow_origin, "*");
-  res.keep_alive(false);
-
-  // Escape quotes in the message to prevent JSON injection
-  std::string escaped_message = InputValidator::sanitizeString(message);
-
-  res.body() = std::string(R"({"error":")") + escaped_message + R"(","status":"error"})";
-  res.prepare_payload();
-  return res;
-}
-
-http::response<http::string_body> RequestHandler::createExceptionResponse(
-  const etl::ETLException &ex) const {
-  using enum etl::ErrorCode;
-  using enum http::status;
-  // Note: Cannot use "using enum http::field" due to conflict with status::unknown
-  http::status status = internal_server_error;
-
-  // Map exception codes to HTTP status codes
-  switch (ex.getCode()) {
-  case INVALID_INPUT:
-  case MISSING_FIELD:
-  case INVALID_RANGE:
-    status = bad_request;
-    break;
-
-  case UNAUTHORIZED:
-  case TOKEN_EXPIRED:
-    status = unauthorized;
-    break;
-
-  case FORBIDDEN:
-  case ACCESS_DENIED:
-    status = forbidden;
-    break;
-
-  case JOB_NOT_FOUND:
-    status = not_found;
-    break;
-
-  case CONSTRAINT_VIOLATION:
-  case JOB_ALREADY_RUNNING:
-  case INVALID_JOB_STATE:
-    status = conflict;
-    break;
-
-  case RATE_LIMIT_EXCEEDED:
-    status = too_many_requests;
-    break;
-
-  case COMPONENT_UNAVAILABLE:
-  case MEMORY_ERROR:
-  case THREAD_POOL_EXHAUSTED:
-    status = service_unavailable;
-    break;
-
-  default:
-    status = internal_server_error;
-    break;
-  }
-
-  http::response<http::string_body> res{status, 11};
-  res.set(http::field::server, "ETL Plus Backend");
-  res.set(http::field::content_type, "application/json");
-  res.set(http::field::access_control_allow_origin, "*");
-  res.keep_alive(false);
-
-  // Create structured error response using the exception's JSON representation
-  res.body() = ex.toJsonString();
-  res.prepare_payload();
-  return res;
-}
-
-http::response<http::string_body> RequestHandler::createValidationErrorResponse(
-  const InputValidator::ValidationResult &result) const {
-  
-  http::response<http::string_body> res{http::status::bad_request, 11};
-  res.set(http::field::server, "ETL Plus Backend");
-  res.set(http::field::content_type, "application/json");
-  res.set(http::field::access_control_allow_origin, "*");
-  res.keep_alive(false);
-
-  std::ostringstream json;
-  json << R"({"error":"Validation failed","status":"error","validation":)"
-       << result.toJsonString() << "}";
-
-  res.body() = json.str();
-  res.prepare_payload();
-  return res;
+  throw etl::ValidationException(
+      etl::ErrorCode::INVALID_INPUT,
+      "Invalid monitoring endpoint",
+      "target",
+      target
+  );
 }
 
 http::response<http::string_body>

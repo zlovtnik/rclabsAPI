@@ -88,21 +88,24 @@ void WebSocketManager::broadcastMessage(const std::string& message) {
         return;
     }
 
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
-    
-    WS_LOG_DEBUG("Broadcasting message to " + std::to_string(connections_.size()) + " connections");
-    
-    // Send message to all active connections
-    for (auto it = connections_.begin(); it != connections_.end();) {
-        auto& connection = it->second;
-        if (connection && connection->isOpen()) {
-            connection->send(message);
-            ++it;
-        } else {
-            // Remove inactive connections
-            WS_LOG_DEBUG("Removing inactive connection during broadcast: " + it->first);
-            it = connections_.erase(it);
+    // Collect active connections while holding the lock
+    std::vector<std::shared_ptr<WebSocketConnection>> activeConnections;
+    {
+        SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
+        
+        WS_LOG_DEBUG("Broadcasting message to " + std::to_string(connections_.size()) + " connections");
+        
+        activeConnections.reserve(connections_.size());
+        for (const auto& [id, connection] : connections_) {
+            if (connection && connection->isOpen()) {
+                activeConnections.push_back(connection);
+            }
         }
+    }
+    
+    // Send messages outside the lock to reduce lock contention
+    for (auto& connection : activeConnections) {
+        connection->send(message);
     }
 }
 
@@ -123,12 +126,12 @@ void WebSocketManager::sendToConnection(const std::string& connectionId, const s
 }
 
 size_t WebSocketManager::getConnectionCount() const {
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 500);
+    SCOPED_SHARED_LOCK_TIMEOUT(connectionsMutex_, 500);
     return connections_.size();
 }
 
 std::vector<std::string> WebSocketManager::getConnectionIds() const {
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 500);
+    SCOPED_SHARED_LOCK_TIMEOUT(connectionsMutex_, 500);
     std::vector<std::string> ids;
     ids.reserve(connections_.size());
     
@@ -341,7 +344,7 @@ void WebSocketManager::clearConnectionFilters(const std::string& connectionId) {
 }
 
 std::vector<std::string> WebSocketManager::getConnectionsForJob(const std::string& jobId) const {
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 500);
+    SCOPED_SHARED_LOCK_TIMEOUT(connectionsMutex_, 500);
     std::vector<std::string> matchingConnections;
     
     for (const auto& [id, connection] : connections_) {
@@ -357,7 +360,7 @@ std::vector<std::string> WebSocketManager::getConnectionsForJob(const std::strin
 }
 
 std::vector<std::string> WebSocketManager::getConnectionsForMessageType(MessageType messageType) const {
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 500);
+    SCOPED_SHARED_LOCK_TIMEOUT(connectionsMutex_, 500);
     std::vector<std::string> matchingConnections;
     
     for (const auto& [id, connection] : connections_) {
@@ -373,7 +376,7 @@ std::vector<std::string> WebSocketManager::getConnectionsForMessageType(MessageT
 }
 
 std::vector<std::string> WebSocketManager::getConnectionsForLogLevel(const std::string& logLevel) const {
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 500);
+    SCOPED_SHARED_LOCK_TIMEOUT(connectionsMutex_, 500);
     std::vector<std::string> matchingConnections;
     
     for (const auto& [id, connection] : connections_) {
@@ -389,7 +392,7 @@ std::vector<std::string> WebSocketManager::getConnectionsForLogLevel(const std::
 }
 
 size_t WebSocketManager::getFilteredConnectionCount() const {
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 500);
+    SCOPED_SHARED_LOCK_TIMEOUT(connectionsMutex_, 500);
     size_t filteredCount = 0;
     
     for (const auto& [id, connection] : connections_) {
@@ -406,7 +409,7 @@ size_t WebSocketManager::getFilteredConnectionCount() const {
 }
 
 size_t WebSocketManager::getUnfilteredConnectionCount() const {
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 500);
+    SCOPED_SHARED_LOCK_TIMEOUT(connectionsMutex_, 500);
     size_t unfilteredCount = 0;
     
     for (const auto& [id, connection] : connections_) {

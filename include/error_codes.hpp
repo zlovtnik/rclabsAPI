@@ -75,6 +75,7 @@ const char* getErrorCodeDescription(ErrorCode code);
 std::string getErrorCategory(ErrorCode code);
 bool isRetryableError(ErrorCode code);
 int getDefaultHttpStatus(ErrorCode code);
+std::string errorCodeToString(ErrorCode code);
 
 // Migration mapping from old error codes to new consolidated codes
 namespace migration {

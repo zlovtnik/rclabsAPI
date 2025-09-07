@@ -145,7 +145,7 @@ private:
     std::map<std::shared_ptr<PooledSession>, std::unique_ptr<TimerInfo>> connectionTimers_;
     std::map<std::shared_ptr<PooledSession>, std::unique_ptr<TimerInfo>> requestTimers_;
 
-    mutable std::timed_mutex timerMutex_;
+    mutable etl_plus::ResourceMutex timerMutex_;
 
     /**
      * Handle timeout event

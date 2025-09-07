@@ -131,6 +131,7 @@ set(COMMON_SOURCES
     src/request_validator.cpp
     src/response_builder.cpp
     src/exception_handler.cpp
+    src/exception_mapper.cpp
     src/error_codes.cpp
     src/etl_exceptions.cpp
     src/job_monitoring_models.cpp
@@ -237,6 +238,9 @@ create_test_executable(test_pooled_session scripts/test_pooled_session.cpp)
 create_test_executable(test_pooled_session_integration scripts/test_pooled_session_integration.cpp)
 create_test_executable(demo_request_validator scripts/demo_request_validator.cpp)
 create_test_executable(demo_response_builder_simple scripts/demo_response_builder_simple.cpp)
+create_test_executable(demo_exception_mapper_integration scripts/demo_exception_mapper_integration.cpp)
+create_test_executable(test_exception_mapper scripts/test_exception_mapper.cpp)
+create_test_executable(test_request_handler_refactored scripts/test_request_handler_refactored.cpp)
 if(ENABLE_TESTS)
   create_test_executable(test_lock_utils scripts/test_lock_utils.cpp)
   create_test_executable(demo_lock_utils scripts/demo_lock_utils.cpp)
@@ -247,6 +251,9 @@ if(GTest_FOUND AND ENABLE_TESTS)
   create_test_executable(test_log_handler scripts/test_log_handler.cpp)
   create_test_executable(test_log_file_manager scripts/test_log_file_manager.cpp)
   target_link_libraries(test_log_file_manager GTest::gtest GTest::gtest_main)
+
+  # Concurrency benchmark
+  create_test_executable(test_concurrency_benchmark scripts/test_concurrency_benchmark.cpp)
 
   # TimeoutManager unit tests
   create_test_executable(test_timeout_manager scripts/test_timeout_manager.cpp)

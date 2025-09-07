@@ -65,7 +65,7 @@ public:
     bool testConnectionFilter(const std::string& connectionId, const WebSocketMessage& testMessage) const;
 
 private:
-    mutable etl_plus::ContainerMutex connectionsMutex_;
+    mutable etl_plus::ContainerSharedMutex connectionsMutex_;
     std::unordered_map<std::string, std::shared_ptr<WebSocketConnection>> connections_;
     std::atomic<bool> running_{false};
 };

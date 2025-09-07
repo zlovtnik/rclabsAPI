@@ -199,6 +199,38 @@ int getDefaultHttpStatus(ErrorCode code) {
     return (it != info.end()) ? it->second.defaultHttpStatus : 500;
 }
 
+std::string errorCodeToString(ErrorCode code) {
+    switch (code) {
+        case ErrorCode::INVALID_INPUT: return "INVALID_INPUT";
+        case ErrorCode::MISSING_FIELD: return "MISSING_FIELD";
+        case ErrorCode::INVALID_RANGE: return "INVALID_RANGE";
+        case ErrorCode::CONSTRAINT_VIOLATION: return "CONSTRAINT_VIOLATION";
+        case ErrorCode::UNAUTHORIZED: return "UNAUTHORIZED";
+        case ErrorCode::FORBIDDEN: return "FORBIDDEN";
+        case ErrorCode::TOKEN_EXPIRED: return "TOKEN_EXPIRED";
+        case ErrorCode::ACCESS_DENIED: return "ACCESS_DENIED";
+        case ErrorCode::DATABASE_ERROR: return "DATABASE_ERROR";
+        case ErrorCode::NETWORK_ERROR: return "NETWORK_ERROR";
+        case ErrorCode::FILE_ERROR: return "FILE_ERROR";
+        case ErrorCode::MEMORY_ERROR: return "MEMORY_ERROR";
+        case ErrorCode::CONFIGURATION_ERROR: return "CONFIGURATION_ERROR";
+        case ErrorCode::LOCK_TIMEOUT: return "LOCK_TIMEOUT";
+        case ErrorCode::RATE_LIMIT_EXCEEDED: return "RATE_LIMIT_EXCEEDED";
+        case ErrorCode::DISK_FULL: return "DISK_FULL";
+        case ErrorCode::THREAD_POOL_EXHAUSTED: return "THREAD_POOL_EXHAUSTED";
+        case ErrorCode::SERVICE_STARTUP_FAILED: return "SERVICE_STARTUP_FAILED";
+        case ErrorCode::COMPONENT_UNAVAILABLE: return "COMPONENT_UNAVAILABLE";
+        case ErrorCode::INTERNAL_ERROR: return "INTERNAL_ERROR";
+        case ErrorCode::JOB_NOT_FOUND: return "JOB_NOT_FOUND";
+        case ErrorCode::JOB_ALREADY_RUNNING: return "JOB_ALREADY_RUNNING";
+        case ErrorCode::INVALID_JOB_STATE: return "INVALID_JOB_STATE";
+        case ErrorCode::PROCESSING_FAILED: return "PROCESSING_FAILED";
+        case ErrorCode::TRANSFORMATION_ERROR: return "TRANSFORMATION_ERROR";
+        case ErrorCode::DATA_INTEGRITY_ERROR: return "DATA_INTEGRITY_ERROR";
+        default: return "UNKNOWN_ERROR";
+    }
+}
+
 // Migration namespace implementation
 namespace migration {
     

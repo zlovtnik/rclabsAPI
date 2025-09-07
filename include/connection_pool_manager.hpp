@@ -223,7 +223,7 @@ private:
     std::chrono::seconds maxQueueWaitTime_;
 
     // Thread safety
-    mutable std::timed_mutex poolMutex_;
+    mutable etl_plus::ContainerMutex poolMutex_;
     std::condition_variable_any connectionAvailable_;
     std::condition_variable_any requestQueued_;
 
