@@ -27,7 +27,8 @@ struct ServerConfig;
 class HttpServer {
 public:
   HttpServer(const std::string &address, unsigned short port, int threads = 1);
-  HttpServer(const std::string &address, unsigned short port, int threads, const ServerConfig& config);
+  HttpServer(const std::string &address, unsigned short port, int threads,
+             const ServerConfig &config);
   ~HttpServer();
 
   void start();
@@ -38,7 +39,7 @@ public:
   void setWebSocketManager(std::shared_ptr<WebSocketManager> wsManager);
 
   // Configuration management
-  void setServerConfig(const ServerConfig& config);
+  void setServerConfig(const ServerConfig &config);
   ServerConfig getServerConfig() const;
 
   // Connection pool management
