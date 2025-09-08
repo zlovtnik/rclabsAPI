@@ -55,8 +55,8 @@ void TimeoutManager::startConnectionTimeout(std::shared_ptr<PooledSession> sessi
     timerInfo->timer->expires_after(actualTimeout);
 
     // Start async wait
-    timerInfo->timer->async_wait([this, session, actualCallback](const boost::system::error_code& ec) {
-        handleTimeout(session, TimeoutType::CONNECTION, actualCallback, ec);
+    timerInfo->timer->async_wait([this, session, actualCallback, timer = timerInfo->timer.get()](const boost::system::error_code& ec) {
+        handleTimeout(session, TimeoutType::CONNECTION, actualCallback, ec, timer);
     });
 
     connectionTimers_[session] = std::move(timerInfo);
@@ -98,8 +98,8 @@ void TimeoutManager::startRequestTimeout(std::shared_ptr<PooledSession> session,
     timerInfo->timer->expires_after(actualTimeout);
 
     // Start async wait
-    timerInfo->timer->async_wait([this, session, actualCallback](const boost::system::error_code& ec) {
-        handleTimeout(session, TimeoutType::REQUEST, actualCallback, ec);
+    timerInfo->timer->async_wait([this, session, actualCallback, timer = timerInfo->timer.get()](const boost::system::error_code& ec) {
+        handleTimeout(session, TimeoutType::REQUEST, actualCallback, ec, timer);
     });
 
     requestTimers_[session] = std::move(timerInfo);
@@ -227,7 +227,8 @@ void TimeoutManager::cancelAllTimers() {
 void TimeoutManager::handleTimeout(std::shared_ptr<PooledSession> session,
                                   TimeoutType type,
                                   TimeoutCallback callback,
-                                  const boost::system::error_code& ec) {
+                                  const boost::system::error_code& ec,
+                                  net::steady_timer* firedTimer) {
     std::string typeStr = (type == TimeoutType::CONNECTION) ? "connection" : "request";
     
     if (ec == boost::asio::error::operation_aborted) {
@@ -243,10 +244,14 @@ void TimeoutManager::handleTimeout(std::shared_ptr<PooledSession> session,
 
     HTTP_LOG_DEBUG("TimeoutManager::handleTimeout - timeout occurred for " + typeStr);
 
-    // Remove the timer from our tracking maps
+    // Remove the timer from our tracking maps only if it's still the current timer
     {
         etl_plus::ScopedTimedLock<etl_plus::ResourceMutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
-        removeTimer(session, type);
+        auto& timers = (type == TimeoutType::CONNECTION) ? connectionTimers_ : requestTimers_;
+        auto it = timers.find(session);
+        if (it != timers.end() && it->second->timer.get() == firedTimer) {
+            removeTimer(session, type);
+        }
     }
 
     // Invoke the callback

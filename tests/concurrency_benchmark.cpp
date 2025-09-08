@@ -60,7 +60,7 @@ private:
     void benchmarkSharedMutex() {
         std::cout << "Benchmarking reader-writer mutex (read-heavy workload)...\n";
         etl_plus::StateSharedMutex mutex;
-        size_t counter = 0;
+        std::atomic<size_t> counter{0};
 
         auto start = std::chrono::high_resolution_clock::now();
 
@@ -69,7 +69,7 @@ private:
             threads.emplace_back([&]() {
                 for (size_t j = 0; j < iterations_; ++j) {
                     etl_plus::ScopedTimedSharedLock lock(mutex);
-                    ++counter;
+                    counter.fetch_add(1, std::memory_order_relaxed);
                 }
             });
         }
@@ -81,9 +81,9 @@ private:
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
-        std::cout << "  Shared mutex result: " << counter << " operations in "
+        std::cout << "  Shared mutex result: " << counter.load() << " operations in "
                   << duration.count() << "ms\n";
-        std::cout << "  Shared mutex throughput: " << (counter * 1000.0 / duration.count())
+        std::cout << "  Shared mutex throughput: " << (counter.load() * 1000.0 / duration.count())
                   << " ops/sec\n\n";
     }
 

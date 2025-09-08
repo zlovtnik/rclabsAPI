@@ -678,7 +678,7 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
           "RequestHandler::handleETLJobs() - Job update validation failed");
       throw etl::ValidationException(
           etl::ErrorCode::INVALID_INPUT,
-          "Job creation validation failed",
+          "Job update validation failed",
           "body",
           req.body()
       );

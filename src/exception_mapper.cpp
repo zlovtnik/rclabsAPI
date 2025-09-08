@@ -15,10 +15,6 @@ namespace ExceptionHandling {
 // Thread-local storage for correlation ID
 thread_local std::string ExceptionMapper::currentCorrelationId_;
 
-// Global exception mapper instance
-static std::unique_ptr<ExceptionMapper> globalExceptionMapper = nullptr;
-static std::mutex globalMapperMutex;
-
 // ErrorResponseFormat implementation
 std::string ErrorResponseFormat::toJson() const {
     std::ostringstream json;
@@ -287,7 +283,8 @@ std::optional<HttpResponse> ExceptionMapper::tryCustomHandler(const etl::ETLExce
     }
     
     // Try type handler
-    auto typeIt = typeHandlers_.find(typeid(exception));
+    std::lock_guard<std::mutex> lock(typeHandlersMutex_);
+    auto typeIt = typeHandlers_.find(std::type_index(typeid(exception)));
     if (typeIt != typeHandlers_.end()) {
         return typeIt->second(exception, operationName);
     }
@@ -350,11 +347,8 @@ HttpResponse createMaintenanceResponse(const std::string& message) {
 
 // Global exception mapper
 ExceptionMapper& getGlobalExceptionMapper() {
-    std::lock_guard<std::mutex> lock(globalMapperMutex);
-    if (!globalExceptionMapper) {
-        globalExceptionMapper = createExceptionMapper();
-    }
-    return *globalExceptionMapper;
+    static ExceptionMapper instance;
+    return instance;
 }
 
 } // namespace ExceptionHandling

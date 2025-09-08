@@ -153,11 +153,13 @@ private:
      * @param type The type of timeout
      * @param callback The callback to invoke
      * @param ec Error code from timer operation
+     * @param firedTimer The timer that fired
      */
     void handleTimeout(std::shared_ptr<PooledSession> session,
                       TimeoutType type,
                       TimeoutCallback callback,
-                      const boost::system::error_code& ec);
+                      const boost::system::error_code& ec,
+                      net::steady_timer* firedTimer);
 
     /**
      * Default timeout handler - logs timeout events
