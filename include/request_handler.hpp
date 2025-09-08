@@ -7,6 +7,7 @@
 #include "job_monitoring_models.hpp"
 #include "transparent_string_hash.hpp"
 #include "exception_mapper.hpp"
+#include "hana_exception_handling.hpp"
 #include "logger.hpp"
 #include <boost/beast/http.hpp>
 #include <memory>
@@ -42,6 +43,13 @@ private:
   std::shared_ptr<ETLJobManager> etlManager_;
   std::shared_ptr<JobMonitorService> monitorService_; // Add this member
   ETLPlus::ExceptionHandling::ExceptionMapper exceptionMapper_;
+
+  // Hana-based exception handling registry for better type safety
+  etl::hana_exception_handling::HanaExceptionRegistry<
+      etl::hana_exception_handling::ExceptionHandler<etl::ValidationException>,
+      etl::hana_exception_handling::ExceptionHandler<etl::SystemException>,
+      etl::hana_exception_handling::ExceptionHandler<etl::BusinessException>
+  > hanaExceptionRegistry_;
 
   // Enhanced validation methods
   http::response<http::string_body>

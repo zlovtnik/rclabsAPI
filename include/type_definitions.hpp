@@ -5,6 +5,7 @@
 #include <unordered_set>
 #include <functional>
 #include <memory>
+#include <boost/hana.hpp>
 #include "transparent_string_hash.hpp"
 
 namespace etl {
@@ -15,26 +16,36 @@ using StringMap = std::unordered_map<std::string, std::string,
 using StringSet = std::unordered_set<std::string, 
                                    TransparentStringHash, std::equal_to<>>;
 
-// Strong types for IDs to prevent mixing different ID types
-class JobId {
+// ============================================================================
+// Strong Type Definitions using Boost.Hana
+// ============================================================================
+
+// Define the strong ID types using Hana tuples for better metaprogramming support
+using StrongIdTypes = boost::hana::tuple<boost::hana::type<class JobIdTag>,
+                                        boost::hana::type<class ConnectionIdTag>,
+                                        boost::hana::type<class UserIdTag>>;
+
+// Base class template for strong IDs
+template<typename Tag>
+class StrongId {
 public:
-    explicit JobId(std::string id) : value_(std::move(id)) {
+    explicit StrongId(std::string id) : value_(std::move(id)) {
         if (value_.empty()) {
-            throw std::invalid_argument("JobId cannot be empty");
+            throw std::invalid_argument("ID cannot be empty");
         }
     }
     
     const std::string& value() const noexcept { return value_; }
     
-    bool operator==(const JobId& other) const noexcept {
+    bool operator==(const StrongId& other) const noexcept {
         return value_ == other.value_;
     }
     
-    bool operator!=(const JobId& other) const noexcept {
+    bool operator!=(const StrongId& other) const noexcept {
         return !(*this == other);
     }
     
-    bool operator<(const JobId& other) const noexcept {
+    bool operator<(const StrongId& other) const noexcept {
         return value_ < other.value_;
     }
     
@@ -42,64 +53,17 @@ private:
     std::string value_;
 };
 
-class ConnectionId {
-public:
-    explicit ConnectionId(std::string id) : value_(std::move(id)) {
-        if (value_.empty()) {
-            throw std::invalid_argument("ConnectionId cannot be empty");
-        }
-    }
-    
-    const std::string& value() const noexcept { return value_; }
-    
-    bool operator==(const ConnectionId& other) const noexcept {
-        return value_ == other.value_;
-    }
-    
-    bool operator!=(const ConnectionId& other) const noexcept {
-        return !(*this == other);
-    }
-    
-    bool operator<(const ConnectionId& other) const noexcept {
-        return value_ < other.value_;
-    }
-    
-private:
-    std::string value_;
-};
-
-class UserId {
-public:
-    explicit UserId(std::string id) : value_(std::move(id)) {
-        if (value_.empty()) {
-            throw std::invalid_argument("UserId cannot be empty");
-        }
-    }
-    
-    const std::string& value() const noexcept { return value_; }
-    
-    bool operator==(const UserId& other) const noexcept {
-        return value_ == other.value_;
-    }
-    
-    bool operator!=(const UserId& other) const noexcept {
-        return !(*this == other);
-    }
-    
-    bool operator<(const UserId& other) const noexcept {
-        return value_ < other.value_;
-    }
-    
-private:
-    std::string value_;
-};
+// Concrete strong ID types
+using JobId = StrongId<JobIdTag>;
+using ConnectionId = StrongId<ConnectionIdTag>;
+using UserId = StrongId<UserIdTag>;
 
 // Type-safe ID generation utilities
 class IdGenerator {
 public:
-    static JobId generateJobId();
-    static ConnectionId generateConnectionId();
-    static UserId generateUserId();
+    static etl::JobId generateJobId();
+    static etl::ConnectionId generateConnectionId();
+    static etl::UserId generateUserId();
     
 private:
     static std::string generateUuid();
@@ -107,25 +71,15 @@ private:
 
 } // namespace etl
 
-// Hash specializations for strong types to enable use in unordered containers
+// ============================================================================
+// Hash specializations using Hana for compile-time generation
+// ============================================================================
+
 namespace std {
-    template<>
-    struct hash<etl::JobId> {
-        size_t operator()(const etl::JobId& id) const noexcept {
-            return hash<string>{}(id.value());
-        }
-    };
-    
-    template<>
-    struct hash<etl::ConnectionId> {
-        size_t operator()(const etl::ConnectionId& id) const noexcept {
-            return hash<string>{}(id.value());
-        }
-    };
-    
-    template<>
-    struct hash<etl::UserId> {
-        size_t operator()(const etl::UserId& id) const noexcept {
+    // Helper to generate hash specialization for any StrongId type
+    template<typename Tag>
+    struct hash<etl::StrongId<Tag>> {
+        size_t operator()(const etl::StrongId<Tag>& id) const noexcept {
             return hash<string>{}(id.value());
         }
     };

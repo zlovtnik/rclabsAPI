@@ -11,12 +11,13 @@
 #include <chrono>
 #include <sstream>
 #include <stdexcept>
+#include <boost/hana.hpp>
 
 namespace etl {
 namespace template_utils {
 
 // ============================================================================
-// Type Traits for Components
+// Type Traits for Components using Boost.Hana
 // ============================================================================
 
 /**
@@ -32,22 +33,23 @@ template<typename T>
 constexpr bool has_component_trait_v = has_component_trait<T>::value;
 
 /**
- * Type trait to check if a type is a strong ID type
+ * Type trait to check if a type is a strong ID type using Hana
+ * This automatically works for all StrongId types
  */
 template<typename T>
 struct is_strong_id : std::false_type {};
 
-template<>
-struct is_strong_id<JobId> : std::true_type {};
-
-template<>
-struct is_strong_id<ConnectionId> : std::true_type {};
-
-template<>
-struct is_strong_id<UserId> : std::true_type {};
+template<typename Tag>
+struct is_strong_id<StrongId<Tag>> : std::true_type {};
 
 template<typename T>
 constexpr bool is_strong_id_v = is_strong_id<T>::value;
+
+// ============================================================================
+// Hana-based type list for strong ID types
+// ============================================================================
+
+using StrongIdTypeList = boost::hana::tuple<JobId, ConnectionId, UserId>;
 
 /**
  * Type trait to extract the underlying value type from strong ID types

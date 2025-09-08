@@ -160,7 +160,10 @@ set(COMMON_SOURCES
 add_library(etl_common STATIC ${COMMON_SOURCES})
 
 # Set include directories for the library
-target_include_directories(etl_common PUBLIC include)
+target_include_directories(etl_common PUBLIC
+    include
+    ${Boost_INCLUDE_DIRS}
+)
 if(JSONCPP_INCLUDE_DIR)
     target_include_directories(etl_common PUBLIC ${JSONCPP_INCLUDE_DIR})
 endif()
@@ -186,7 +189,10 @@ add_executable(ETLPlusBackend
     src/request_handler.cpp
 )
 
-target_include_directories(ETLPlusBackend PRIVATE include)
+target_include_directories(ETLPlusBackend PRIVATE
+    include
+    ${Boost_INCLUDE_DIRS}
+)
 target_link_libraries(ETLPlusBackend etl_common)
 
 # Set output directory
@@ -242,6 +248,7 @@ create_test_executable(test_log_streaming_simple scripts/test_log_streaming_simp
 create_test_executable(test_log_streaming_integration scripts/test_log_streaming_integration.cpp)
 create_test_executable(test_log_streaming_demo scripts/test_log_streaming_demo.cpp)
 create_test_executable(test_enhanced_rest_endpoints_simple scripts/test_enhanced_rest_endpoints_simple.cpp)
+create_test_executable(hana_exception_demo scripts/hana_exception_demo.cpp)
 create_test_executable(test_config_management_demo scripts/test_config_management_demo.cpp)
 create_test_executable(test_config_simple scripts/test_config_simple.cpp)
 create_test_executable(test_server_config_and_metrics scripts/test_server_config_and_metrics.cpp)

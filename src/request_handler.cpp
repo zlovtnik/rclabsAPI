@@ -33,6 +33,19 @@ RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
   config.keepAlive = false;
   config.includeInternalDetails = false; // Don't expose internal details in production
   exceptionMapper_.updateConfig(config);
+
+  // Initialize Hana-based exception handlers for better type safety and performance
+  hanaExceptionRegistry_.registerHandler<etl::ValidationException>(
+      etl::hana_exception_handling::makeValidationErrorHandler()
+  );
+  hanaExceptionRegistry_.registerHandler<etl::SystemException>(
+      etl::hana_exception_handling::makeSystemErrorHandler()
+  );
+  hanaExceptionRegistry_.registerHandler<etl::BusinessException>(
+      etl::hana_exception_handling::makeBusinessErrorHandler()
+  );
+
+  REQ_LOG_INFO("Hana-based exception handlers registered for improved error handling");
 }
 
 template <class Body, class Allocator>
@@ -81,8 +94,10 @@ http::response<http::string_body> RequestHandler::handleRequest(
     return validateAndHandleRequest(string_req);
 
   } catch (const etl::ETLException &ex) {
-    return exceptionMapper_.mapToResponse(ex, "handleRequest");
+    // Use Hana-based exception handling for better type safety and performance
+    return hanaExceptionRegistry_.handle(ex, "handleRequest");
   } catch (const std::exception &e) {
+    // Fallback to traditional exception mapper for non-ETL exceptions
     return exceptionMapper_.mapToResponse(e, "handleRequest");
   } catch (...) {
     return exceptionMapper_.mapToResponse("handleRequest");
