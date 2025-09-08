@@ -7,7 +7,10 @@
 #include <memory>
 #include <unordered_map>
 #include <string>
-#include <chrono>
+#include <shared_mutex>
+#include <optional>
+#include <typeindex>
+#include <typeinfo>
 
 namespace ETLPlus {
 namespace ExceptionHandling {
@@ -69,9 +72,9 @@ public:
     ExceptionMapper(const ExceptionMapper&) = delete;
     ExceptionMapper& operator=(const ExceptionMapper&) = delete;
     
-    // Enable move constructor and assignment
-    ExceptionMapper(ExceptionMapper&&) = default;
-    ExceptionMapper& operator=(ExceptionMapper&&) = default;
+    // Disable move constructor and assignment
+    ExceptionMapper(ExceptionMapper&&) = delete;
+    ExceptionMapper& operator=(ExceptionMapper&&) = delete;
     
     // Main method to map exception to HTTP response
     HttpResponse mapToResponse(const etl::ETLException& exception, 
@@ -90,7 +93,8 @@ public:
     // Register custom exception handler for exception types
     template<typename ExceptionType>
     void registerTypeHandler(ExceptionHandlerFunc handler) {
-        typeHandlers_[typeid(ExceptionType)] = handler;
+        std::lock_guard<std::mutex> lock(typeHandlersMutex_);
+        typeHandlers_[std::type_index(typeid(ExceptionType))] = handler;
     }
     
     // Update configuration
@@ -125,6 +129,9 @@ private:
     // Custom handlers for exception types
     std::unordered_map<std::type_index, ExceptionHandlerFunc> typeHandlers_;
     
+    // Mutex for thread-safe access to typeHandlers_
+    mutable std::mutex typeHandlersMutex_;
+    
     // Map error codes to HTTP status codes
     boost::beast::http::status mapErrorCodeToStatus(etl::ErrorCode code) const;
     
@@ -141,7 +148,8 @@ private:
     // Check if custom handler exists for exception type
     template<typename ExceptionType>
     bool hasCustomTypeHandler() const {
-        return typeHandlers_.find(typeid(ExceptionType)) != typeHandlers_.end();
+        std::lock_guard<std::mutex> lock(typeHandlersMutex_);
+        return typeHandlers_.find(std::type_index(typeid(ExceptionType))) != typeHandlers_.end();
     }
     
     // Apply custom handler if available
@@ -181,6 +189,7 @@ HttpResponse createRateLimitResponse(const std::string& message = "Rate limit ex
 HttpResponse createMaintenanceResponse(const std::string& message = "Service temporarily unavailable");
 
 // Global exception mapper instance (thread-safe)
+// The function-local static ensures thread-safe construction and that internal operations are protected by the class's locks.
 ExceptionMapper& getGlobalExceptionMapper();
 
 // Convenience macros for exception mapping
