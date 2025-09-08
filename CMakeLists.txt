@@ -12,9 +12,20 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Option to enable tests
 option(ENABLE_TESTS "Enable GTest-based tests" ON)
 
+# Option to enable code coverage
+option(ENABLE_CODE_COVERAGE "Enable code coverage reporting" OFF)
+
 # Build optimization flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
 set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
+
+# Code coverage flags
+if(ENABLE_CODE_COVERAGE)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -g --coverage")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --coverage")
+    endif()
+endif()
 
 # Enable parallel compilation
 if(MSVC)
@@ -254,6 +265,7 @@ if(GTest_FOUND AND ENABLE_TESTS)
 
   # Concurrency benchmark
   create_test_executable(test_concurrency_benchmark scripts/test_concurrency_benchmark.cpp)
+  target_link_libraries(test_concurrency_benchmark GTest::gtest GTest::gtest_main)
 
   # TimeoutManager unit tests
   create_test_executable(test_timeout_manager scripts/test_timeout_manager.cpp)
