@@ -45,6 +45,17 @@ RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
       etl::hana_exception_handling::makeBusinessErrorHandler()
   );
 
+  // Register the same handlers with the exceptionMapper for consistency
+  exceptionMapper_.registerTypeHandler<etl::ValidationException>(
+      etl::hana_exception_handling::makeValidationErrorHandler()
+  );
+  exceptionMapper_.registerTypeHandler<etl::SystemException>(
+      etl::hana_exception_handling::makeSystemErrorHandler()
+  );
+  exceptionMapper_.registerTypeHandler<etl::BusinessException>(
+      etl::hana_exception_handling::makeBusinessErrorHandler()
+  );
+
   REQ_LOG_INFO("Hana-based exception handlers registered for improved error handling");
 }
 

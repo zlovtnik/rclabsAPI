@@ -5,7 +5,11 @@
 #include <atomic>
 #include <mutex>
 #include <shared_mutex>
-#include "../include/lock_utils.hpp"
+#include "../include/lock_        std::cout << "  Lock-free result: " << counter.load() << " operations in "
+                  << duration.count() << "ms\n";
+        double safe_duration = std::max(duration.count(), 1LL);
+        std::cout << "  Lock-free throughput: " << (counter.load() * 1000.0 / safe_duration)
+                  << " ops/sec\n\n";s.hpp"
 
 // Benchmark for comparing different locking strategies
 class ConcurrencyBenchmark {
@@ -53,7 +57,8 @@ private:
 
         std::cout << "  OrderedMutex result: " << counter << " operations in "
                   << duration.count() << "ms\n";
-        std::cout << "  OrderedMutex throughput: " << (counter * 1000.0 / duration.count())
+        double safe_duration = std::max(duration.count(), 1LL);
+        std::cout << "  OrderedMutex throughput: " << (counter * 1000.0 / safe_duration)
                   << " ops/sec\n\n";
     }
 
@@ -83,7 +88,8 @@ private:
 
         std::cout << "  Shared mutex result: " << counter.load() << " operations in "
                   << duration.count() << "ms\n";
-        std::cout << "  Shared mutex throughput: " << (counter.load() * 1000.0 / duration.count())
+        double safe_duration = std::max(duration.count(), 1LL);
+        std::cout << "  Shared mutex throughput: " << (counter.load() * 1000.0 / safe_duration)
                   << " ops/sec\n\n";
     }
 
@@ -111,7 +117,8 @@ private:
 
         std::cout << "  Atomic result: " << counter.load() << " operations in "
                   << duration.count() << "ms\n";
-        std::cout << "  Atomic throughput: " << (counter.load() * 1000.0 / duration.count())
+        double safe_duration = std::max(duration.count(), 1LL);
+        std::cout << "  Atomic throughput: " << (counter.load() * 1000.0 / safe_duration)
                   << " ops/sec\n\n";
     }
 
@@ -122,11 +129,7 @@ private:
             std::atomic<size_t> value{0};
 
             void increment() {
-                size_t expected = value.load(std::memory_order_relaxed);
-                while (!value.compare_exchange_weak(expected, expected + 1,
-                                                  std::memory_order_relaxed)) {
-                    // Loop until successful
-                }
+                value.fetch_add(1, std::memory_order_relaxed);
             }
 
             size_t load() const {

@@ -53,7 +53,8 @@ private:
 
         std::cout << "  Mutex result: " << counter << " operations in "
                   << duration.count() << "ms\n";
-        std::cout << "  Mutex throughput: " << (counter * 1000.0 / duration.count())
+        double safe_duration = std::max(duration.count(), 1LL);
+        std::cout << "  Mutex throughput: " << (counter * 1000.0 / safe_duration)
                   << " ops/sec\n\n";
     }
 
@@ -68,7 +69,8 @@ private:
         for (size_t i = 0; i < numThreads_; ++i) {
             threads.emplace_back([&]() {
                 for (size_t j = 0; j < iterations_; ++j) {
-                    etl_plus::ScopedTimedSharedLock lock(mutex);
+                    // Use exclusive lock for write operations
+                    etl_plus::ScopedTimedLock lock(mutex);
                     counter.fetch_add(1, std::memory_order_relaxed);
                 }
             });
@@ -83,7 +85,8 @@ private:
 
         std::cout << "  Shared mutex result: " << counter.load() << " operations in "
                   << duration.count() << "ms\n";
-        std::cout << "  Shared mutex throughput: " << (counter.load() * 1000.0 / duration.count())
+        double safe_duration = std::max(duration.count(), 1LL);
+        std::cout << "  Shared mutex throughput: " << (counter.load() * 1000.0 / safe_duration)
                   << " ops/sec\n\n";
     }
 

@@ -1,13 +1,28 @@
-#include "exception_mapper.hpp"
-#include "string_utils.hpp"
-#include <boost/beast/http.hpp>
-#include <sstream>
-#include <iomanip>
-#include <random>
-#include <chrono>
-#include <thread>
-#include <mutex>
-#include <optional>
+// Helper function to escape JSON strings
+std::string escapeJsonString(const std::string& input) {
+    std::ostringstream escaped;
+    for (char c : input) {
+        switch (c) {
+            case '"':  escaped << "\\\""; break;
+            case '\\': escaped << "\\\\"; break;
+            case '\b': escaped << "\\b"; break;
+            case '\f': escaped << "\\f"; break;
+            case '\n': escaped << "\\n"; break;
+            case '\r': escaped << "\\r"; break;
+            case '\t': escaped << "\\t"; break;
+            default:
+                if (static_cast<unsigned char>(c) < 32) {
+                    // Escape control characters
+                    escaped << "\\u" << std::hex << std::setw(4) << std::setfill('0') 
+                           << static_cast<int>(static_cast<unsigned char>(c));
+                } else {
+                    escaped << c;
+                }
+                break;
+        }
+    }
+    return escaped.str();
+}
 
 namespace ETLPlus {
 namespace ExceptionHandling {
@@ -19,25 +34,25 @@ thread_local std::string ExceptionMapper::currentCorrelationId_;
 std::string ErrorResponseFormat::toJson() const {
     std::ostringstream json;
     json << "{";
-    json << "\"status\":\"" << status << "\",";
-    json << "\"message\":\"" << message << "\",";
-    json << "\"code\":\"" << code << "\",";
-    json << "\"correlationId\":\"" << correlationId << "\",";
-    json << "\"timestamp\":\"" << timestamp << "\"";
+    json << "\"status\":\"" << escapeJsonString(status) << "\",";
+    json << "\"message\":\"" << escapeJsonString(message) << "\",";
+    json << "\"code\":\"" << escapeJsonString(code) << "\",";
+    json << "\"correlationId\":\"" << escapeJsonString(correlationId) << "\",";
+    json << "\"timestamp\":\"" << escapeJsonString(timestamp) << "\"";
     
     if (!context.empty()) {
         json << ",\"context\":{";
         bool first = true;
         for (const auto& [key, value] : context) {
             if (!first) json << ",";
-            json << "\"" << key << "\":\"" << value << "\"";
+            json << "\"" << escapeJsonString(key) << "\":\"" << escapeJsonString(value) << "\"";
             first = false;
         }
         json << "}";
     }
     
     if (!details.empty()) {
-        json << ",\"details\":\"" << details << "\"";
+        json << ",\"details\":\"" << escapeJsonString(details) << "\"";
     }
     
     json << "}";
@@ -113,10 +128,23 @@ ErrorResponseFormat ExceptionMapper::createErrorFormat(const etl::ETLException& 
     format.code = etl::errorCodeToString(exception.getCode());
     format.correlationId = exception.getCorrelationId();
     
-    // Format timestamp
+    // Format timestamp using thread-safe gmtime
     auto time_t = std::chrono::system_clock::to_time_t(exception.getTimestamp());
-    std::ostringstream timestampStream;
-    timestampStream << std::put_time(std::gmtime(&time_t), "%Y-%m-%dT%H:%M:%SZ");
+    std::tm tm_buf;
+    std::tm* tm_ptr;
+    
+    #ifdef _WIN32
+        gmtime_s(&tm_buf, &time_t);
+        tm_ptr = &tm_buf;
+    #else
+        tm_ptr = gmtime_r(&time_t, &tm_buf);
+    #endif
+    
+    if (tm_ptr) {
+        timestampStream << std::put_time(tm_ptr, "%Y-%m-%dT%H:%M:%SZ");
+    } else {
+        timestampStream << "1970-01-01T00:00:00Z"; // Fallback
+    }
     format.timestamp = timestampStream.str();
     
     // Copy context
@@ -172,9 +200,9 @@ void ExceptionMapper::logException(const etl::ETLException& exception,
 }
 
 std::string ExceptionMapper::generateCorrelationId() {
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
-    static std::uniform_int_distribution<> dis(0, 15);
+    thread_local std::random_device rd;
+    thread_local std::mt19937 gen(rd());
+    thread_local std::uniform_int_distribution<> dis(0, 15);
     
     std::ostringstream oss;
     oss << std::hex;
@@ -305,24 +333,21 @@ std::unique_ptr<ExceptionMapper> createExceptionMapper(const ExceptionMappingCon
 // Utility functions
 HttpResponse createValidationErrorResponse(const etl::ValidationException& exception,
                                           const std::string& operationName) {
-    ExceptionMapper mapper;
-    return mapper.mapToResponse(exception, operationName);
+    return getGlobalExceptionMapper().mapToResponse(exception, operationName);
 }
 
 HttpResponse createSystemErrorResponse(const etl::SystemException& exception,
                                       const std::string& operationName) {
-    ExceptionMapper mapper;
-    return mapper.mapToResponse(exception, operationName);
+    return getGlobalExceptionMapper().mapToResponse(exception, operationName);
 }
 
 HttpResponse createBusinessErrorResponse(const etl::BusinessException& exception,
                                         const std::string& operationName) {
-    ExceptionMapper mapper;
-    return mapper.mapToResponse(exception, operationName);
+    return getGlobalExceptionMapper().mapToResponse(exception, operationName);
 }
 
 HttpResponse createRateLimitResponse(const std::string& message, const std::string& retryAfter) {
-    ExceptionMapper mapper;
+    auto& mapper = getGlobalExceptionMapper();
     auto exception = etl::SystemException(
         etl::ErrorCode::RATE_LIMIT_EXCEEDED,
         message,
@@ -335,7 +360,7 @@ HttpResponse createRateLimitResponse(const std::string& message, const std::stri
 }
 
 HttpResponse createMaintenanceResponse(const std::string& message) {
-    ExceptionMapper mapper;
+    auto& mapper = getGlobalExceptionMapper();
     auto exception = etl::SystemException(
         etl::ErrorCode::COMPONENT_UNAVAILABLE,
         message,

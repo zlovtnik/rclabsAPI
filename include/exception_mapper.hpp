@@ -192,15 +192,15 @@ HttpResponse createMaintenanceResponse(const std::string& message = "Service tem
 // The function-local static ensures thread-safe construction and that internal operations are protected by the class's locks.
 ExceptionMapper& getGlobalExceptionMapper();
 
-// Convenience macros for exception mapping
-#define MAP_EXCEPTION_TO_RESPONSE(exception, operation) \
-    ETLPlus::ExceptionHandling::getGlobalExceptionMapper().mapToResponse(exception, operation)
+// Convenience functions for exception mapping
+inline HttpResponse mapExceptionToResponse(const etl::ETLException& exception, const std::string& operation = "") {
+    return ETLPlus::ExceptionHandling::getGlobalExceptionMapper().mapToResponse(exception, operation);
+}
 
-#define LOG_AND_MAP_EXCEPTION(exception, operation) \
-    do { \
-        ETLPlus::ExceptionHandling::getGlobalExceptionMapper().logException(exception, operation); \
-        return ETLPlus::ExceptionHandling::getGlobalExceptionMapper().mapToResponse(exception, operation); \
-    } while(0)
+inline HttpResponse logAndMapException(const etl::ETLException& exception, const std::string& operation = "") {
+    ETLPlus::ExceptionHandling::getGlobalExceptionMapper().logException(exception, operation);
+    return ETLPlus::ExceptionHandling::getGlobalExceptionMapper().mapToResponse(exception, operation);
+}
 
 } // namespace ExceptionHandling
 } // namespace ETLPlus

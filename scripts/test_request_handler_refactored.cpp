@@ -2,6 +2,7 @@
 #include "database_manager.hpp"
 #include "auth_manager.hpp"
 #include "etl_job_manager.hpp"
+#include "data_transformer.hpp"
 #include "exception_mapper.hpp"
 #include "logger.hpp"
 #include <boost/beast/http.hpp>
@@ -13,10 +14,12 @@ using namespace boost::beast::http;
 void testRequestHandlerWithExceptionMapper() {
     std::cout << "=== Testing Refactored RequestHandler with ExceptionMapper ===" << std::endl;
     
-    // Create mock components (null pointers for testing)
-    auto dbManager = std::shared_ptr<DatabaseManager>(nullptr);
-    auto authManager = std::shared_ptr<AuthManager>(nullptr);
-    auto etlManager = std::shared_ptr<ETLJobManager>(nullptr);
+    // Create minimal test instances instead of nullptr
+    auto dbManager = std::make_shared<DatabaseManager>();
+    auto authManager = std::make_shared<AuthManager>();
+    // ETLJobManager requires dependencies, create minimal ones
+    auto dataTransformer = std::make_shared<DataTransformer>();
+    auto etlManager = std::make_shared<ETLJobManager>(dbManager, dataTransformer);
     
     // Create RequestHandler with ExceptionMapper
     RequestHandler handler(dbManager, authManager, etlManager);

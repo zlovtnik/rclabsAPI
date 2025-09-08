@@ -7,9 +7,41 @@
 #include <unordered_map>
 #include <string>
 #include <typeindex>
+#include <sstream>
+#include <iomanip>
 
-namespace etl {
-namespace hana_exception_handling {
+namespace ETLPlus {
+namespace ExceptionHandling {
+
+// Helper function to escape JSON strings
+inline std::string escapeJsonString(const std::string& input) {
+    std::ostringstream escaped;
+    for (char c : input) {
+        switch (c) {
+            case '"':  escaped << """; break;
+            case '': escaped << ""; break;
+            case '\b': escaped << "\b"; break;
+            case '\f': escaped << "\f"; break;
+            case '
+': escaped << "
+"; break;
+            case '
+': escaped << "
+"; break;
+            case '	': escaped << "	"; break;
+            default:
+                if (static_cast<unsigned char>(c) < 32) {
+                    // Escape control characters
+                    escaped << "\u" << std::hex << std::setw(4) << std::setfill('0') 
+                           << static_cast<int>(static_cast<unsigned char>(c));
+                } else {
+                    escaped << c;
+                }
+                break;
+        }
+    }
+    return escaped.str();
+}
 
 // ============================================================================
 // Compile-time Exception Type Registry using Hana
@@ -112,24 +144,23 @@ private:
         res.set(http::field::content_type, "application/json");
         res.set(http::field::server, "ETL Plus Backend");
 
-        // Create error response JSON
-        std::string errorJson = R"({
-            "status": "error",
-            "message": ")" + std::string(ex.what()) + R"(",
-            "code": ")" + std::to_string(static_cast<int>(ex.getCode())) + R"(",
-            "correlationId": ")" + ex.getCorrelationId() + R"(",
-            "timestamp": ")" + std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
-                ex.getTimestamp().time_since_epoch()).count()) + R"("
-        })";
-
+        // Create error response JSON with proper escaping
+        std::ostringstream jsonStream;
+        jsonStream << "{";
+        jsonStream << "\"status\":\"error\",";
+        jsonStream << "\"message\":\"" << escapeJsonString(std::string(ex.what())) << "\",";
+        jsonStream << "\"code\":\"" << std::to_string(static_cast<int>(ex.getCode())) << "\",";
+        jsonStream << "\"correlationId\":\"" << escapeJsonString(ex.getCorrelationId()) << "\",";
+        jsonStream << "\"timestamp\":\"" << std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
+            ex.getTimestamp().time_since_epoch()).count()) << "\"";
+        
         if (!operation.empty()) {
-            errorJson += R"(,
-            "operation": ")" + operation + R"(")";
+            jsonStream << ",\"operation\":\"" << escapeJsonString(operation) << "\"";
         }
-
-        errorJson += "\n}";
-
-        res.body() = errorJson;
+        
+        jsonStream << "}";
+        
+        res.body() = jsonStream.str();
         res.prepare_payload();
 
         return res;

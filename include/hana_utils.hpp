@@ -10,6 +10,27 @@
 namespace etl {
 namespace hana_utils {
 
+// Concept-like check for cloneable types
+template<typename T>
+struct has_clone_method {
+private:
+    template<typename U>
+    static auto test(int) -> decltype(std::declval<U>().clone(), std::true_type{});
+    
+    template<typename>
+    static std::false_type test(...);
+    
+public:
+    static constexpr bool value = decltype(test<T>(0))::value;
+};
+
+// Static assertion helper
+template<typename T>
+void assert_cloneable() {
+    static_assert(has_clone_method<T>::value, 
+        "Type must implement clone() method returning a compatible pointer type");
+}
+
 // ============================================================================
 // Compile-time string utilities using Hana
 // ============================================================================
@@ -142,7 +163,10 @@ private:
 
 public:
     explicit HanaFactory(std::unique_ptr<Derived>... prototypes)
-        : prototypes_(std::move(prototypes)...) {}
+        : prototypes_(std::move(prototypes)...) {
+        // Compile-time check that all prototype types implement clone()
+        (assert_cloneable<Derived>(), ...);
+    }
 
     template<typename T>
     std::unique_ptr<Base> create() const {
