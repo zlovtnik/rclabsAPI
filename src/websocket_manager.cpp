@@ -3,13 +3,24 @@
 #include "lock_utils.hpp"
 #include <algorithm>
 
-WebSocketManager::WebSocketManager() {
+WebSocketManager::WebSocketManager() : WebSocketManager(WebSocketManagerConfig{}) {}
+
+WebSocketManager::WebSocketManager(const WebSocketManagerConfig& config) : config_(config) {
+    initializeComponents();
     WS_LOG_DEBUG("WebSocket manager created");
 }
 
 WebSocketManager::~WebSocketManager() {
     stop();
     WS_LOG_DEBUG("WebSocket manager destroyed");
+}
+
+void WebSocketManager::initializeComponents() {
+    // Create connection pool
+    connectionPool_ = std::make_shared<ConnectionPool>(config_.connectionPoolConfig);
+
+    // Create message broadcaster with connection pool dependency
+    messageBroadcaster_ = std::make_shared<MessageBroadcaster>(connectionPool_, config_.messageBroadcasterConfig);
 }
 
 void WebSocketManager::start() {
@@ -19,6 +30,11 @@ void WebSocketManager::start() {
     }
 
     running_.store(true);
+
+    if (config_.autoStartComponents) {
+        startComponents();
+    }
+
     WS_LOG_INFO("WebSocket manager started");
 }
 
@@ -28,17 +44,35 @@ void WebSocketManager::stop() {
     }
 
     running_.store(false);
-    
-    // Close all connections
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 2000);
-    for (auto& [id, connection] : connections_) {
-        if (connection && connection->isOpen()) {
-            connection->close();
-        }
-    }
-    connections_.clear();
-    
+
+    stopComponents();
+
     WS_LOG_INFO("WebSocket manager stopped");
+}
+
+bool WebSocketManager::isRunning() const {
+    return running_.load() && connectionPool_->isRunning() && messageBroadcaster_->isRunning();
+}
+
+void WebSocketManager::startComponents() {
+    try {
+        connectionPool_->start();
+        messageBroadcaster_->start();
+        WS_LOG_INFO("WebSocket manager components started successfully");
+    } catch (const std::exception& e) {
+        WS_LOG_ERROR("Failed to start WebSocket manager components: " + std::string(e.what()));
+        throw;
+    }
+}
+
+void WebSocketManager::stopComponents() {
+    try {
+        messageBroadcaster_->stop();
+        connectionPool_->stop();
+        WS_LOG_INFO("WebSocket manager components stopped successfully");
+    } catch (const std::exception& e) {
+        WS_LOG_ERROR("Error stopping WebSocket manager components: " + std::string(e.what()));
+    }
 }
 
 void WebSocketManager::handleUpgrade(tcp::socket socket) {
@@ -48,13 +82,13 @@ void WebSocketManager::handleUpgrade(tcp::socket socket) {
     }
 
     WS_LOG_DEBUG("Handling WebSocket upgrade request");
-    
+
     // Create new WebSocket connection
     auto connection = std::make_shared<WebSocketConnection>(
-        std::move(socket), 
+        std::move(socket),
         std::weak_ptr<WebSocketManager>(shared_from_this())
     );
-    
+
     // Start the connection (this will trigger the handshake)
     connection->start();
 }
@@ -65,21 +99,22 @@ void WebSocketManager::addConnection(std::shared_ptr<WebSocketConnection> connec
         return;
     }
 
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
-    connections_[connection->getId()] = connection;
-    
-    WS_LOG_INFO("WebSocket connection added: " + connection->getId() + 
-                " (Total connections: " + std::to_string(connections_.size()) + ")");
+    if (!running_.load()) {
+        WS_LOG_WARN("WebSocket manager not running, cannot add connection");
+        return;
+    }
+
+    // Delegate to connection pool
+    connectionPool_->addConnection(connection);
 }
 
 void WebSocketManager::removeConnection(const std::string& connectionId) {
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
-    auto it = connections_.find(connectionId);
-    if (it != connections_.end()) {
-        connections_.erase(it);
-        WS_LOG_INFO("WebSocket connection removed: " + connectionId + 
-                    " (Total connections: " + std::to_string(connections_.size()) + ")");
+    if (!running_.load()) {
+        return;
     }
+
+    // Delegate to connection pool
+    connectionPool_->removeConnection(connectionId);
 }
 
 void WebSocketManager::broadcastMessage(const std::string& message) {
@@ -88,25 +123,8 @@ void WebSocketManager::broadcastMessage(const std::string& message) {
         return;
     }
 
-    // Collect active connections while holding the lock
-    std::vector<std::shared_ptr<WebSocketConnection>> activeConnections;
-    {
-        SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
-        
-        WS_LOG_DEBUG("Broadcasting message to " + std::to_string(connections_.size()) + " connections");
-        
-        activeConnections.reserve(connections_.size());
-        for (const auto& [id, connection] : connections_) {
-            if (connection && connection->isOpen()) {
-                activeConnections.push_back(connection);
-            }
-        }
-    }
-    
-    // Send messages outside the lock to reduce lock contention
-    for (auto& connection : activeConnections) {
-        connection->send(message);
-    }
+    // Delegate to message broadcaster
+    messageBroadcaster_->broadcastMessage(message);
 }
 
 void WebSocketManager::sendToConnection(const std::string& connectionId, const std::string& message) {
@@ -115,33 +133,8 @@ void WebSocketManager::sendToConnection(const std::string& connectionId, const s
         return;
     }
 
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
-    auto it = connections_.find(connectionId);
-    if (it != connections_.end() && it->second && it->second->isOpen()) {
-        it->second->send(message);
-        WS_LOG_DEBUG("Message sent to connection: " + connectionId);
-    } else {
-        WS_LOG_WARN("Connection not found or inactive: " + connectionId);
-    }
-}
-
-size_t WebSocketManager::getConnectionCount() const {
-    SCOPED_SHARED_LOCK_TIMEOUT(connectionsMutex_, 500);
-    return connections_.size();
-}
-
-std::vector<std::string> WebSocketManager::getConnectionIds() const {
-    SCOPED_SHARED_LOCK_TIMEOUT(connectionsMutex_, 500);
-    std::vector<std::string> ids;
-    ids.reserve(connections_.size());
-    
-    for (const auto& [id, connection] : connections_) {
-        if (connection && connection->isOpen()) {
-            ids.push_back(id);
-        }
-    }
-    
-    return ids;
+    // Delegate to message broadcaster
+    messageBroadcaster_->sendToConnection(connectionId, message);
 }
 
 void WebSocketManager::broadcastJobUpdate(const std::string& message, const std::string& jobId) {
@@ -150,8 +143,8 @@ void WebSocketManager::broadcastJobUpdate(const std::string& message, const std:
         return;
     }
 
-    broadcastByMessageType(message, MessageType::JOB_STATUS_UPDATE, jobId);
-    WS_LOG_DEBUG("Job update broadcasted for job: " + jobId);
+    // Delegate to message broadcaster
+    messageBroadcaster_->broadcastJobUpdate(message, jobId);
 }
 
 void WebSocketManager::broadcastLogMessage(const std::string& message, const std::string& jobId, const std::string& logLevel) {
@@ -160,24 +153,8 @@ void WebSocketManager::broadcastLogMessage(const std::string& message, const std
         return;
     }
 
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
-    
-    int sentCount = 0;
-    for (auto it = connections_.begin(); it != connections_.end();) {
-        auto& connection = it->second;
-        if (connection && connection->isOpen()) {
-            if (connection->shouldReceiveMessage(MessageType::JOB_LOG_MESSAGE, jobId, logLevel)) {
-                connection->send(message);
-                sentCount++;
-            }
-            ++it;
-        } else {
-            WS_LOG_DEBUG("Removing inactive connection during log broadcast: " + it->first);
-            it = connections_.erase(it);
-        }
-    }
-    
-    WS_LOG_DEBUG("Log message broadcasted to " + std::to_string(sentCount) + " connections (job: " + jobId + ", level: " + logLevel + ")");
+    // Delegate to message broadcaster
+    messageBroadcaster_->broadcastLogMessage(message, jobId, logLevel);
 }
 
 void WebSocketManager::broadcastByMessageType(const std::string& message, MessageType messageType, const std::string& jobId) {
@@ -186,243 +163,182 @@ void WebSocketManager::broadcastByMessageType(const std::string& message, Messag
         return;
     }
 
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
-    
-    int sentCount = 0;
-    for (auto it = connections_.begin(); it != connections_.end();) {
-        auto& connection = it->second;
-        if (connection && connection->isOpen()) {
-            if (connection->shouldReceiveMessage(messageType, jobId)) {
-                connection->send(message);
-                sentCount++;
-            }
-            ++it;
-        } else {
-            WS_LOG_DEBUG("Removing inactive connection during type-filtered broadcast: " + it->first);
-            it = connections_.erase(it);
-        }
-    }
-    
-    WS_LOG_DEBUG("Message broadcasted to " + std::to_string(sentCount) + " connections by type");
+    // Delegate to message broadcaster
+    messageBroadcaster_->broadcastByMessageType(message, messageType, jobId);
 }
 
-void WebSocketManager::broadcastToFilteredConnections(const std::string& message, 
+void WebSocketManager::broadcastToFilteredConnections(const std::string& message,
                                                     std::function<bool(const ConnectionFilters&)> filterPredicate) {
     if (!running_.load()) {
         WS_LOG_WARN("WebSocket manager not running, cannot broadcast to filtered connections");
         return;
     }
 
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
-    
-    int sentCount = 0;
-    for (auto it = connections_.begin(); it != connections_.end();) {
-        auto& connection = it->second;
-        if (connection && connection->isOpen()) {
-            if (filterPredicate(connection->getFilters())) {
-                connection->send(message);
-                sentCount++;
-            }
-            ++it;
-        } else {
-            WS_LOG_DEBUG("Removing inactive connection during filtered broadcast: " + it->first);
-            it = connections_.erase(it);
-        }
+    // Delegate to message broadcaster
+    messageBroadcaster_->broadcastToFilteredConnections(message, filterPredicate);
+}
+
+size_t WebSocketManager::getConnectionCount() const {
+    if (!running_.load()) {
+        return 0;
     }
-    
-    WS_LOG_DEBUG("Message broadcasted to " + std::to_string(sentCount) + " filtered connections");
+
+    // Delegate to connection pool
+    return connectionPool_->getActiveConnectionCount();
+}
+
+std::vector<std::string> WebSocketManager::getConnectionIds() const {
+    if (!running_.load()) {
+        return {};
+    }
+
+    // Delegate to connection pool
+    return connectionPool_->getConnectionIds();
 }
 
 void WebSocketManager::setConnectionFilters(const std::string& connectionId, const ConnectionFilters& filters) {
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
-    auto it = connections_.find(connectionId);
-    if (it != connections_.end() && it->second && it->second->isOpen()) {
-        it->second->setFilters(filters);
-        WS_LOG_INFO("Filters set for connection: " + connectionId);
-    } else {
-        WS_LOG_WARN("Cannot set filters for connection (not found or inactive): " + connectionId);
+    if (!running_.load()) {
+        WS_LOG_WARN("WebSocket manager not running, cannot set filters");
+        return;
     }
+
+    // Delegate to message broadcaster
+    messageBroadcaster_->setConnectionFilters(connectionId, filters);
 }
 
 ConnectionFilters WebSocketManager::getConnectionFilters(const std::string& connectionId) const {
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 500);
-    auto it = connections_.find(connectionId);
-    if (it != connections_.end() && it->second && it->second->isOpen()) {
-        return it->second->getFilters();
-    } else {
-        WS_LOG_WARN("Cannot get filters for connection (not found or inactive): " + connectionId);
-        return ConnectionFilters{}; // Return default filters
+    if (!running_.load()) {
+        WS_LOG_WARN("WebSocket manager not running, cannot get filters");
+        return ConnectionFilters{};
     }
+
+    // Delegate to message broadcaster
+    return messageBroadcaster_->getConnectionFilters(connectionId);
 }
 
 void WebSocketManager::updateConnectionFilters(const std::string& connectionId, const ConnectionFilters& filters) {
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
-    auto it = connections_.find(connectionId);
-    if (it != connections_.end() && it->second && it->second->isOpen()) {
-        it->second->updateFilterPreferences(filters);
-        WS_LOG_INFO("Filters updated for connection: " + connectionId);
-    } else {
-        WS_LOG_WARN("Cannot update filters for connection (not found or inactive): " + connectionId);
+    if (!running_.load()) {
+        WS_LOG_WARN("WebSocket manager not running, cannot update filters");
+        return;
     }
+
+    // Delegate to message broadcaster
+    messageBroadcaster_->updateConnectionFilters(connectionId, filters);
 }
 
 void WebSocketManager::addJobFilterToConnection(const std::string& connectionId, const std::string& jobId) {
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
-    auto it = connections_.find(connectionId);
-    if (it != connections_.end() && it->second && it->second->isOpen()) {
-        it->second->addJobIdFilter(jobId);
-        WS_LOG_DEBUG("Added job filter '" + jobId + "' to connection: " + connectionId);
-    } else {
-        WS_LOG_WARN("Cannot add job filter to connection (not found or inactive): " + connectionId);
+    if (!running_.load()) {
+        WS_LOG_WARN("WebSocket manager not running, cannot add job filter");
+        return;
     }
+
+    // Delegate to message broadcaster
+    messageBroadcaster_->addJobFilterToConnection(connectionId, jobId);
 }
 
 void WebSocketManager::removeJobFilterFromConnection(const std::string& connectionId, const std::string& jobId) {
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
-    auto it = connections_.find(connectionId);
-    if (it != connections_.end() && it->second && it->second->isOpen()) {
-        it->second->removeJobIdFilter(jobId);
-        WS_LOG_DEBUG("Removed job filter '" + jobId + "' from connection: " + connectionId);
-    } else {
-        WS_LOG_WARN("Cannot remove job filter from connection (not found or inactive): " + connectionId);
+    if (!running_.load()) {
+        WS_LOG_WARN("WebSocket manager not running, cannot remove job filter");
+        return;
     }
+
+    // Delegate to message broadcaster
+    messageBroadcaster_->removeJobFilterFromConnection(connectionId, jobId);
 }
 
 void WebSocketManager::addMessageTypeFilterToConnection(const std::string& connectionId, MessageType messageType) {
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
-    auto it = connections_.find(connectionId);
-    if (it != connections_.end() && it->second && it->second->isOpen()) {
-        it->second->addMessageTypeFilter(messageType);
-        WS_LOG_DEBUG("Added message type filter '" + messageTypeToString(messageType) + "' to connection: " + connectionId);
-    } else {
-        WS_LOG_WARN("Cannot add message type filter to connection (not found or inactive): " + connectionId);
+    if (!running_.load()) {
+        WS_LOG_WARN("WebSocket manager not running, cannot add message type filter");
+        return;
     }
+
+    // Delegate to message broadcaster
+    messageBroadcaster_->addMessageTypeFilterToConnection(connectionId, messageType);
 }
 
 void WebSocketManager::removeMessageTypeFilterFromConnection(const std::string& connectionId, MessageType messageType) {
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
-    auto it = connections_.find(connectionId);
-    if (it != connections_.end() && it->second && it->second->isOpen()) {
-        it->second->removeMessageTypeFilter(messageType);
-        WS_LOG_DEBUG("Removed message type filter '" + messageTypeToString(messageType) + "' from connection: " + connectionId);
-    } else {
-        WS_LOG_WARN("Cannot remove message type filter from connection (not found or inactive): " + connectionId);
+    if (!running_.load()) {
+        WS_LOG_WARN("WebSocket manager not running, cannot remove message type filter");
+        return;
     }
+
+    // Delegate to message broadcaster
+    messageBroadcaster_->removeMessageTypeFilterFromConnection(connectionId, messageType);
 }
 
 void WebSocketManager::addLogLevelFilterToConnection(const std::string& connectionId, const std::string& logLevel) {
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
-    auto it = connections_.find(connectionId);
-    if (it != connections_.end() && it->second && it->second->isOpen()) {
-        it->second->addLogLevelFilter(logLevel);
-        WS_LOG_DEBUG("Added log level filter '" + logLevel + "' to connection: " + connectionId);
-    } else {
-        WS_LOG_WARN("Cannot add log level filter to connection (not found or inactive): " + connectionId);
+    if (!running_.load()) {
+        WS_LOG_WARN("WebSocket manager not running, cannot add log level filter");
+        return;
     }
+
+    // Delegate to message broadcaster
+    messageBroadcaster_->addLogLevelFilterToConnection(connectionId, logLevel);
 }
 
 void WebSocketManager::removeLogLevelFilterFromConnection(const std::string& connectionId, const std::string& logLevel) {
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
-    auto it = connections_.find(connectionId);
-    if (it != connections_.end() && it->second && it->second->isOpen()) {
-        it->second->removeLogLevelFilter(logLevel);
-        WS_LOG_DEBUG("Removed log level filter '" + logLevel + "' from connection: " + connectionId);
-    } else {
-        WS_LOG_WARN("Cannot remove log level filter from connection (not found or inactive): " + connectionId);
+    if (!running_.load()) {
+        WS_LOG_WARN("WebSocket manager not running, cannot remove log level filter");
+        return;
     }
+
+    // Delegate to message broadcaster
+    messageBroadcaster_->removeLogLevelFilterFromConnection(connectionId, logLevel);
 }
 
 void WebSocketManager::clearConnectionFilters(const std::string& connectionId) {
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
-    auto it = connections_.find(connectionId);
-    if (it != connections_.end() && it->second && it->second->isOpen()) {
-        it->second->clearFilters();
-        WS_LOG_INFO("Cleared all filters for connection: " + connectionId);
-    } else {
-        WS_LOG_WARN("Cannot clear filters for connection (not found or inactive): " + connectionId);
+    if (!running_.load()) {
+        WS_LOG_WARN("WebSocket manager not running, cannot clear filters");
+        return;
     }
+
+    // Delegate to message broadcaster
+    messageBroadcaster_->clearConnectionFilters(connectionId);
 }
 
 std::vector<std::string> WebSocketManager::getConnectionsForJob(const std::string& jobId) const {
-    SCOPED_SHARED_LOCK_TIMEOUT(connectionsMutex_, 500);
-    std::vector<std::string> matchingConnections;
-    
-    for (const auto& [id, connection] : connections_) {
-        if (connection && connection->isOpen()) {
-            const auto& filters = connection->getFilters();
-            if (filters.shouldReceiveJob(jobId)) {
-                matchingConnections.push_back(id);
-            }
-        }
+    if (!running_.load()) {
+        return {};
     }
-    
-    return matchingConnections;
+
+    // Delegate to message broadcaster
+    return messageBroadcaster_->getConnectionsForJob(jobId);
 }
 
 std::vector<std::string> WebSocketManager::getConnectionsForMessageType(MessageType messageType) const {
-    SCOPED_SHARED_LOCK_TIMEOUT(connectionsMutex_, 500);
-    std::vector<std::string> matchingConnections;
-    
-    for (const auto& [id, connection] : connections_) {
-        if (connection && connection->isOpen()) {
-            const auto& filters = connection->getFilters();
-            if (filters.shouldReceiveMessageType(messageType)) {
-                matchingConnections.push_back(id);
-            }
-        }
+    if (!running_.load()) {
+        return {};
     }
-    
-    return matchingConnections;
+
+    // Delegate to message broadcaster
+    return messageBroadcaster_->getConnectionsForMessageType(messageType);
 }
 
 std::vector<std::string> WebSocketManager::getConnectionsForLogLevel(const std::string& logLevel) const {
-    SCOPED_SHARED_LOCK_TIMEOUT(connectionsMutex_, 500);
-    std::vector<std::string> matchingConnections;
-    
-    for (const auto& [id, connection] : connections_) {
-        if (connection && connection->isOpen()) {
-            const auto& filters = connection->getFilters();
-            if (filters.shouldReceiveLogLevel(logLevel)) {
-                matchingConnections.push_back(id);
-            }
-        }
+    if (!running_.load()) {
+        return {};
     }
-    
-    return matchingConnections;
+
+    // Delegate to message broadcaster
+    return messageBroadcaster_->getConnectionsForLogLevel(logLevel);
 }
 
 size_t WebSocketManager::getFilteredConnectionCount() const {
-    SCOPED_SHARED_LOCK_TIMEOUT(connectionsMutex_, 500);
-    size_t filteredCount = 0;
-    
-    for (const auto& [id, connection] : connections_) {
-        if (connection && connection->isOpen()) {
-            const auto& filters = connection->getFilters();
-            // A connection is considered "filtered" if it has any specific filters set
-            if (!filters.jobIds.empty() || !filters.messageTypes.empty() || !filters.logLevels.empty()) {
-                filteredCount++;
-            }
-        }
+    if (!running_.load()) {
+        return 0;
     }
-    
-    return filteredCount;
+
+    // Delegate to message broadcaster
+    return messageBroadcaster_->getFilteredConnectionCount();
 }
 
 size_t WebSocketManager::getUnfilteredConnectionCount() const {
-    SCOPED_SHARED_LOCK_TIMEOUT(connectionsMutex_, 500);
-    size_t unfilteredCount = 0;
-    
-    for (const auto& [id, connection] : connections_) {
-        if (connection && connection->isOpen()) {
-            const auto& filters = connection->getFilters();
-            // A connection is "unfiltered" if it has no specific filters set (receives all messages)
-            if (filters.jobIds.empty() && filters.messageTypes.empty() && filters.logLevels.empty()) {
-                unfilteredCount++;
-            }
-        }
+    if (!running_.load()) {
+        return 0;
     }
-    
-    return unfilteredCount;
+
+    // Delegate to message broadcaster
+    return messageBroadcaster_->getUnfilteredConnectionCount();
 }
 
 void WebSocketManager::broadcastWithAdvancedRouting(const WebSocketMessage& message) {
@@ -430,61 +346,66 @@ void WebSocketManager::broadcastWithAdvancedRouting(const WebSocketMessage& mess
         WS_LOG_WARN("WebSocket manager not running, cannot broadcast with advanced routing");
         return;
     }
-    
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
-    
-    int sentCount = 0;
-    for (auto it = connections_.begin(); it != connections_.end();) {
-        auto& connection = it->second;
-        if (connection && connection->isOpen()) {
-            if (connection->shouldReceiveMessage(message)) {
-                connection->send(message.toJson());
-                sentCount++;
-            }
-            ++it;
-        } else {
-            WS_LOG_DEBUG("Removing inactive connection during advanced routing: " + it->first);
-            it = connections_.erase(it);
-        }
-    }
-    
-    WS_LOG_DEBUG("Advanced routing message broadcasted to " + std::to_string(sentCount) + " connections");
+
+    // Delegate to message broadcaster
+    messageBroadcaster_->broadcastWithAdvancedRouting(message);
 }
 
-void WebSocketManager::sendToMatchingConnections(const WebSocketMessage& message, 
+void WebSocketManager::sendToMatchingConnections(const WebSocketMessage& message,
                                                 std::function<bool(const ConnectionFilters&, const WebSocketMessage&)> customMatcher) {
     if (!running_.load()) {
         WS_LOG_WARN("WebSocket manager not running, cannot send to matching connections");
         return;
     }
-    
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 1000);
-    
-    int sentCount = 0;
-    for (auto it = connections_.begin(); it != connections_.end();) {
-        auto& connection = it->second;
-        if (connection && connection->isOpen()) {
-            if (customMatcher(connection->getFilters(), message)) {
-                connection->send(message.toJson());
-                sentCount++;
-            }
-            ++it;
-        } else {
-            WS_LOG_DEBUG("Removing inactive connection during custom matching: " + it->first);
-            it = connections_.erase(it);
-        }
-    }
-    
-    WS_LOG_DEBUG("Custom matcher message sent to " + std::to_string(sentCount) + " connections");
+
+    // Delegate to message broadcaster
+    messageBroadcaster_->sendToMatchingConnections(message, customMatcher);
 }
 
 bool WebSocketManager::testConnectionFilter(const std::string& connectionId, const WebSocketMessage& testMessage) const {
-    SCOPED_LOCK_TIMEOUT(connectionsMutex_, 500);
-    auto it = connections_.find(connectionId);
-    if (it != connections_.end() && it->second && it->second->isOpen()) {
-        return it->second->shouldReceiveMessage(testMessage);
+    if (!running_.load()) {
+        WS_LOG_WARN("WebSocket manager not running, cannot test filter");
+        return false;
     }
-    
-    WS_LOG_WARN("Cannot test filter for connection (not found or inactive): " + connectionId);
-    return false;
+
+    // Delegate to message broadcaster
+    return messageBroadcaster_->testConnectionFilter(connectionId, testMessage);
+}
+
+void WebSocketManager::updateConfig(const WebSocketManagerConfig& newConfig) {
+    config_ = newConfig;
+
+    // Update component configurations
+    updateConnectionPoolConfig(config_.connectionPoolConfig);
+    updateMessageBroadcasterConfig(config_.messageBroadcasterConfig);
+
+    WS_LOG_INFO("WebSocket manager configuration updated");
+}
+
+void WebSocketManager::updateConnectionPoolConfig(const ConnectionPoolConfig& newConfig) {
+    config_.connectionPoolConfig = newConfig;
+    if (connectionPool_) {
+        connectionPool_->updateConfig(newConfig);
+    }
+}
+
+void WebSocketManager::updateMessageBroadcasterConfig(const MessageBroadcasterConfig& newConfig) {
+    config_.messageBroadcasterConfig = newConfig;
+    if (messageBroadcaster_) {
+        messageBroadcaster_->updateConfig(newConfig);
+    }
+}
+
+ConnectionPoolStats WebSocketManager::getConnectionPoolStats() const {
+    if (!connectionPool_) {
+        return ConnectionPoolStats{};
+    }
+    return connectionPool_->getStats();
+}
+
+MessageBroadcasterStats WebSocketManager::getMessageBroadcasterStats() const {
+    if (!messageBroadcaster_) {
+        return MessageBroadcasterStats{};
+    }
+    return messageBroadcaster_->getStats();
 }

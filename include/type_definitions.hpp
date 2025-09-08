@@ -49,6 +49,18 @@ public:
         return value_ < other.value_;
     }
     
+    bool operator<=(const StrongId& other) const noexcept {
+        return value_ <= other.value_;
+    }
+    
+    bool operator>(const StrongId& other) const noexcept {
+        return value_ > other.value_;
+    }
+    
+    bool operator>=(const StrongId& other) const noexcept {
+        return value_ >= other.value_;
+    }
+    
 private:
     std::string value_;
 };

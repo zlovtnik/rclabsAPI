@@ -28,6 +28,19 @@ jobs:
         # Generate changelog
         echo "## 🚀 What's New" > CHANGELOG.md
         echo "" >> CHANGELOG.md
+        echo "### Major Refactoring Updates" >> CHANGELOG.md
+        echo "- ✅ **WebSocket Manager Decoupling**: Complete refactoring of WebSocket system into modular components" >> CHANGELOG.md
+        echo "- ✅ **ConnectionPool Component**: Extracted connection management with health monitoring and resource cleanup" >> CHANGELOG.md
+        echo "- ✅ **MessageBroadcaster Component**: Advanced message distribution with filtering and queuing" >> CHANGELOG.md
+        echo "- ✅ **Exception System Simplification**: Consolidated error codes and streamlined exception hierarchy" >> CHANGELOG.md
+        echo "- ✅ **Logger System Foundation**: Implemented handler pattern with file management and async logging" >> CHANGELOG.md
+        echo "" >> CHANGELOG.md
+        echo "### Technical Improvements" >> CHANGELOG.md
+        echo "- 🔧 Enhanced thread safety with RAII lock helpers" >> CHANGELOG.md
+        echo "- 📊 Comprehensive performance monitoring and metrics" >> CHANGELOG.md
+        echo "- 🏗️ Improved build system with better dependency management" >> CHANGELOG.md
+        echo "- 🧪 Expanded test coverage for refactored components" >> CHANGELOG.md
+        echo "" >> CHANGELOG.md
         
         # Get commits since last tag
         git log --pretty=format:"- %s (%h)" $PREV_TAG..HEAD >> CHANGELOG.md
@@ -36,6 +49,7 @@ jobs:
         echo "## 🔧 Technical Details" >> CHANGELOG.md
         echo "- **Full Changelog**: [\`$PREV_TAG...${GITHUB_REF#refs/tags/}\`](https://github.com/${{ github.repository }}/compare/$PREV_TAG...${GITHUB_REF#refs/tags/})" >> CHANGELOG.md
         echo "- **Docker Image**: \`ghcr.io/${{ github.repository }}:${GITHUB_REF#refs/tags/}\`" >> CHANGELOG.md
+        echo "- **Build Artifacts**: ETLPlusBackend binary with refactored components" >> CHANGELOG.md
 
     - name: 🏷️ Create Release
       id: create_release
@@ -95,6 +109,8 @@ jobs:
         cp -r config release/
         cp README.md release/
         cp LICENSE release/ || echo "LICENSE file not found"
+        # Include refactored component libraries
+        cp build/lib/libetl_common.a release/ 2>/dev/null || echo "Static library not found, skipping..."
         tar -czf ${{ matrix.asset_name }}.tar.gz -C release .
 
     - name: 🚀 Upload Release Asset

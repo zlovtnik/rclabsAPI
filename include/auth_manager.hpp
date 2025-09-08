@@ -25,9 +25,13 @@ struct Session {
   bool isValid;
 };
 
+class DatabaseManager;
+class UserRepository;
+class SessionRepository;
+
 class AuthManager {
 public:
-  AuthManager();
+  AuthManager(std::shared_ptr<DatabaseManager> dbManager);
 
   // User management
   bool createUser(const std::string &username, const std::string &email,
@@ -50,8 +54,8 @@ public:
   void revokeRole(const std::string &userId, const std::string &role);
 
 private:
-  std::unordered_map<std::string, std::shared_ptr<User>> users_;
-  std::unordered_map<std::string, std::shared_ptr<Session>> sessions_;
+  std::shared_ptr<UserRepository> userRepo_;
+  std::shared_ptr<SessionRepository> sessionRepo_;
 
   std::string hashPassword(std::string_view password,
                            std::string_view salt) const;

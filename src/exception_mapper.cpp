@@ -1,28 +1,14 @@
-// Helper function to escape JSON strings
-std::string escapeJsonString(const std::string& input) {
-    std::ostringstream escaped;
-    for (char c : input) {
-        switch (c) {
-            case '"':  escaped << "\\\""; break;
-            case '\\': escaped << "\\\\"; break;
-            case '\b': escaped << "\\b"; break;
-            case '\f': escaped << "\\f"; break;
-            case '\n': escaped << "\\n"; break;
-            case '\r': escaped << "\\r"; break;
-            case '\t': escaped << "\\t"; break;
-            default:
-                if (static_cast<unsigned char>(c) < 32) {
-                    // Escape control characters
-                    escaped << "\\u" << std::hex << std::setw(4) << std::setfill('0') 
-                           << static_cast<int>(static_cast<unsigned char>(c));
-                } else {
-                    escaped << c;
-                }
-                break;
-        }
-    }
-    return escaped.str();
-}
+#include "exception_mapper.hpp"
+#include "hana_exception_handling.hpp"
+#include "string_utils.hpp"
+#include <boost/beast/http.hpp>
+#include <sstream>
+#include <iomanip>
+#include <random>
+#include <chrono>
+#include <thread>
+#include <mutex>
+#include <optional>
 
 namespace ETLPlus {
 namespace ExceptionHandling {
@@ -34,25 +20,25 @@ thread_local std::string ExceptionMapper::currentCorrelationId_;
 std::string ErrorResponseFormat::toJson() const {
     std::ostringstream json;
     json << "{";
-    json << "\"status\":\"" << escapeJsonString(status) << "\",";
-    json << "\"message\":\"" << escapeJsonString(message) << "\",";
-    json << "\"code\":\"" << escapeJsonString(code) << "\",";
-    json << "\"correlationId\":\"" << escapeJsonString(correlationId) << "\",";
-    json << "\"timestamp\":\"" << escapeJsonString(timestamp) << "\"";
+    json << "\"status\":\"" << ETLPlus::ExceptionHandling::escapeJsonString(status) << "\",";
+    json << "\"message\":\"" << ETLPlus::ExceptionHandling::escapeJsonString(message) << "\",";
+    json << "\"code\":\"" << ETLPlus::ExceptionHandling::escapeJsonString(code) << "\",";
+    json << "\"correlationId\":\"" << ETLPlus::ExceptionHandling::escapeJsonString(correlationId) << "\",";
+    json << "\"timestamp\":\"" << ETLPlus::ExceptionHandling::escapeJsonString(timestamp) << "\"";
     
     if (!context.empty()) {
         json << ",\"context\":{";
         bool first = true;
         for (const auto& [key, value] : context) {
             if (!first) json << ",";
-            json << "\"" << escapeJsonString(key) << "\":\"" << escapeJsonString(value) << "\"";
+            json << "\"" << ETLPlus::ExceptionHandling::escapeJsonString(key) << "\":\"" << ETLPlus::ExceptionHandling::escapeJsonString(value) << "\"";
             first = false;
         }
         json << "}";
     }
     
     if (!details.empty()) {
-        json << ",\"details\":\"" << escapeJsonString(details) << "\"";
+        json << ",\"details\":\"" << ETLPlus::ExceptionHandling::escapeJsonString(details) << "\"";
     }
     
     json << "}";
@@ -132,6 +118,7 @@ ErrorResponseFormat ExceptionMapper::createErrorFormat(const etl::ETLException& 
     auto time_t = std::chrono::system_clock::to_time_t(exception.getTimestamp());
     std::tm tm_buf;
     std::tm* tm_ptr;
+    std::ostringstream timestampStream;
     
     #ifdef _WIN32
         gmtime_s(&tm_buf, &time_t);

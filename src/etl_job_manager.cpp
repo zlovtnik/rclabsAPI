@@ -1,6 +1,7 @@
 #include "etl_job_manager.hpp"
 #include "data_transformer.hpp"
 #include "database_manager.hpp"
+#include "etl_job_repository.hpp"
 #include "logger.hpp"
 #include "etl_exceptions.hpp"
 #include "exception_handler.hpp"
@@ -25,6 +26,7 @@ ETLJobManager::ETLJobManager(std::shared_ptr<DatabaseManager> dbManager,
                            std::shared_ptr<DataTransformer> transformer)
     : dbManager_(dbManager)
     , transformer_(transformer)
+    , jobRepo_(std::make_shared<ETLJobRepository>(dbManager))
     , running_(false) {
 }
 
@@ -45,6 +47,12 @@ std::string ETLJobManager::scheduleJob(const ETLJobConfig& config) {
     job->recordsProcessed = 0;
     job->recordsSuccessful = 0;
     job->recordsFailed = 0;
+    
+    // Save to database
+    if (!jobRepo_->createJob(*job)) {
+        ETL_LOG_ERROR("Failed to save job to database: " + job->jobId);
+        return "";
+    }
     
     jobs_.push_back(job);
     jobQueue_.push(job);
@@ -85,10 +93,20 @@ std::shared_ptr<ETLJob> ETLJobManager::getJob(const std::string& jobId) const {
     try {
         SCOPED_LOCK_TIMEOUT(jobMutex_, kLockTO_Read.count());
         
+        // First check in-memory cache
         for (const auto& job : jobs_) {
             if (job->jobId == jobId) {
                 return job;
             }
+        }
+        
+        // If not in memory, try to load from database
+        auto dbJob = jobRepo_->getJobById(jobId);
+        if (dbJob) {
+            // Create shared pointer and add to cache
+            auto jobPtr = std::make_shared<ETLJob>(*dbJob);
+            const_cast<ETLJobManager*>(this)->jobs_.push_back(jobPtr);
+            return jobPtr;
         }
         
         return nullptr;
@@ -99,17 +117,44 @@ std::shared_ptr<ETLJob> ETLJobManager::getJob(const std::string& jobId) const {
 
 std::vector<std::shared_ptr<ETLJob>> ETLJobManager::getAllJobs() const {
     SCOPED_LOCK_TIMEOUT(jobMutex_, kLockTO_Read.count());
-    return jobs_;
+    
+    // If we have jobs in memory, return them
+    if (!jobs_.empty()) {
+        return jobs_;
+    }
+    
+    // Otherwise load from database
+    auto dbJobs = jobRepo_->getAllJobs();
+    std::vector<std::shared_ptr<ETLJob>> result;
+    for (const auto& dbJob : dbJobs) {
+        result.push_back(std::make_shared<ETLJob>(dbJob));
+    }
+    
+    // Update cache
+    const_cast<ETLJobManager*>(this)->jobs_ = result;
+    return result;
 }
 
 std::vector<std::shared_ptr<ETLJob>> ETLJobManager::getJobsByStatus(JobStatus status) const {
     SCOPED_LOCK_TIMEOUT(jobMutex_, kLockTO_Read.count());
     
+    // First check in-memory cache
     std::vector<std::shared_ptr<ETLJob>> result;
     for (const auto& job : jobs_) {
         if (job->status == status) {
             result.push_back(job);
         }
+    }
+    
+    // If we found jobs in memory, return them
+    if (!result.empty()) {
+        return result;
+    }
+    
+    // Otherwise load from database
+    auto dbJobs = jobRepo_->getJobsByStatus(status);
+    for (const auto& dbJob : dbJobs) {
+        result.push_back(std::make_shared<ETLJob>(dbJob));
     }
     
     return result;
@@ -592,6 +637,11 @@ void ETLJobManager::executeJobWithMonitoring(std::shared_ptr<ETLJob> job) {
 void ETLJobManager::updateJobProgress(std::shared_ptr<ETLJob> job, int progress, const std::string& step) {
     ETL_LOG_DEBUG("Job progress update: " + job->jobId + " - " + std::to_string(progress) + "% - " + step);
     
+    // Update job metrics in database
+    if (!jobRepo_->updateJob(*job)) {
+        ETL_LOG_ERROR("Failed to update job progress in database: " + job->jobId);
+    }
+    
     if (monitorService_) {
         monitorService_->onJobProgressUpdated(job->jobId, progress, step);
     }
@@ -600,6 +650,19 @@ void ETLJobManager::updateJobProgress(std::shared_ptr<ETLJob> job, int progress,
 void ETLJobManager::updateJobStatus(std::shared_ptr<ETLJob> job, JobStatus newStatus) {
     JobStatus oldStatus = job->status;
     job->status = newStatus;
+    
+    // Update timestamps based on status
+    if (newStatus == JobStatus::RUNNING && job->startedAt.time_since_epoch().count() == 0) {
+        job->startedAt = std::chrono::system_clock::now();
+    } else if ((newStatus == JobStatus::COMPLETED || newStatus == JobStatus::FAILED || newStatus == JobStatus::CANCELLED) 
+               && job->completedAt.time_since_epoch().count() == 0) {
+        job->completedAt = std::chrono::system_clock::now();
+    }
+    
+    // Update in database
+    if (!jobRepo_->updateJob(*job)) {
+        ETL_LOG_ERROR("Failed to update job status in database: " + job->jobId);
+    }
     
     ETL_LOG_INFO("Job status changed: " + job->jobId + " from " + 
                  std::to_string(static_cast<int>(oldStatus)) + " to " + 

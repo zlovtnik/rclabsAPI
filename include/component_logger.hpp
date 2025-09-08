@@ -80,6 +80,10 @@ template<> struct ComponentTrait<class ExceptionHandler> {
     static constexpr const char* name = "ExceptionHandler";
 };
 
+template<> struct ComponentTrait<class ResourceManager> {
+    static constexpr const char* name = "ResourceManager";
+};
+
 template<> struct ComponentTrait<class WebSocketConnection> {
     static constexpr const char* name = "WebSocketConnection";
 };

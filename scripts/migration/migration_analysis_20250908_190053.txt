@@ -1,0 +1,12 @@
+ETL Plus Migration Analysis Results
+Generated: Mon Sep  8 19:00:53 EDT 2025
+
+old_exceptions=      20
+old_macros=       2
+old_config=      14
+old_websocket=      37
+old_handler=      10
+config_files=       6
+old_config_format=1
+custom_components=       3
+custom_validators=      15

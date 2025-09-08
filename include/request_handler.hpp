@@ -45,11 +45,7 @@ private:
   ETLPlus::ExceptionHandling::ExceptionMapper exceptionMapper_;
 
   // Hana-based exception handling registry for better type safety
-  etl::hana_exception_handling::HanaExceptionRegistry<
-      etl::hana_exception_handling::ExceptionHandler<etl::ValidationException>,
-      etl::hana_exception_handling::ExceptionHandler<etl::SystemException>,
-      etl::hana_exception_handling::ExceptionHandler<etl::BusinessException>
-  > hanaExceptionRegistry_;
+  ETLPlus::ExceptionHandling::HanaExceptionRegistry hanaExceptionRegistry_;
 
   // Enhanced validation methods
   http::response<http::string_body>

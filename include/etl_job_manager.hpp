@@ -16,6 +16,7 @@
 // Forward declarations
 class DataTransformer;
 class DatabaseManager;
+class ETLJobRepository;
 class NotificationService;
 
 struct ETLJobConfig {
@@ -89,6 +90,7 @@ public:
 private:
   std::shared_ptr<DatabaseManager> dbManager_;
   std::shared_ptr<DataTransformer> transformer_;
+  std::shared_ptr<ETLJobRepository> jobRepo_;
   std::shared_ptr<JobMonitorServiceInterface> monitorService_;
 
   std::queue<std::shared_ptr<ETLJob>> jobQueue_;

@@ -5,27 +5,20 @@
 
 // Example of how Hana improves real exception handling
 void demonstrate_functional_hana_usage() {
-    using namespace etl::hana_exception_handling;
+    using namespace ETLPlus::ExceptionHandling;
 
     std::cout << "=== Functional Hana Exception Handling Demo ===\n";
 
     // Create the Hana-based exception registry
-    HanaExceptionRegistry<
-        ExceptionHandler<etl::ValidationException>,
-        ExceptionHandler<etl::SystemException>,
-        ExceptionHandler<etl::BusinessException>
-    > registry;
+    HanaExceptionRegistry registry;
 
-    // Register specific handlers for each exception type
+        // Register specific handlers for each exception type
     registry.registerHandler<etl::ValidationException>(
-        makeValidationErrorHandler()
-    );
+        makeValidationErrorHandler());
     registry.registerHandler<etl::SystemException>(
-        makeSystemErrorHandler()
-    );
+        makeSystemErrorHandler());
     registry.registerHandler<etl::BusinessException>(
-        makeBusinessErrorHandler()
-    );
+        makeBusinessErrorHandler());
 
     // Test with different exception types
     try {

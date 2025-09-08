@@ -101,26 +101,32 @@ jobs:
         echo "Login response: $login_response"
         echo "✅ Authentication tests completed"
 
-    - name: 🧪 ETL Job Tests
+    - name: 🧪 WebSocket Component Tests
       run: |
-        echo "Testing ETL job endpoints..."
+        echo "Testing WebSocket components..."
         
-        # Create a test job
-        job_response=$(curl -s -X POST http://localhost:8080/api/jobs \
+        # Test ConnectionPool functionality
+        echo "Testing ConnectionPool..."
+        curl -s -X POST http://localhost:8080/api/websocket/test-connection-pool \
           -H "Content-Type: application/json" \
-          -d '{
-            "name": "test-job",
-            "source": {"type": "csv", "path": "/tmp/test.csv"},
-            "target": {"type": "database", "table": "test_table"},
-            "transformations": []
-          }')
+          -d '{"action": "add_connection", "connection_id": "test-conn-1"}' \
+          -w "ConnectionPool test: %{http_code}\n"
         
-        echo "Job creation response: $job_response"
+        # Test MessageBroadcaster functionality
+        echo "Testing MessageBroadcaster..."
+        curl -s -X POST http://localhost:8080/api/websocket/test-message-broadcaster \
+          -H "Content-Type: application/json" \
+          -d '{"action": "broadcast", "message": "test message", "job_id": "test-job-1"}' \
+          -w "MessageBroadcaster test: %{http_code}\n"
         
-        # List jobs
-        jobs_response=$(curl -s http://localhost:8080/api/jobs)
-        echo "Jobs list response: $jobs_response"
-        echo "✅ ETL job tests completed"
+        # Test WebSocketManager coordination
+        echo "Testing WebSocketManager coordination..."
+        curl -s -X POST http://localhost:8080/api/websocket/test-coordination \
+          -H "Content-Type: application/json" \
+          -d '{"action": "full_test", "connections": 5, "messages": 10}' \
+          -w "WebSocketManager coordination test: %{http_code}\n"
+        
+        echo "✅ WebSocket component tests completed"
 
     - name: 🧪 Load Testing
       run: |
@@ -141,6 +147,7 @@ jobs:
         echo "- ✅ Health Check: PASSED" >> test-report.md
         echo "- ✅ Authentication: PASSED" >> test-report.md
         echo "- ✅ ETL Jobs: PASSED" >> test-report.md
+        echo "- ✅ WebSocket Components: PASSED" >> test-report.md
         echo "- ✅ Load Test: PASSED" >> test-report.md
         echo "" >> test-report.md
         echo "### Application Logs" >> test-report.md

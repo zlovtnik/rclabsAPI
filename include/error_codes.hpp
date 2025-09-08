@@ -35,6 +35,9 @@ enum class ErrorCode {
     SERVICE_STARTUP_FAILED = 3009, // Kept as-is for initialization issues
     COMPONENT_UNAVAILABLE = 3010,  // Kept as-is for service dependencies
     INTERNAL_ERROR = 3011,       // Covers UNKNOWN_ERROR and unexpected system errors
+    INVALID_CONNECTION = 3012,   // New - for connection pool invalid connection errors
+    POOL_NOT_RUNNING = 3013,     // New - for connection pool not running errors
+    POOL_CAPACITY_EXCEEDED = 3014, // New - for connection pool capacity exceeded errors
     
     // Business logic errors (4000-4999) - Consolidated from 6 to 6 codes
     JOB_NOT_FOUND = 4000,        // Kept as-is

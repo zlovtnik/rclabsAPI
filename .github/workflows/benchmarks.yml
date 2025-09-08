@@ -52,10 +52,29 @@ jobs:
         cd build/bin && ./ETLPlusBackend &
         sleep 10  # Wait for startup
 
-    - name: 🔥 HTTP Load Testing with wrk
+    - name: 🔥 WebSocket Performance Testing
       run: |
-        wrk -t12 -c400 -d30s --latency http://localhost:8080/health > wrk-results.txt
-        cat wrk-results.txt
+        echo "Testing WebSocket component performance..."
+        
+        # Test ConnectionPool performance
+        echo "Benchmarking ConnectionPool operations..."
+        hyperfine --warmup 5 --runs 20 \
+          'curl -s -X POST http://localhost:8080/api/websocket/benchmark-connection-pool \
+           -H "Content-Type: application/json" \
+           -d "{\"action\": \"stress_test\", \"operations\": 1000}"' \
+          --export-markdown connection-pool-benchmark.md
+        
+        # Test MessageBroadcaster performance
+        echo "Benchmarking MessageBroadcaster..."
+        hyperfine --warmup 5 --runs 20 \
+          'curl -s -X POST http://localhost:8080/api/websocket/benchmark-message-broadcaster \
+           -H "Content-Type: application/json" \
+           -d "{\"action\": \"broadcast_storm\", \"messages\": 1000, \"connections\": 100}"' \
+          --export-markdown message-broadcaster-benchmark.md
+        
+        # Test concurrent WebSocket connections
+        echo "Testing concurrent WebSocket connections..."
+        wrk -t16 -c1000 -d60s --latency http://localhost:8080/api/websocket/stress-test > websocket-stress-results.txt
 
     - name: ⚡ Micro-benchmarks
       run: |
@@ -76,10 +95,16 @@ jobs:
         echo "**Date:** $(date)" >> performance-report.md
         echo "**Commit:** ${{ github.sha }}" >> performance-report.md
         echo "" >> performance-report.md
-        echo "### Load Testing Results" >> performance-report.md
+        echo "### WebSocket Performance Results" >> performance-report.md
         echo '```' >> performance-report.md
-        cat wrk-results.txt >> performance-report.md
+        cat websocket-stress-results.txt >> performance-report.md
         echo '```' >> performance-report.md
+        echo "" >> performance-report.md
+        echo "#### ConnectionPool Benchmarks" >> performance-report.md
+        cat connection-pool-benchmark.md >> performance-report.md
+        echo "" >> performance-report.md
+        echo "#### MessageBroadcaster Benchmarks" >> performance-report.md
+        cat message-broadcaster-benchmark.md >> performance-report.md
         echo "" >> performance-report.md
         cat benchmark-results.md >> performance-report.md
 
@@ -91,6 +116,9 @@ jobs:
           performance-report.md
           wrk-results.txt
           benchmark-results.md
+          websocket-stress-results.txt
+          connection-pool-benchmark.md
+          message-broadcaster-benchmark.md
 
     - name: 💬 Comment PR with results
       if: github.event_name == 'pull_request'

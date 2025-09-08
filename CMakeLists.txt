@@ -125,6 +125,54 @@ else()
     endif()
 endif()
 
+# Try to find libpqxx (PostgreSQL C++ client library)
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(LIBPQXX QUIET libpqxx)
+endif()
+
+if(NOT LIBPQXX_FOUND)
+    message(STATUS "libpqxx not found via pkg-config, trying manual search")
+    
+    # Try to find libpqxx installed via Homebrew or manually
+    find_path(LIBPQXX_INCLUDE_DIR pqxx/pqxx
+        PATHS
+            /opt/homebrew/include
+            /usr/local/include
+            /usr/include
+        NO_DEFAULT_PATH
+    )
+    find_library(LIBPQXX_LIBRARIES
+        NAMES pqxx
+        PATHS
+            /opt/homebrew/lib
+            /usr/local/lib
+            /usr/lib
+        NO_DEFAULT_PATH
+    )
+    
+    if(LIBPQXX_INCLUDE_DIR AND LIBPQXX_LIBRARIES)
+        set(LIBPQXX_FOUND TRUE)
+        message(STATUS "Found libpqxx manually: ${LIBPQXX_LIBRARIES}")
+        message(STATUS "libpqxx include dir: ${LIBPQXX_INCLUDE_DIR}")
+        # Use the full path for reliable linking
+        set(LIBPQXX_LIBRARIES ${LIBPQXX_LIBRARIES})
+    else()
+        message(STATUS "libpqxx not found, PostgreSQL integration will be disabled")
+        set(LIBPQXX_LIBRARIES "")
+        set(LIBPQXX_INCLUDE_DIRS "")
+    endif()
+else()
+    message(STATUS "Found libpqxx via pkg-config: ${LIBPQXX_LIBRARIES}")
+    # Use full path to library for reliable linking
+    find_library(PQXX_FULL_PATH pqxx HINTS /opt/homebrew/lib)
+    if(PQXX_FULL_PATH)
+        set(LIBPQXX_LIBRARIES ${PQXX_FULL_PATH})
+    else()
+        set(LIBPQXX_LIBRARIES "-lpqxx")
+    endif()
+endif()
+
 # Create a shared library for common sources to avoid recompilation
 set(COMMON_SOURCES
     src/logger.cpp
@@ -132,8 +180,14 @@ set(COMMON_SOURCES
     src/log_file_manager.cpp
     src/config_manager.cpp
     src/database_manager.cpp
+    src/database_schema.cpp
+    src/user_repository.cpp
+    src/session_repository.cpp
+    src/etl_job_repository.cpp
     src/websocket_connection.cpp
     src/websocket_manager.cpp
+    src/connection_pool.cpp
+    src/message_broadcaster.cpp
     src/websocket_filter_manager.cpp
     src/data_transformer.cpp
     src/auth_manager.cpp
@@ -155,6 +209,7 @@ set(COMMON_SOURCES
     src/connection_pool_manager.cpp
     src/request_handler.cpp
     src/lock_utils.cpp
+    src/type_definitions.cpp
 )
 
 add_library(etl_common STATIC ${COMMON_SOURCES})
@@ -173,6 +228,12 @@ endif()
 if(CURL_INCLUDE_DIRS)
     target_include_directories(etl_common PUBLIC ${CURL_INCLUDE_DIRS})
 endif()
+if(LIBPQXX_INCLUDE_DIR)
+    target_include_directories(etl_common PUBLIC ${LIBPQXX_INCLUDE_DIR})
+endif()
+if(LIBPQXX_INCLUDE_DIRS)
+    target_include_directories(etl_common PUBLIC ${LIBPQXX_INCLUDE_DIRS})
+endif()
 
 # Link libraries to the common library
 target_link_libraries(etl_common PUBLIC
@@ -180,6 +241,7 @@ target_link_libraries(etl_common PUBLIC
     Threads::Threads
     ${CURL_LIBRARIES}
     ${JSONCPP_LIBRARIES}
+    ${LIBPQXX_LIBRARIES}
 )
 
 # Main executable - now much simpler
@@ -293,6 +355,30 @@ if(GTest_FOUND AND ENABLE_TESTS)
   # ResponseBuilder unit tests
   create_test_executable(test_response_builder tests/unit/test_response_builder.cpp)
   target_link_libraries(test_response_builder GTest::gtest GTest::gtest_main)
+
+  # Logger system unit tests
+  create_test_executable(test_log_handler_unit tests/unit/test_log_handler.cpp)
+  target_link_libraries(test_log_handler_unit GTest::gtest GTest::gtest_main)
+
+  # Exception system unit tests
+  create_test_executable(test_etl_exceptions_unit tests/unit/test_etl_exceptions.cpp)
+  target_link_libraries(test_etl_exceptions_unit GTest::gtest GTest::gtest_main)
+
+  # Exception mapper unit tests
+  create_test_executable(test_exception_mapper_unit tests/unit/test_exception_mapper.cpp)
+  target_link_libraries(test_exception_mapper_unit GTest::gtest GTest::gtest_main)
+
+  # Lock utilities unit tests
+  create_test_executable(test_lock_utils_unit tests/unit/test_lock_utils.cpp)
+  target_link_libraries(test_lock_utils_unit GTest::gtest GTest::gtest_main)
+
+  # Type safety unit tests
+  create_test_executable(test_type_safety_unit tests/unit/test_type_safety.cpp)
+  target_link_libraries(test_type_safety_unit GTest::gtest GTest::gtest_main)
+
+  # Integration tests
+  create_test_executable(test_integration_unit tests/unit/test_integration.cpp)
+  target_link_libraries(test_integration_unit GTest::gtest GTest::gtest_main)
 
   # Add custom target to run integration tests
   add_custom_target(run_integration_tests

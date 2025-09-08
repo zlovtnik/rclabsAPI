@@ -1,4 +1,6 @@
 #include "auth_manager.hpp"
+#include "user_repository.hpp"
+#include "session_repository.hpp"
 #include "logger.hpp"
 #include <iostream>
 #include <random>
@@ -9,10 +11,11 @@
 #include <format>
 #include <ranges>
 
-AuthManager::AuthManager() {
+AuthManager::AuthManager(std::shared_ptr<DatabaseManager> dbManager)
+    : userRepo_(std::make_shared<UserRepository>(dbManager)),
+      sessionRepo_(std::make_shared<SessionRepository>(dbManager)) {
     AUTH_LOG_INFO("Initializing authentication manager");
-    // Create a default admin user for testing
-    createUser("admin", "admin@etlplus.com", "admin123");
+    // Note: Default admin user creation is now handled by database schema initialization
     AUTH_LOG_DEBUG("Authentication manager initialization completed");
 }
 
@@ -20,116 +23,124 @@ bool AuthManager::createUser(const std::string& username, const std::string& ema
     AUTH_LOG_DEBUG("Creating user: " + username + " with email: " + email);
     
     // Check if user already exists
-    for (const auto& [id, user] : users_) {
-        if (user->username == username || user->email == email) {
-            AUTH_LOG_ERROR("User creation failed: user already exists with username or email");
-            return false;
-        }
+    if (userRepo_->userExists(username, email)) {
+        AUTH_LOG_ERROR("User creation failed: user already exists with username or email");
+        return false;
     }
     
-    auto user = std::make_shared<User>();
-    user->id = generateSessionId(); // Reuse session ID generator
-    user->username = username;
-    user->email = email;
-    user->passwordHash = hashPassword(password, generateSalt());
-    user->roles = {"user"}; // Default role
-    user->createdAt = std::chrono::system_clock::now();
-    user->isActive = true;
+    User user;
+    user.id = generateSessionId(); // Reuse session ID generator
+    user.username = username;
+    user.email = email;
+    user.passwordHash = hashPassword(password, generateSalt());
+    user.roles = {"user"}; // Default role
+    user.createdAt = std::chrono::system_clock::now();
+    user.isActive = true;
     
-    users_[user->id] = user;
-    AUTH_LOG_INFO("Created user: " + username + " with ID: " + user->id);
-    return true;
+    if (userRepo_->createUser(user)) {
+        AUTH_LOG_INFO("Created user: " + username + " with ID: " + user.id);
+        return true;
+    } else {
+        AUTH_LOG_ERROR("Failed to create user in database");
+        return false;
+    }
 }
 
 bool AuthManager::authenticateUser(std::string_view username) const {
-    for (const auto& [id, user] : users_) {
-        if (user->username == username && user->isActive) {
-            // For simplicity, we're not implementing proper password hashing/verification
-            // In a real implementation, you'd verify the hashed password
-            std::cout << "Authenticated user: " << username << std::endl;
-            return true;
-        }
+    auto user = userRepo_->getUserByUsername(std::string(username));
+    if (user && user->isActive) {
+        // For simplicity, we're not implementing proper password hashing/verification
+        // In a real implementation, you'd verify the hashed password
+        AUTH_LOG_INFO("Authenticated user: " + std::string(username));
+        return true;
     }
     
-    std::cerr << "Authentication failed for user: " << username << std::endl;
+    AUTH_LOG_ERROR("Authentication failed for user: " + std::string(username));
     return false;
 }
 
 bool AuthManager::updateUser(const std::string& userId, const User& updatedUser) {
-    if (auto it = users_.find(userId); it != users_.end()) {
-        *it->second = updatedUser;
-        std::cout << "Updated user: " << userId << std::endl;
+    if (userRepo_->updateUser(updatedUser)) {
+        AUTH_LOG_INFO("Updated user: " + userId);
         return true;
+    } else {
+        AUTH_LOG_ERROR("Failed to update user: " + userId);
+        return false;
     }
-    return false;
 }
 
 bool AuthManager::deleteUser(const std::string& userId) {
-    if (auto it = users_.find(userId); it != users_.end()) {
-        it->second->isActive = false; // Soft delete
-        std::cout << "Deleted user: " << userId << std::endl;
+    if (userRepo_->deleteUser(userId)) {
+        AUTH_LOG_INFO("Deleted user: " + userId);
         return true;
+    } else {
+        AUTH_LOG_ERROR("Failed to delete user: " + userId);
+        return false;
     }
-    return false;
 }
 
 std::shared_ptr<User> AuthManager::getUser(const std::string& userId) const {
-    auto it = users_.find(userId);
-    return (it != users_.end()) ? it->second : nullptr;
+    auto user = userRepo_->getUserById(userId);
+    if (user) {
+        return std::make_shared<User>(*user);
+    }
+    return nullptr;
 }
 
 std::string AuthManager::createSession(const std::string& userId) {
-    if (auto user = getUser(userId); !user || !user->isActive) {
+    auto user = userRepo_->getUserById(userId);
+    if (!user || !user->isActive) {
+        AUTH_LOG_ERROR("Cannot create session for invalid or inactive user: " + userId);
         return "";
     }
     
-    auto session = std::make_shared<Session>();
-    session->sessionId = generateSessionId();
-    session->userId = userId;
-    session->createdAt = std::chrono::system_clock::now();
-    session->expiresAt = session->createdAt + std::chrono::hours(24); // 24 hour expiry
-    session->isValid = true;
+    Session session;
+    session.sessionId = generateSessionId();
+    session.userId = userId;
+    session.createdAt = std::chrono::system_clock::now();
+    session.expiresAt = session.createdAt + std::chrono::hours(24); // 24 hour expiry
+    session.isValid = true;
     
-    sessions_[session->sessionId] = session;
-    std::cout << "Created session: " << session->sessionId << " for user: " << userId << std::endl;
-    return session->sessionId;
+    if (sessionRepo_->createSession(session)) {
+        AUTH_LOG_INFO("Created session: " + session.sessionId + " for user: " + userId);
+        return session.sessionId;
+    } else {
+        AUTH_LOG_ERROR("Failed to create session in database");
+        return "";
+    }
 }
 
 bool AuthManager::validateSession(const std::string& sessionId) {
-    if (auto it = sessions_.find(sessionId); it != sessions_.end()) {
-        auto session = it->second;
-        if (session->isValid && std::chrono::system_clock::now() < session->expiresAt) {
-            return true;
-        } else {
-            session->isValid = false; // Mark as invalid
-        }
+    auto session = sessionRepo_->getSessionById(sessionId);
+    if (session && session->isValid && std::chrono::system_clock::now() < session->expiresAt) {
+        return true;
+    } else if (session && !session->isValid) {
+        // Session exists but is invalid, update it in database
+        Session updatedSession = *session;
+        updatedSession.isValid = false;
+        sessionRepo_->updateSession(updatedSession);
     }
     return false;
 }
 
 void AuthManager::revokeSession(const std::string& sessionId) {
-    auto it = sessions_.find(sessionId);
-    if (it != sessions_.end()) {
-        it->second->isValid = false;
-        std::cout << "Revoked session: " << sessionId << std::endl;
+    auto session = sessionRepo_->getSessionById(sessionId);
+    if (session) {
+        Session updatedSession = *session;
+        updatedSession.isValid = false;
+        if (sessionRepo_->updateSession(updatedSession)) {
+            AUTH_LOG_INFO("Revoked session: " + sessionId);
+        } else {
+            AUTH_LOG_ERROR("Failed to revoke session: " + sessionId);
+        }
     }
 }
 
 void AuthManager::cleanupExpiredSessions() {
-    auto now = std::chrono::system_clock::now();
-    for (const auto& [id, session] : sessions_) {
-        if (now >= session->expiresAt) {
-            session->isValid = false;
-        }
-    }
-    
-    // Remove expired sessions
-    for (auto it = sessions_.begin(); it != sessions_.end(); ) {
-        if (!it->second->isValid) {
-            it = sessions_.erase(it);
-        } else {
-            ++it;
-        }
+    if (sessionRepo_->deleteExpiredSessions()) {
+        AUTH_LOG_INFO("Cleaned up expired sessions");
+    } else {
+        AUTH_LOG_ERROR("Failed to cleanup expired sessions");
     }
 }
 
@@ -151,20 +162,39 @@ bool AuthManager::hasPermission(std::string_view userId, std::string_view resour
 }
 
 void AuthManager::assignRole(const std::string& userId, const std::string& role) {
-    if (auto user = getUser(userId); user && std::find(user->roles.begin(), user->roles.end(), role) == user->roles.end()) {
-        user->roles.push_back(role);
-        std::cout << "Assigned role '" << role << "' to user: " << userId << std::endl;
+    auto userOpt = userRepo_->getUserById(userId);
+    if (!userOpt) {
+        AUTH_LOG_ERROR("User not found: " + userId);
+        return;
+    }
+    
+    User user = *userOpt;
+    if (std::find(user.roles.begin(), user.roles.end(), role) == user.roles.end()) {
+        user.roles.push_back(role);
+        if (userRepo_->updateUser(user)) {
+            AUTH_LOG_INFO("Assigned role '" + role + "' to user: " + userId);
+        } else {
+            AUTH_LOG_ERROR("Failed to assign role to user: " + userId);
+        }
     }
 }
 
 void AuthManager::revokeRole(const std::string& userId, const std::string& role) {
-    auto user = getUser(userId);
-    if (user) {
-        auto it = std::find(user->roles.begin(), user->roles.end(), role);
-        if (it != user->roles.end()) {
-            user->roles.erase(it);
+    auto userOpt = userRepo_->getUserById(userId);
+    if (!userOpt) {
+        AUTH_LOG_ERROR("User not found: " + userId);
+        return;
+    }
+    
+    User user = *userOpt;
+    auto it = std::find(user.roles.begin(), user.roles.end(), role);
+    if (it != user.roles.end()) {
+        user.roles.erase(it);
+        if (userRepo_->updateUser(user)) {
+            AUTH_LOG_INFO("Revoked role '" + role + "' from user: " + userId);
+        } else {
+            AUTH_LOG_ERROR("Failed to revoke role from user: " + userId);
         }
-        std::cout << "Revoked role '" << role << "' from user: " << userId << std::endl;
     }
 }
 

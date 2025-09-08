@@ -68,11 +68,19 @@ int main() {
             LOG_WARN("Main", "Failed to connect to database. Running in offline mode.");
         } else {
             LOG_INFO("Main", "Database connected successfully");
+            
+            // Initialize database schema
+            LOG_INFO("Main", "Initializing database schema...");
+            if (!dbManager->initializeSchema()) {
+                LOG_WARN("Main", "Failed to initialize database schema. Some features may not work correctly.");
+            } else {
+                LOG_INFO("Main", "Database schema initialized successfully");
+            }
         }
         
         // Initialize other managers
         LOG_INFO("Main", "Initializing authentication manager...");
-        auto authManager = std::make_shared<AuthManager>();
+        auto authManager = std::make_shared<AuthManager>(dbManager);
         
         LOG_INFO("Main", "Initializing data transformer...");
         auto dataTransformer = std::make_shared<DataTransformer>();

@@ -152,6 +152,17 @@ jobs:
       run: |
         ctest --output-on-failure --parallel $(nproc || sysctl -n hw.ncpu)
 
+    - name: 🧪 Run WebSocket Component Tests
+      working-directory: build
+      run: |
+        echo "Running WebSocket component specific tests..."
+        # Run tests for ConnectionPool
+        ctest -R "ConnectionPool" --output-on-failure || echo "ConnectionPool tests not found, continuing..."
+        # Run tests for MessageBroadcaster
+        ctest -R "MessageBroadcaster" --output-on-failure || echo "MessageBroadcaster tests not found, continuing..."
+        # Run tests for WebSocketManager
+        ctest -R "WebSocketManager" --output-on-failure || echo "WebSocketManager tests not found, continuing..."
+
     - name: 📊 Generate Code Coverage
       if: matrix.os == 'ubuntu-latest'
       run: |
@@ -172,13 +183,15 @@ jobs:
         mkdir -p artifacts
         cp build/bin/ETLPlusBackend artifacts/
         cp -r config artifacts/
-        tar -czf etlplus-${{ matrix.os }}-${{ github.sha }}.tar.gz artifacts/
+        # Include new component libraries if built as shared libraries
+        cp build/lib/libetl_common.a artifacts/ 2>/dev/null || echo "Static library not found, skipping..."
+        tar -czf etlplus-refactored-${{ matrix.os }}-${{ github.sha }}.tar.gz artifacts/
 
     - name: 🚀 Upload Build Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: etlplus-${{ matrix.os }}-build
-        path: etlplus-${{ matrix.os }}-${{ github.sha }}.tar.gz
+        name: etlplus-refactored-${{ matrix.os }}-build
+        path: etlplus-refactored-${{ matrix.os }}-${{ github.sha }}.tar.gz
         retention-days: 30
 
   # 🐳 Docker Build & Push

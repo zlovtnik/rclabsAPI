@@ -8,6 +8,7 @@
 #include <unordered_set>
 #include <vector>
 #include <functional>
+#include <nlohmann/json.hpp>
 #include <type_traits>
 #include "transparent_string_hash.hpp"
 
@@ -115,6 +116,7 @@ private:
   std::string configFilePath;
   
   bool parseConfigFile(const std::string &configPath);
+  void flattenJson(const nlohmann::json& json, const std::string& prefix);
   LogLevel parseLogLevel(const std::string &levelStr) const;
   LogFormat parseLogFormat(const std::string &formatStr) const;
   

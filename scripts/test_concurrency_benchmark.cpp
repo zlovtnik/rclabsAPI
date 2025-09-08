@@ -5,11 +5,7 @@
 #include <atomic>
 #include <mutex>
 #include <shared_mutex>
-#include "../include/lock_        std::cout << "  Lock-free result: " << counter.load() << " operations in "
-                  << duration.count() << "ms\n";
-        double safe_duration = std::max(duration.count(), 1LL);
-        std::cout << "  Lock-free throughput: " << (counter.load() * 1000.0 / safe_duration)
-                  << " ops/sec\n\n";s.hpp"
+#include "../include/lock_utils.hpp"
 
 // Benchmark for comparing different locking strategies
 class ConcurrencyBenchmark {

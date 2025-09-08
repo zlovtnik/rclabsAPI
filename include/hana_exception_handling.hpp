@@ -9,6 +9,7 @@
 #include <typeindex>
 #include <sstream>
 #include <iomanip>
+#include <chrono>
 
 namespace ETLPlus {
 namespace ExceptionHandling {
@@ -18,21 +19,17 @@ inline std::string escapeJsonString(const std::string& input) {
     std::ostringstream escaped;
     for (char c : input) {
         switch (c) {
-            case '"':  escaped << """; break;
-            case '': escaped << ""; break;
-            case '\b': escaped << "\b"; break;
-            case '\f': escaped << "\f"; break;
-            case '
-': escaped << "
-"; break;
-            case '
-': escaped << "
-"; break;
-            case '	': escaped << "	"; break;
+            case '"':  escaped << "\\\""; break;
+            case '\\': escaped << "\\\\"; break;
+            case '\b': escaped << "\\b"; break;
+            case '\f': escaped << "\\f"; break;
+            case '\n': escaped << "\\n"; break;
+            case '\r': escaped << "\\r"; break;
+            case '\t': escaped << "\\t"; break;
             default:
                 if (static_cast<unsigned char>(c) < 32) {
                     // Escape control characters
-                    escaped << "\u" << std::hex << std::setw(4) << std::setfill('0') 
+                    escaped << "\\u" << std::hex << std::setw(4) << std::setfill('0') 
                            << static_cast<int>(static_cast<unsigned char>(c));
                 } else {
                     escaped << c;
@@ -49,9 +46,9 @@ inline std::string escapeJsonString(const std::string& input) {
 
 // Define all exception types in a Hana tuple for compile-time processing
 using ExceptionTypes = boost::hana::tuple<
-    boost::hana::type<ValidationException>,
-    boost::hana::type<SystemException>,
-    boost::hana::type<BusinessException>
+    boost::hana::type<etl::ValidationException>,
+    boost::hana::type<etl::SystemException>,
+    boost::hana::type<etl::BusinessException>
 >;
 
 // HTTP status mappings for each exception type
@@ -59,26 +56,26 @@ template<typename ExceptionType>
 struct ExceptionHttpStatus;
 
 template<>
-struct ExceptionHttpStatus<ValidationException> {
+struct ExceptionHttpStatus<etl::ValidationException> {
     static constexpr boost::beast::http::status value = boost::beast::http::status::bad_request;
 };
 
 template<>
-struct ExceptionHttpStatus<SystemException> {
+struct ExceptionHttpStatus<etl::SystemException> {
     static constexpr boost::beast::http::status value = boost::beast::http::status::internal_server_error;
 };
 
 template<>
-struct ExceptionHttpStatus<BusinessException> {
+struct ExceptionHttpStatus<etl::BusinessException> {
     static constexpr boost::beast::http::status value = boost::beast::http::status::unprocessable_entity;
 };
 
 // ============================================================================
-// Hana-based Exception Handler Registry
+// Hana-based Exception Handler Template
 // ============================================================================
 
 template<typename ExceptionType>
-struct ExceptionHandler {
+struct HanaExceptionHandler {
     using exception_type = ExceptionType;
 
     template<typename Func>
@@ -87,12 +84,14 @@ struct ExceptionHandler {
     }
 };
 
-// Compile-time exception handler registry
-template<typename... Handlers>
+// ============================================================================
+// Hana-based Exception Registry
+// ============================================================================
+
 class HanaExceptionRegistry {
 private:
     std::unordered_map<std::type_index, std::function<boost::beast::http::response<boost::beast::http::string_body>(
-        const ETLException&, const std::string&)>> handlers_;
+        const etl::ETLException&, const std::string&)>> handlers_;
 
 public:
     HanaExceptionRegistry() = default;
@@ -101,43 +100,43 @@ public:
     template<typename ExceptionType, typename Handler>
     void registerHandler(Handler&& handler) {
         handlers_[std::type_index(typeid(ExceptionType))] =
-            [handler = std::forward<Handler>(handler)](const ETLException& ex, const std::string& op) mutable {
+            [this, handler = std::forward<Handler>(handler)](const etl::ETLException& ex, const std::string& op) mutable {
                 // Try to cast to the expected type
                 if (auto* typedEx = dynamic_cast<const ExceptionType*>(&ex)) {
                     return handler(*typedEx, op);
                 }
-                // If cast fails, this shouldn't happen with proper usage
-                throw std::bad_cast();
+                // Fallback to default response if cast fails
+                return createDefaultResponse(ex, op);
             };
     }
 
     // Get handler for exception type
     boost::beast::http::response<boost::beast::http::string_body>
-    handle(const ETLException& ex, const std::string& operation = "") const {
+    handle(const etl::ETLException& ex, const std::string& operation = "") const {
         auto it = handlers_.find(std::type_index(typeid(ex)));
         if (it != handlers_.end()) {
             return it->second(ex, operation);
         }
-
-        // Default handler based on exception type
+        
+        // Fallback to default response
         return createDefaultResponse(ex, operation);
     }
 
 private:
     boost::beast::http::response<boost::beast::http::string_body>
-    createDefaultResponse(const ETLException& ex, const std::string& operation) const {
+    createDefaultResponse(const etl::ETLException& ex, const std::string& operation) const {
         namespace http = boost::beast::http;
 
         http::response<http::string_body> res;
-
-        // Determine the appropriate HTTP status based on exception type
-        boost::beast::http::status status = boost::beast::http::status::internal_server_error;
-        if (dynamic_cast<const ValidationException*>(&ex)) {
-            status = ExceptionHttpStatus<ValidationException>::value;
-        } else if (dynamic_cast<const SystemException*>(&ex)) {
-            status = ExceptionHttpStatus<SystemException>::value;
-        } else if (dynamic_cast<const BusinessException*>(&ex)) {
-            status = ExceptionHttpStatus<BusinessException>::value;
+        
+        // Determine status based on exception type
+        boost::beast::http::status status = http::status::internal_server_error;
+        if (dynamic_cast<const etl::ValidationException*>(&ex)) {
+            status = ExceptionHttpStatus<etl::ValidationException>::value;
+        } else if (dynamic_cast<const etl::SystemException*>(&ex)) {
+            status = ExceptionHttpStatus<etl::SystemException>::value;
+        } else if (dynamic_cast<const etl::BusinessException*>(&ex)) {
+            status = ExceptionHttpStatus<etl::BusinessException>::value;
         }
 
         res.result(status);
@@ -218,7 +217,7 @@ public:
 
 // Factory for creating validation error handlers
 inline auto makeValidationErrorHandler() {
-    return [](const ValidationException& ex, const std::string& operation) {
+    return [](const etl::ValidationException& ex, const std::string& operation) {
         namespace http = boost::beast::http;
         http::response<http::string_body> res{http::status::bad_request, 11};
         res.set(http::field::content_type, "application/json");
@@ -252,7 +251,7 @@ inline auto makeValidationErrorHandler() {
 
 // Factory for creating system error handlers
 inline auto makeSystemErrorHandler() {
-    return [](const SystemException& ex, const std::string& operation) {
+    return [](const etl::SystemException& ex, const std::string& operation) {
         namespace http = boost::beast::http;
         http::response<http::string_body> res{http::status::internal_server_error, 11};
         res.set(http::field::content_type, "application/json");
@@ -285,7 +284,7 @@ inline auto makeSystemErrorHandler() {
 
 // Factory for creating business error handlers
 inline auto makeBusinessErrorHandler() {
-    return [](const BusinessException& ex, const std::string& operation) {
+    return [](const etl::BusinessException& ex, const std::string& operation) {
         namespace http = boost::beast::http;
         http::response<http::string_body> res{http::status::unprocessable_entity, 11};
         res.set(http::field::content_type, "application/json");
@@ -316,5 +315,5 @@ inline auto makeBusinessErrorHandler() {
     };
 }
 
-} // namespace hana_exception_handling
-} // namespace etl
+} // namespace ExceptionHandling
+} // namespace ETLPlus

@@ -16,7 +16,7 @@ void testRequestHandlerWithExceptionMapper() {
     
     // Create minimal test instances instead of nullptr
     auto dbManager = std::make_shared<DatabaseManager>();
-    auto authManager = std::make_shared<AuthManager>();
+    auto authManager = std::make_shared<AuthManager>(dbManager);
     // ETLJobManager requires dependencies, create minimal ones
     auto dataTransformer = std::make_shared<DataTransformer>();
     auto etlManager = std::make_shared<ETLJobManager>(dbManager, dataTransformer);
