@@ -8,7 +8,6 @@
 #include <functional>
 #include <mutex>
 #include <stdexcept>
-#include <format>
 #include <nlohmann/json.hpp>
 
 static std::timed_mutex configMutex;

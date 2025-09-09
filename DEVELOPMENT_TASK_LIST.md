@@ -20,7 +20,7 @@ This task list outlines the next steps for the ETL Plus Backend project based on
   - Duration: 30 minutes
 - [ ] **Test main executable startup** - Verify ETLPlusBackend starts correctly
   - Command: `cd build/bin && ./ETLPlusBackend`
-  - Check: Server starts on port 8080, no crashes
+  - Check: Server starts on server.port (defaults to 8080; override via PORT env var or config file), no crashes
   - Duration: 15 minutes
 - [ ] **API endpoint validation** - Test basic REST endpoints
   - Test `/api/health` endpoint
@@ -35,7 +35,7 @@ This task list outlines the next steps for the ETL Plus Backend project based on
   - Test connection pool functionality
   - Validate schema creation and migrations
   - Duration: 2 hours
-- [ ] **Database migration validation** - Ensure recent Oracle→PostgreSQL migration is complete
+- [ ] **Database migration validation** - Ensure recent PostgreSQL migration is complete
   - Run database-related unit tests
   - Test ETL job persistence
   - Validate user/session repositories
@@ -44,7 +44,7 @@ This task list outlines the next steps for the ETL Plus Backend project based on
 ### 1.3 WebSocket Testing
 
 - [ ] **WebSocket connection test** - Test real-time monitoring
-  - Connect to WebSocket on port 8081
+  - Connect to WebSocket on monitoring.websocket.port (defaults to 8081; override via config file)
   - Test message broadcasting
   - Validate connection pooling
   - Duration: 45 minutes
@@ -82,6 +82,8 @@ This task list outlines the next steps for the ETL Plus Backend project based on
   - Add Ninja build instructions
   - Update dependency versions
   - Add troubleshooting section
+  - Document JWT configuration: secret management, algorithm (HS256/RS256), expiry/refresh, clock skew
+  - Document rate limiting: per-endpoint rules, 429 behavior, Retry-After and X-RateLimit-* headers
   - Duration: 1 hour
 - [ ] **API documentation** - Create comprehensive API docs
   - Document all REST endpoints
@@ -118,11 +120,13 @@ This task list outlines the next steps for the ETL Plus Backend project based on
   - [x] Add token validation middleware
   - [x] Update login/logout endpoints
   - [x] Duration: 4 hours
+  - [ ] Acceptance: 401 on missing/invalid token with WWW-Authenticate header; 403 on valid token lacking scope
 - [x] **API rate limiting** - Prevent abuse
   - [x] Implement rate limiting middleware
   - [x] Configure limits per endpoint
   - [x] Add rate limit headers to responses
   - [x] Duration: 3 hours
+  - [ ] Acceptance: 429 Too Many Requests with Retry-After and X-RateLimit-(Limit,Remaining,Reset)
 - [ ] **CORS configuration** - Enable cross-origin requests
   - Configure CORS headers
   - Add origin validation
@@ -166,17 +170,17 @@ This task list outlines the next steps for the ETL Plus Backend project based on
 
 ### 4.1 CI/CD Pipeline
 
-- [ ] **GitHub Actions setup** - Automated testing and deployment
+- [x] **GitHub Actions setup** - Automated testing and deployment
   - Create CI workflow for builds
   - Add automated testing
   - Configure deployment to staging
   - Duration: 3 hours
-- [ ] **Docker containerization** - Production-ready containers
+- [x] **Docker containerization** - Production-ready containers
   - Multi-stage Dockerfile
   - Security hardening
   - Minimal base image usage
   - Duration: 2 hours
-- [ ] **Deployment scripts** - Automated deployment
+- [x] **Deployment scripts** - Automated deployment
   - Kubernetes manifests
   - Helm charts
   - Rolling deployment strategy
@@ -217,6 +221,10 @@ This task list outlines the next steps for the ETL Plus Backend project based on
   - SSL certificate management
   - Secure WebSocket (WSS)
   - Duration: 2 hours
+- [ ] **JWT key management**
+  - Secrets storage (env/file/secret manager) and rotation policy
+  - Algorithm selection (HS256 vs RS256/ES256) with kid support
+  - Optional JWKS endpoint if using asymmetric keys
 
 ---
 

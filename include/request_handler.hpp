@@ -13,6 +13,7 @@
 #include <boost/beast/http.hpp>
 #include <chrono>
 #include <memory>
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -30,6 +31,11 @@ public:
   RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
                  std::shared_ptr<AuthManager> authManager,
                  std::shared_ptr<ETLJobManager> etlManager);
+
+  RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
+                 std::shared_ptr<AuthManager> authManager,
+                 std::shared_ptr<ETLJobManager> etlManager,
+                 std::unique_ptr<RateLimiter> rateLimiter);
 
   template <class Body, class Allocator>
   http::response<http::string_body>
@@ -49,6 +55,10 @@ private:
   std::unique_ptr<RateLimiter> rateLimiter_;
   ETLPlus::ExceptionHandling::ExceptionMapper exceptionMapper_;
 
+  // Trust proxy configuration for client IP extraction
+  bool trustProxy_ = false;
+  int numTrustedHops_ = 0;
+
   // Hana-based exception handling registry for better type safety
   ETLPlus::ExceptionHandling::HanaExceptionRegistry hanaExceptionRegistry_;
 
@@ -61,7 +71,10 @@ private:
   // Rate limiting middleware
   std::string getClientId(const http::request<http::string_body> &req) const;
   bool checkRateLimit(const http::request<http::string_body> &req) const;
-  void addRateLimitHeaders(http::response<http::string_body> &res, const std::string &clientId, const std::string &endpoint);
+  // Sets: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset
+  void addRateLimitHeaders(http::response<http::string_body> &res,
+                           const std::string &clientId,
+                           const std::string &endpoint);
 
   // Enhanced validation methods
   http::response<http::string_body>
@@ -89,7 +102,7 @@ private:
 
   // Response creation methods
   http::response<http::string_body>
-  createSuccessResponse(std::string_view data) const;
+  createSuccessResponse(std::string_view data, unsigned int version) const;
 
   // Utility methods for job monitoring endpoints
   std::string extractJobIdFromPath(std::string_view target,

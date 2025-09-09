@@ -8,6 +8,9 @@
 #include <string_view>
 #include <unordered_map>
 #include <vector>
+#ifdef ETL_ENABLE_JWT
+#include <chrono>
+#endif
 
 class DatabaseManager;
 class UserRepository;
@@ -28,9 +31,11 @@ public:
   std::optional<User> getUserByUsername(const std::string &username) const;
 
   // JWT Token management
+#ifdef ETL_ENABLE_JWT
   std::string generateJWTToken(const std::string &userId);
   std::optional<std::string> validateJWTToken(const std::string &token);
   std::string refreshJWTToken(const std::string &token);
+#endif
 
   // Session management (legacy - to be deprecated)
   std::string createSession(const std::string &userId);
@@ -45,12 +50,16 @@ public:
   void revokeRole(const std::string &userId, const std::string &role);
 
   // JWT configuration
-  int getJWTExpiryHours() const;
+#ifdef ETL_ENABLE_JWT
+  std::chrono::hours getJWTExpiryHours() const;
+#endif
 
 private:
   std::shared_ptr<UserRepository> userRepo_;
   std::shared_ptr<SessionRepository> sessionRepo_;
+#ifdef ETL_ENABLE_JWT
   std::string jwtSecretKey_;
+#endif
 
   std::string hashPassword(std::string_view password,
                            std::string_view salt) const;

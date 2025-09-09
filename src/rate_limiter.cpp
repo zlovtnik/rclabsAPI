@@ -21,12 +21,21 @@ void RateLimiter::initializeDefaultRules() {
         {"/api/health", 300, 2000}       // 300 per minute, 2000 per hour for health checks
     };
 
+    // Sort rules by descending prefix length to ensure more specific rules are checked first
+    std::sort(rules_.begin(), rules_.end(), [](const RateLimitRule& a, const RateLimitRule& b) {
+        return a.endpoint.length() > b.endpoint.length();
+    });
+
     etl::ComponentLogger<RateLimiter>::info("RateLimiter initialized with default rules");
 }
 
 void RateLimiter::addRule(const RateLimitRule& rule) {
     std::lock_guard<std::mutex> lock(mutex_);
     rules_.push_back(rule);
+    // Sort rules by descending prefix length to ensure more specific rules are checked first
+    std::sort(rules_.begin(), rules_.end(), [](const RateLimitRule& a, const RateLimitRule& b) {
+        return a.endpoint.length() > b.endpoint.length();
+    });
     etl::ComponentLogger<RateLimiter>::info("Added rate limit rule for endpoint: " + rule.endpoint);
 }
 
@@ -39,7 +48,6 @@ bool RateLimiter::isAllowed(const std::string& clientId, const std::string& endp
         return true;
     }
 
-    auto now = std::chrono::system_clock::now();
     auto [currentMinute, currentHour] = getCurrentWindows();
 
     // Get or create client data
@@ -75,7 +83,6 @@ RateLimitInfo RateLimiter::getRateLimitInfo(const std::string& clientId, const s
         return {INT_MAX, std::chrono::system_clock::time_point::max(), INT_MAX};
     }
 
-    auto now = std::chrono::system_clock::now();
     auto [currentMinute, currentHour] = getCurrentWindows();
 
     auto& clientData = clientData_[clientId];
@@ -95,8 +102,7 @@ RateLimitInfo RateLimiter::getRateLimitInfo(const std::string& clientId, const s
     int limit = rule->requestsPerMinute;
 
     // Calculate reset time aligned to next minute boundary
-    auto minutesSinceEpoch = std::chrono::duration_cast<std::chrono::minutes>(now.time_since_epoch());
-    auto nextMinuteTime = std::chrono::system_clock::time_point((minutesSinceEpoch + std::chrono::minutes(1)));
+    auto nextMinuteTime = std::chrono::system_clock::time_point(std::chrono::minutes(currentMinute + 1));
     auto resetTime = nextMinuteTime;
 
     return {remaining, resetTime, limit};
@@ -111,7 +117,6 @@ void RateLimiter::resetClient(const std::string& clientId) {
 void RateLimiter::cleanupExpiredEntries() {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    auto now = std::chrono::system_clock::now();
     auto [currentMinute, currentHour] = getCurrentWindows();
 
     // Clean up old minute counters (keep only current and previous minute)
@@ -122,7 +127,7 @@ void RateLimiter::cleanupExpiredEntries() {
                 size_t pos = key.find_last_of('_');
                 if (pos != std::string::npos) {
                     try {
-                        int window = std::stoi(key.substr(pos + 1));
+                        int64_t window = std::stoll(key.substr(pos + 1));
                         if (window < currentMinute - 1) {
                             toRemove.push_back(key);
                         }
@@ -146,7 +151,7 @@ void RateLimiter::cleanupExpiredEntries() {
                 size_t pos = key.find_last_of('_');
                 if (pos != std::string::npos) {
                     try {
-                        int window = std::stoi(key.substr(pos + 1));
+                        int64_t window = std::stoll(key.substr(pos + 1));
                         if (window < currentHour - 1) {
                             toRemove.push_back(key);
                         }
@@ -174,12 +179,11 @@ const RateLimitRule* RateLimiter::getRuleForEndpoint(const std::string& endpoint
     return nullptr;
 }
 
-std::pair<int, int> RateLimiter::getCurrentWindows() const {
+std::pair<int64_t, int64_t> RateLimiter::getCurrentWindows() const {
     auto now = std::chrono::system_clock::now();
     auto timeSinceEpoch = now.time_since_epoch();
 
-    auto minutesSinceEpoch = std::chrono::duration_cast<std::chrono::minutes>(timeSinceEpoch).count();
-    auto hoursSinceEpoch = std::chrono::duration_cast<std::chrono::hours>(timeSinceEpoch).count();
-
-    return {static_cast<int>(minutesSinceEpoch), static_cast<int>(hoursSinceEpoch)};
+    const int64_t minutesSinceEpoch = std::chrono::duration_cast<std::chrono::minutes>(timeSinceEpoch).count();
+    const int64_t hoursSinceEpoch = std::chrono::duration_cast<std::chrono::hours>(timeSinceEpoch).count();
+    return {minutesSinceEpoch, hoursSinceEpoch};
 }

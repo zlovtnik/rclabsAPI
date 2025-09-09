@@ -408,8 +408,12 @@ bool WebhookNotificationDelivery::deliver(const NotificationMessage& message) {
     Json::StreamWriterBuilder builder;
     std::string jsonPayload = Json::writeString(builder, payload);
 #else
-    // Simple payload without JSON library
-    std::string jsonPayload = "{\"subject\":\"" + message.subject + "\",\"message\":\"" + message.message + "\"}";
+    // Safe JSON construction using nlohmann/json
+    nlohmann::json safePayload = {
+        {"subject", message.subject},
+        {"message", message.message}
+    };
+    std::string jsonPayload = safePayload.dump();
 #endif
     
     return sendWebhook(jsonPayload);

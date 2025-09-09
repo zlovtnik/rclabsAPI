@@ -1,7 +1,5 @@
 #include "rate_limiter.hpp"
 #include <gtest/gtest.h>
-#include <chrono>
-#include <thread>
 
 class RateLimiterTest : public ::testing::Test {
 protected:

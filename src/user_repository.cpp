@@ -7,6 +7,14 @@
 #include <chrono>
 #include <ctime>
 
+// Helper function to format timestamps for database
+static std::string formatTimestampForDB(const std::chrono::system_clock::time_point& tp) {
+    auto time_t = std::chrono::system_clock::to_time_t(tp);
+    std::stringstream ss;
+    ss << std::put_time(std::gmtime(&time_t), "%Y-%m-%d %H:%M:%S");
+    return ss.str();
+}
+
 UserRepository::UserRepository(std::shared_ptr<DatabaseManager> dbManager)
     : dbManager_(dbManager) {}
 
@@ -18,8 +26,7 @@ bool UserRepository::createUser(const User& user) {
     
     try {
         std::string rolesStr = rolesToString(user.roles);
-        std::string createdAtStr = std::format("{:%Y-%m-%d %H:%M:%S}",
-            std::chrono::floor<std::chrono::seconds>(user.createdAt));
+        std::string createdAtStr = formatTimestampForDB(user.createdAt);
         
         std::string query = "INSERT INTO users (id, username, email, password_hash, roles, created_at, is_active) "
                            "VALUES ('" + user.id + "', '" + user.username + "', '" + user.email + "', '" + 
@@ -62,7 +69,7 @@ std::optional<User> UserRepository::getUserByUsername(const std::string& usernam
     }
     
     try {
-        std::string query = "SELECT id, username, email, password_hash, roles, created_at, is_active "
+        std::string query = "SELECT id, username, email, password_hash "
                            "FROM users WHERE username = '" + username + "'";
         
         auto result = dbManager_->selectQuery(query);
@@ -213,8 +220,8 @@ std::vector<User> UserRepository::getUsersByRole(const std::string& role) {
 }
 
 User UserRepository::userFromRow(const std::vector<std::string>& row) {
-    if (row.size() < 7) {
-        throw std::runtime_error("Invalid user row data");
+    if (row.size() < 4) {
+        throw std::runtime_error("Invalid user row data: insufficient columns");
     }
     
     User user;
@@ -222,20 +229,11 @@ User UserRepository::userFromRow(const std::vector<std::string>& row) {
     user.username = row[1];
     user.email = row[2];
     user.passwordHash = row[3];
-    user.roles = stringToRoles(row[4]);
     
-    // Parse timestamp
-    std::tm tm = {};
-    std::istringstream ss(row[5]);
-    ss >> std::get_time(&tm, "%Y-%m-%d %H:%M:%S");
-    if (ss.fail()) {
-        // Fallback to current time if parsing fails
-        user.createdAt = std::chrono::system_clock::now();
-    } else {
-        user.createdAt = std::chrono::system_clock::from_time_t(std::mktime(&tm));
-    }
-    
-    user.isActive = (row[6] == "t" || row[6] == "true");
+    // Set default values
+    user.createdAt = std::chrono::system_clock::now();
+    user.roles = {"user"}; // Default role
+    user.isActive = true; // Default value
     
     return user;
 }

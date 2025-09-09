@@ -14,7 +14,7 @@
 #include <iomanip>
 #include <ctime>
 #include <regex>
-#include <format>
+#include <algorithm>
 #include <unistd.h> // for getpid()
 #include <nlohmann/json.hpp>
 
@@ -54,7 +54,47 @@ RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
   REQ_LOG_INFO("Hana-based exception handlers registered for improved error handling");
 }
 
-#ifdef ETL_ENABLE_JWT
+RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
+                               std::shared_ptr<AuthManager> authManager,
+                               std::shared_ptr<ETLJobManager> etlManager,
+                               std::unique_ptr<RateLimiter> rateLimiter)
+    : dbManager_(dbManager), authManager_(authManager),
+      etlManager_(etlManager), rateLimiter_(std::move(rateLimiter)), exceptionMapper_()
+{
+  REQ_LOG_INFO("RequestHandler created with injected components - DB: " +
+               std::string(dbManager ? "valid" : "null") +
+               ", Auth: " + std::string(authManager ? "valid" : "null") +
+               ", ETL: " + std::string(etlManager ? "valid" : "null") +
+               ", RateLimiter: " + std::string(rateLimiter_ ? "valid" : "null"));
+
+  // Initialize rate limiter if not provided
+  if (rateLimiter_) {
+    rateLimiter_->initializeDefaultRules();
+  }
+
+  // Configure the exception mapper for RequestHandler
+  ETLPlus::ExceptionHandling::ExceptionMappingConfig config;
+  config.serverHeader = "ETL Plus Backend";
+  config.corsOrigin = "*";
+  config.keepAlive = false;
+  config.includeInternalDetails = false; // Don't expose internal details in production
+  exceptionMapper_.updateConfig(config);
+
+  // Initialize Hana-based exception handlers for better type safety and performance
+  hanaExceptionRegistry_.registerHandler<etl::ValidationException>(
+      ETLPlus::ExceptionHandling::makeValidationErrorHandler());
+  hanaExceptionRegistry_.registerHandler<etl::SystemException>(
+      ETLPlus::ExceptionHandling::makeSystemErrorHandler());
+  hanaExceptionRegistry_.registerHandler<etl::BusinessException>(
+      ETLPlus::ExceptionHandling::makeBusinessErrorHandler());
+
+  // Note: HanaExceptionRegistry provides better type safety than the old ExceptionMapper
+  // The old ExceptionMapper registration is removed in favor of Hana-based handling
+
+  REQ_LOG_INFO("Hana-based exception handlers registered for improved error handling");
+}
+
+#if ETL_ENABLE_JWT
 std::optional<std::string> RequestHandler::validateJWTToken(const http::request<http::string_body> &req) const {
   auto headers = extractHeaders(req);
   if (auto authIt = headers.find("authorization"); authIt != headers.end()) {
@@ -91,13 +131,37 @@ std::string RequestHandler::getClientId(const http::request<http::string_body> &
 
   // Try to get client IP from X-Forwarded-For header (for proxies/load balancers)
   if (auto forwardedIt = headers.find("x-forwarded-for"); forwardedIt != headers.end()) {
-    // Take the first IP if there are multiple
     std::string forwarded = forwardedIt->second;
-    size_t commaPos = forwarded.find(',');
-    if (commaPos != std::string::npos) {
-      return forwarded.substr(0, commaPos);
+    
+    if (trustProxy_ && numTrustedHops_ > 0) {
+      // Parse X-Forwarded-For with trusted hops
+      std::vector<std::string> ips;
+      std::stringstream ss(forwarded);
+      std::string ip;
+      while (std::getline(ss, ip, ',')) {
+        // Trim whitespace
+        ip.erase(ip.begin(), std::find_if(ip.begin(), ip.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+        ip.erase(std::find_if(ip.rbegin(), ip.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), ip.end());
+        if (!ip.empty()) {
+          ips.push_back(ip);
+        }
+      }
+      
+      // Return the IP that is numTrustedHops from the end (the original client IP)
+      if (static_cast<int>(ips.size()) > numTrustedHops_) {
+        return ips[ips.size() - 1 - numTrustedHops_];
+      } else if (!ips.empty()) {
+        // If we don't have enough hops, return the first (rightmost) IP
+        return ips.back();
+      }
+    } else {
+      // Simple parsing: take the first IP if there are multiple
+      size_t commaPos = forwarded.find(',');
+      if (commaPos != std::string::npos) {
+        return forwarded.substr(0, commaPos);
+      }
+      return forwarded;
     }
-    return forwarded;
   }
 
   // Try to get client IP from X-Real-IP header
@@ -139,7 +203,7 @@ void RequestHandler::addRateLimitHeaders(http::response<http::string_body> &res,
     auto now = std::chrono::system_clock::now();
     auto secondsUntilReset = std::chrono::duration_cast<std::chrono::seconds>(
         rateLimitInfo.resetTime - now).count();
-    res.set("Retry-After", std::to_string(std::max(0LL, secondsUntilReset)));
+    res.set("Retry-After", std::to_string(std::max(0LL, static_cast<long long>(secondsUntilReset))));
   }
 }
 
@@ -303,7 +367,7 @@ http::response<http::string_body> RequestHandler::validateAndHandleRequest(
   }
 
   // Step 2.5: JWT Authentication for protected endpoints
-#ifdef ETL_ENABLE_JWT
+#if ETL_ENABLE_JWT
   if (isProtectedEndpoint(target))
   {
     auto userId = validateJWTToken(req);
@@ -495,6 +559,8 @@ RequestHandler::handleAuth(const http::request<http::string_body> &req) const
     res.set(http::field::access_control_allow_origin, "*");
     res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
     res.set(http::field::access_control_allow_headers, "Content-Type, Authorization");
+    res.set(http::field::access_control_expose_headers,
+            "X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After");
     res.keep_alive(false);
     res.prepare_payload();
     return res;
@@ -512,6 +578,7 @@ RequestHandler::handleAuth(const http::request<http::string_body> &req) const
 
   if (req.method() == http::verb::post && target == "/api/auth/login")
   {
+#if ETL_ENABLE_JWT
     // Validate login request body
     if (auto validation = InputValidator::validateLoginRequest(req.body()); !validation.isValid)
     {
@@ -563,12 +630,12 @@ RequestHandler::handleAuth(const http::request<http::string_body> &req) const
             {"token", token},
             {"user_id", user->id},
             {"username", user->username},
-            {"expires_in", authManager_->getJWTExpiryHours() * 3600},
+            {"expires_in", authManager_->getJWTExpiryHours().count() * 3600},
             {"token_type", "Bearer"}
         };
 
         REQ_LOG_INFO("RequestHandler::handleAuth() - Login successful for user: " + username);
-        return createSuccessResponse(response.dump());
+        return createSuccessResponse(response.dump(), req.version());
     } catch (const nlohmann::json::exception& e) {
         REQ_LOG_ERROR("RequestHandler::handleAuth() - JSON parsing failed: " + std::string(e.what()));
         throw etl::ValidationException(
@@ -577,6 +644,13 @@ RequestHandler::handleAuth(const http::request<http::string_body> &req) const
             "body",
             req.body());
     }
+#else
+    // JWT authentication is disabled
+    REQ_LOG_WARN("RequestHandler::handleAuth() - JWT authentication is disabled");
+    throw etl::ValidationException(
+        etl::ErrorCode::UNAUTHORIZED,
+        "Authentication is currently disabled");
+#endif
   }
   else if (req.method() == http::verb::post && target == "/api/auth/logout")
   {
@@ -609,6 +683,7 @@ RequestHandler::handleAuth(const http::request<http::string_body> &req) const
 
     if (!token.empty())
     {
+#if ETL_ENABLE_JWT
       // Validate the token (optional for logout, but good practice)
       auto userId = authManager_->validateJWTToken(token);
       if (userId.has_value())
@@ -619,17 +694,20 @@ RequestHandler::handleAuth(const http::request<http::string_body> &req) const
       {
         REQ_LOG_WARN("RequestHandler::handleAuth() - Logout with invalid token");
       }
+#else
+      REQ_LOG_INFO("RequestHandler::handleAuth() - Logout requested (JWT validation disabled)");
+#endif
     }
     else
     {
       REQ_LOG_INFO("RequestHandler::handleAuth() - Logout without token");
     }
 
-    return createSuccessResponse(R"({"message":"Logged out successfully"})");
+    return createSuccessResponse(R"({"message":"Logged out successfully"})", req.version());
   }
   else if (req.method() == http::verb::get && target == "/api/auth/profile")
   {
-#ifdef ETL_ENABLE_JWT
+#if ETL_ENABLE_JWT
     // JWT validation is now handled by middleware, so we can extract user info from token
     auto userId = validateJWTToken(req);
     if (!userId.has_value())
@@ -646,7 +724,7 @@ RequestHandler::handleAuth(const http::request<http::string_body> &req) const
         "Authentication not available");
 #endif
 
-#ifdef ETL_ENABLE_JWT
+#if ETL_ENABLE_JWT
     // Get user details from database
     auto user = authManager_->getUser(userId.value());
     if (!user)
@@ -664,11 +742,11 @@ RequestHandler::handleAuth(const http::request<http::string_body> &req) const
         {"email", user->email},
         {"roles", user->roles},
         {"is_active", user->isActive},
-        {"created_at", std::format("{:%Y-%m-%d %H:%M:%S}", user->createdAt)}
+        {"created_at", this->formatTimestamp(user->createdAt)}
     };
 
     REQ_LOG_INFO("RequestHandler::handleAuth() - Profile retrieved for user: " + user->username);
-    return createSuccessResponse(response.dump());
+    return createSuccessResponse(response.dump(), req.version());
 #else
     // Without JWT, profile endpoint is not available
     throw etl::ValidationException(
@@ -698,6 +776,8 @@ RequestHandler::handleLogs(const http::request<http::string_body> &req) const
     res.set(http::field::access_control_allow_origin, "*");
     res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
     res.set(http::field::access_control_allow_headers, "Content-Type, Authorization");
+    res.set(http::field::access_control_expose_headers,
+            "X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After");
     res.keep_alive(false);
     res.prepare_payload();
     return res;
@@ -718,19 +798,19 @@ RequestHandler::handleLogs(const http::request<http::string_body> &req) const
   {
     // Return recent logs
     REQ_LOG_INFO("RequestHandler::handleLogs() - Retrieving recent logs");
-    return createSuccessResponse(R"({"logs":[],"total":0,"message":"Logs endpoint implemented"})");
+    return createSuccessResponse(R"({"logs":[],"total":0,"message":"Logs endpoint implemented"})", req.version());
   }
   else if (req.method() == http::verb::get && target.rfind("/api/logs/", 0) == 0)
   {
     // Handle specific log queries with parameters
     REQ_LOG_INFO("RequestHandler::handleLogs() - Processing log query with parameters");
-    return createSuccessResponse(R"({"logs":[],"total":0,"message":"Log query endpoint implemented"})");
+    return createSuccessResponse(R"({"logs":[],"total":0,"message":"Log query endpoint implemented"})", req.version());
   }
   else if (req.method() == http::verb::post && target == "/api/logs/search")
   {
     // Handle log search requests
     REQ_LOG_INFO("RequestHandler::handleLogs() - Processing log search request");
-    return createSuccessResponse(R"({"results":[],"total":0,"message":"Log search endpoint implemented"})");
+    return createSuccessResponse(R"({"results":[],"total":0,"message":"Log search endpoint implemented"})", req.version());
   }
 
   throw etl::ValidationException(
@@ -754,6 +834,8 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
     res.set(http::field::access_control_allow_origin, "*");
     res.set(http::field::access_control_allow_methods, "GET, POST, PUT, DELETE, OPTIONS");
     res.set(http::field::access_control_allow_headers, "Content-Type, Authorization");
+    res.set(http::field::access_control_expose_headers,
+            "X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After");
     res.keep_alive(false);
     res.prepare_payload();
     return res;
@@ -800,9 +882,9 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
          << R"("jobId":")" << job->jobId << R"(",)"
          << R"("type":")" << jobTypeToString(job->type) << R"(",)"
          << R"("status":")" << jobStatusToString(job->status) << R"(",)"
-         << R"("createdAt":")" << formatTimestamp(job->createdAt) << R"(",)"
-         << R"("startedAt":")" << formatTimestamp(job->startedAt) << R"(",)"
-         << R"("completedAt":")" << formatTimestamp(job->completedAt) << R"(",)"
+         << R"("createdAt":")" << this->formatTimestamp(job->createdAt) << R"(",)"
+         << R"("startedAt":")" << this->formatTimestamp(job->startedAt) << R"(",)"
+         << R"("completedAt":")" << this->formatTimestamp(job->completedAt) << R"(",)"
          << R"("recordsProcessed":)" << job->recordsProcessed << ","
          << R"("recordsSuccessful":)" << job->recordsSuccessful << ","
          << R"("recordsFailed":)" << job->recordsFailed;
@@ -823,7 +905,7 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
     json << ",\"executionTimeMs\":" << executionTime.count();
 
     json << "}";
-    return createSuccessResponse(json.str());
+    return createSuccessResponse(json.str(), req.version());
   }
 
   // Handle GET /api/jobs/{id}/metrics - job execution metrics
@@ -879,13 +961,13 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
          << R"("status":")" << jobStatusToString(job->status) << R"(")"
          << "}";
 
-    return createSuccessResponse(json.str());
+    return createSuccessResponse(json.str(), req.version());
   }
 
   if (req.method() == http::verb::get && target == "/api/jobs")
   {
     // Validate query parameters
-    auto queryParams = extractQueryParams(target);
+    auto queryParams = extractQueryParams(std::string_view(target.data(), target.size()));
 
     // Convert to standard unordered_map for InputValidator
     std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> standardParams;
@@ -945,7 +1027,7 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
     }
     json << R"(]})";
 
-    return createSuccessResponse(json.str());
+    return createSuccessResponse(json.str(), req.version());
   }
   else if (req.method() == http::verb::post && target == "/api/jobs")
   {
@@ -982,7 +1064,7 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
       std::string jobId = etlManager_->scheduleJob(config);
       std::stringstream ss2;
       ss2 << R"({{"job_id":")" << jobId << R"(","status":"scheduled"}})";
-      return createSuccessResponse(ss2.str());
+      return createSuccessResponse(ss2.str(), req.version());
     }
     catch (const etl::ETLException &e)
     {
@@ -1023,7 +1105,7 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
 
     std::stringstream ss;
     ss << R"({{"job_id":")" << jobId << R"(","status":"updated"}})";
-    return createSuccessResponse(ss.str());
+    return createSuccessResponse(ss.str(), req.version());
   }
 
   throw etl::ValidationException(
@@ -1047,6 +1129,8 @@ RequestHandler::handleMonitoring(const http::request<http::string_body> &req) co
     res.set(http::field::access_control_allow_origin, "*");
     res.set(http::field::access_control_allow_methods, "GET, OPTIONS");
     res.set(http::field::access_control_allow_headers, "Content-Type, Authorization");
+    res.set(http::field::access_control_expose_headers,
+            "X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After");
     res.keep_alive(false);
     res.prepare_payload();
     return res;
@@ -1065,7 +1149,7 @@ RequestHandler::handleMonitoring(const http::request<http::string_body> &req) co
   // Handle GET /api/monitor/jobs - filtered job monitoring
   if (req.method() == http::verb::get && target.find("/api/monitor/jobs") == 0)
   {
-    auto queryParams = extractQueryParams(target);
+    auto queryParams = extractQueryParams(std::string_view(target.data(), target.size()));
 
     // Convert to standard unordered_map for InputValidator
     std::unordered_map<std::string, std::string> standardParams;
@@ -1204,9 +1288,9 @@ RequestHandler::handleMonitoring(const http::request<http::string_body> &req) co
            << "\"jobId\":\"" << job->jobId << "\","
            << "\"type\":\"" << jobTypeToString(job->type) << "\","
            << "\"status\":\"" << jobStatusToString(job->status) << "\","
-           << "\"createdAt\":\"" << formatTimestamp(job->createdAt) << "\","
-           << "\"startedAt\":\"" << formatTimestamp(job->startedAt) << "\","
-           << "\"completedAt\":\"" << formatTimestamp(job->completedAt) << "\","
+           << "\"createdAt\":\"" << this->formatTimestamp(job->createdAt) << "\","
+           << "\"startedAt\":\"" << this->formatTimestamp(job->startedAt) << "\","
+           << "\"completedAt\":\"" << this->formatTimestamp(job->completedAt) << "\","
            << "\"recordsProcessed\":" << job->recordsProcessed << ","
            << "\"recordsSuccessful\":" << job->recordsSuccessful << ","
            << "\"recordsFailed\":" << job->recordsFailed << ","
@@ -1222,22 +1306,25 @@ RequestHandler::handleMonitoring(const http::request<http::string_body> &req) co
     }
     json << "],\"total\":" << filteredJobs.size() << "}";
 
-    return createSuccessResponse(json.str());
+    return createSuccessResponse(json.str(), req.version());
   }
 
   if (req.method() == http::verb::get && target == "/api/monitor/status")
   {
-    return createSuccessResponse(std::string("{") +
-                                 R"("server_status":"running","db_connected":)" +
-                                 (dbManager_->isConnected() ? "true" : "false") +
-                                 R"(,"etl_manager_running":)" +
-                                 (etlManager_->isRunning() ? "true" : "false") + "}");
+    // Use safe JSON construction to avoid string concatenation issues
+    nlohmann::json statusJson = {
+        {"server_status", "running"},
+        {"db_connected", dbManager_ && dbManager_->isConnected()},
+        {"etl_manager_running", etlManager_ && etlManager_->isRunning()}
+    };
+
+    return createSuccessResponse(statusJson.dump(), req.version());
   }
   else if (req.method() == http::verb::get &&
            target == "/api/monitor/metrics")
   {
     // Validate query parameters for metrics
-    auto queryParams = extractQueryParams(target);
+    auto queryParams = extractQueryParams(std::string_view(target.data(), target.size()));
 
     // Convert to standard unordered_map for InputValidator
     std::unordered_map<std::string, std::string> standardParams;
@@ -1259,7 +1346,7 @@ RequestHandler::handleMonitoring(const http::request<http::string_body> &req) co
           std::string(req.target()));
     }
 
-    return createSuccessResponse(R"({"total_jobs":0,"running_jobs":0,"completed_jobs":0,"failed_jobs":0})");
+    return createSuccessResponse(R"({"total_jobs":0,"running_jobs":0,"completed_jobs":0,"failed_jobs":0})", req.version());
   }
 
   throw etl::ValidationException(
@@ -1270,13 +1357,15 @@ RequestHandler::handleMonitoring(const http::request<http::string_body> &req) co
 }
 
 http::response<http::string_body>
-RequestHandler::createSuccessResponse(std::string_view data) const
+RequestHandler::createSuccessResponse(std::string_view data, unsigned int version) const
 {
 
-  http::response<http::string_body> res{http::status::ok, 11};
+  http::response<http::string_body> res{http::status::ok, version};
   res.set(http::field::server, "ETL Plus Backend");
   res.set(http::field::content_type, "application/json");
   res.set(http::field::access_control_allow_origin, "*");
+  res.set(http::field::access_control_expose_headers,
+          "X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After");
   res.keep_alive(false);
   res.body() = std::string(data);
   res.prepare_payload();
@@ -1372,22 +1461,15 @@ JobType RequestHandler::stringToJobType(std::string_view typeStr) const
 std::string RequestHandler::formatTimestamp(const std::chrono::system_clock::time_point &timePoint) const
 {
   auto tt = std::chrono::system_clock::to_time_t(timePoint);
-  auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                timePoint.time_since_epoch()) %
-            1000;
-
   std::tm tm{};
 #if defined(_WIN32)
   gmtime_s(&tm, &tt);
 #else
   gmtime_r(&tt, &tm);
 #endif
-  char buffer[32];
-  sprintf(buffer, "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ",
-          tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-          tm.tm_hour, tm.tm_min, tm.tm_sec,
-          static_cast<int>(ms.count()));
-  return std::string(buffer);
+  std::stringstream ss;
+  ss << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");
+  return ss.str();
 }
 
 std::chrono::system_clock::time_point RequestHandler::parseTimestamp(std::string_view timestampStr) const
@@ -1424,7 +1506,7 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
   // Basic health check
   if (target == "/api/health" || target == "/api/status")
   {
-    return createSuccessResponse("{\"status\":\"healthy\",\"timestamp\":\"" + std::to_string(timestamp) + "\"}");
+    return createSuccessResponse("{\"status\":\"healthy\",\"timestamp\":\"" + std::to_string(timestamp) + "\"}", req.version());
   }
 
   // Detailed health endpoints
@@ -1440,7 +1522,7 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
        << (timestamp - 1754851364) << R"(
     })";
     std::string healthData = ss.str();
-    return createSuccessResponse(healthData);
+    return createSuccessResponse(healthData, req.version());
   }
 
   if (target == "/api/health/ready")
@@ -1454,7 +1536,7 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
       "websocket": "running"
     })";
     std::string readinessData = ss.str();
-    return createSuccessResponse(readinessData);
+    return createSuccessResponse(readinessData, req.version());
   }
 
   if (target == "/api/health/live")
@@ -1469,7 +1551,7 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
       "memory": "OK"
     })";
     std::string livenessData = ss.str();
-    return createSuccessResponse(livenessData);
+    return createSuccessResponse(livenessData, req.version());
   }
 
   if (target == "/api/health/metrics")
@@ -1488,7 +1570,7 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
       }
     })";
     std::string metricsData = ss.str();
-    return createSuccessResponse(metricsData);
+    return createSuccessResponse(metricsData, req.version());
   }
 
   if (target == "/api/health/database")
@@ -1506,7 +1588,7 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
       }
     })";
     std::string dbHealthData = ss.str();
-    return createSuccessResponse(dbHealthData);
+    return createSuccessResponse(dbHealthData, req.version());
   }
 
   if (target == "/api/health/websocket")
@@ -1523,7 +1605,7 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
       }
     })";
     std::string wsHealthData = ss.str();
-    return createSuccessResponse(wsHealthData);
+    return createSuccessResponse(wsHealthData, req.version());
   }
 
   if (target == "/api/health/memory")
@@ -1540,7 +1622,7 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
       }
     })";
     std::string memoryData = ss.str();
-    return createSuccessResponse(memoryData);
+    return createSuccessResponse(memoryData, req.version());
   }
 
   if (target == "/api/health/system")
@@ -1557,7 +1639,7 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
       }
     })";
     std::string systemData = ss.str();
-    return createSuccessResponse(systemData);
+    return createSuccessResponse(systemData, req.version());
   }
 
   if (target == "/api/health/jobs")
@@ -1576,13 +1658,13 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
       }
     })";
     std::string jobsData = ss.str();
-    return createSuccessResponse(jobsData);
+    return createSuccessResponse(jobsData, req.version());
   }
 
   // Handle parameterized health endpoint
   if (target.find("/api/health?") == 0)
   {
-    auto queryParams = extractQueryParams(target);
+    auto queryParams = extractQueryParams(std::string_view(target.data(), target.size()));
     std::string format = "json";
     bool detailed = false;
 
@@ -1631,7 +1713,7 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
       healthData = "{\"status\":\"healthy\",\"timestamp\":\"" + std::to_string(timestamp) + "\"}";
     }
 
-    return createSuccessResponse(healthData);
+    return createSuccessResponse(healthData, req.version());
   }
 
   // Unknown health endpoint

@@ -1,0 +1,111 @@
+# Default values for etlplus-backend.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 3
+
+image:
+  repository: rclabsapi
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: "local"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+securityContext:
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+  hosts:
+    - host: etlplus-{{ .Values.environment }}.yourdomain.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: etlplus-tls
+      hosts:
+        - etlplus-{{ .Values.environment }}.yourdomain.com
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+environment: staging
+
+config:
+  server:
+    address: "0.0.0.0"
+    port: 8080
+    threads: 4
+  database:
+    host: "${DATABASE_HOST}"
+    port: 1521
+    name: "FREE"
+    service_name: "FREE"
+    username: "etlplus"
+    password: "${DATABASE_PASSWORD}"
+    type: "oracle"
+  auth:
+    jwt_secret: "${JWT_SECRET}"
+    session_timeout: 3600
+  etl:
+    max_concurrent_jobs: 5
+    job_timeout: 1800
+
+secrets:
+  databaseHost: "oracle-db-service"
+  databasePassword: "etlplus123"
+  jwtSecret: "your-super-secret-jwt-key-here"
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

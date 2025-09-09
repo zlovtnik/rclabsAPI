@@ -1,0 +1,16 @@
+apiVersion: v2
+name: etlplus-backend
+description: A Helm chart for ETL Plus Backend
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - etl
+  - backend
+  - api
+home: https://github.com/zlovtnik/rclabsAPI
+sources:
+  - https://github.com/zlovtnik/rclabsAPI
+maintainers:
+  - name: ETL Plus Team
+    email: team@etlplus.com

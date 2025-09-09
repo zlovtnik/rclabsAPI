@@ -8,10 +8,11 @@
 #include <iomanip>
 #include <algorithm>
 #include <string_view>
-#include <format>
 #include <ranges>
 #include <chrono>
+#if ETL_ENABLE_JWT
 #include <jwt-cpp/jwt.h>
+#endif
 #include <nlohmann/json.hpp>
 
 AuthManager::AuthManager(std::shared_ptr<DatabaseManager> dbManager)
@@ -19,21 +20,25 @@ AuthManager::AuthManager(std::shared_ptr<DatabaseManager> dbManager)
       sessionRepo_(std::make_shared<SessionRepository>(dbManager)) {
     AUTH_LOG_INFO("Initializing authentication manager");
     
+#if ETL_ENABLE_JWT
     // Load JWT secret from environment variable
     const char* secret = std::getenv("JWT_SECRET_KEY");
     if (!secret || std::string(secret).empty()) {
         throw std::runtime_error("JWT_SECRET_KEY environment variable must be set and non-empty");
     }
     jwtSecretKey_ = secret;
+#endif
     
     // Note: Default admin user creation is now handled by database schema initialization
     AUTH_LOG_DEBUG("Authentication manager initialization completed");
 }
 
-int AuthManager::getJWTExpiryHours() const {
+#if ETL_ENABLE_JWT
+std::chrono::hours AuthManager::getJWTExpiryHours() const {
     // Default to 24 hours, can be overridden by config in the future
-    return 24;
+    return std::chrono::hours(24);
 }
+#endif
 
 bool AuthManager::createUser(const std::string& username, const std::string& email, const std::string& password) {
     AUTH_LOG_DEBUG("Creating user: " + username + " with email: " + email);
@@ -268,6 +273,7 @@ std::string AuthManager::generateSessionId() const {
     return ss.str();
 }
 
+#if ETL_ENABLE_JWT
 std::string AuthManager::generateJWTToken(const std::string &userId) {
     auto user = userRepo_->getUserById(userId);
     if (!user || !user->isActive) {
@@ -277,7 +283,7 @@ std::string AuthManager::generateJWTToken(const std::string &userId) {
 
     try {
         auto now = std::chrono::system_clock::now();
-        auto expiry = now + std::chrono::hours(getJWTExpiryHours());
+        auto expiry = now + getJWTExpiryHours();
 
         auto token = jwt::create()
             .set_type("JWT")
@@ -296,7 +302,9 @@ std::string AuthManager::generateJWTToken(const std::string &userId) {
         return "";
     }
 }
+#endif
 
+#if ETL_ENABLE_JWT
 std::optional<std::string> AuthManager::validateJWTToken(const std::string &token) {
     try {
         auto decoded = jwt::decode(token);
@@ -323,7 +331,9 @@ std::optional<std::string> AuthManager::validateJWTToken(const std::string &toke
         return std::nullopt;
     }
 }
+#endif
 
+#if ETL_ENABLE_JWT
 std::string AuthManager::refreshJWTToken(const std::string &token) {
     auto userId = validateJWTToken(token);
     if (!userId.has_value()) {
@@ -334,3 +344,4 @@ std::string AuthManager::refreshJWTToken(const std::string &token) {
     // Generate a new token with fresh expiry
     return generateJWTToken(userId.value());
 }
+#endif

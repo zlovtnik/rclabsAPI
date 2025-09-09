@@ -14,9 +14,9 @@ struct RateLimitRule {
 };
 
 struct RateLimitInfo {
-    int remainingRequests;
-    std::chrono::system_clock::time_point resetTime;
-    int limit;
+    int remainingRequests;  // Remaining requests for the current minute window
+    std::chrono::system_clock::time_point resetTime;  // Reset time for the minute window
+    int limit;  // Request limit for the minute window
 };
 
 class RateLimiter {
@@ -48,7 +48,6 @@ private:
     struct ClientData {
         std::unordered_map<std::string, int> minuteCounters;
         std::unordered_map<std::string, int> hourCounters;
-        std::unordered_map<std::string, std::chrono::system_clock::time_point> lastReset;
     };
 
     std::unordered_map<std::string, ClientData> clientData_;
@@ -59,5 +58,5 @@ private:
     const RateLimitRule* getRuleForEndpoint(const std::string& endpoint) const;
 
     // Get current minute/hour window
-    std::pair<int, int> getCurrentWindows() const;
+    std::pair<int64_t, int64_t> getCurrentWindows() const;
 };
