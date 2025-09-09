@@ -24,8 +24,14 @@ public:
   bool updateUser(const std::string &userId, const User &updatedUser);
   bool deleteUser(const std::string &userId);
   std::shared_ptr<User> getUser(const std::string &userId) const;
+  std::optional<User> getUserByUsername(const std::string &username) const;
 
-  // Session management
+  // JWT Token management
+  std::string generateJWTToken(const std::string &userId);
+  std::optional<std::string> validateJWTToken(const std::string &token);
+  std::string refreshJWTToken(const std::string &token);
+
+  // Session management (legacy - to be deprecated)
   std::string createSession(const std::string &userId);
   bool validateSession(const std::string &sessionId);
   void revokeSession(const std::string &sessionId);
@@ -36,6 +42,10 @@ public:
                      std::string_view action) const;
   void assignRole(const std::string &userId, const std::string &role);
   void revokeRole(const std::string &userId, const std::string &role);
+
+  // JWT configuration
+  static constexpr int JWT_EXPIRY_HOURS = 24;
+  static const char* JWT_SECRET_KEY;
 
 private:
   std::shared_ptr<UserRepository> userRepo_;

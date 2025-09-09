@@ -87,6 +87,10 @@ template <> struct ComponentTrait<class WebSocketConnection> {
   static constexpr const char *name = "WebSocketConnection";
 };
 
+template <> struct ComponentTrait<class RateLimiter> {
+  static constexpr const char *name = "RateLimiter";
+};
+
 /**
  * ComponentLogger - Template-based logging system for compile-time type safety
  * and performance optimization. Replaces macro-based logging approach.

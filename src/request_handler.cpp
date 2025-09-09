@@ -2,6 +2,7 @@
 #include "auth_manager.hpp"
 #include "database_manager.hpp"
 #include "etl_job_manager.hpp"
+#include "rate_limiter.hpp"
 #include "websocket_filter_manager.hpp"
 #include "exception_handler.hpp"
 #include "exception_mapper.hpp"
@@ -15,17 +16,21 @@
 #include <regex>
 #include <format>
 #include <unistd.h> // for getpid()
+#include <nlohmann/json.hpp>
 
 RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
                                std::shared_ptr<AuthManager> authManager,
                                std::shared_ptr<ETLJobManager> etlManager)
     : dbManager_(dbManager), authManager_(authManager),
-      etlManager_(etlManager), exceptionMapper_()
+      etlManager_(etlManager), rateLimiter_(std::make_unique<RateLimiter>()), exceptionMapper_()
 {
   REQ_LOG_INFO("RequestHandler created with components - DB: " +
                std::string(dbManager ? "valid" : "null") +
                ", Auth: " + std::string(authManager ? "valid" : "null") +
                ", ETL: " + std::string(etlManager ? "valid" : "null"));
+
+  // Initialize rate limiter
+  rateLimiter_->initializeDefaultRules();
 
   // Configure the exception mapper for RequestHandler
   ETLPlus::ExceptionHandling::ExceptionMappingConfig config;
@@ -49,6 +54,93 @@ RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
   REQ_LOG_INFO("Hana-based exception handlers registered for improved error handling");
 }
 
+std::optional<std::string> RequestHandler::validateJWTToken(const http::request<http::string_body> &req) const {
+  auto headers = extractHeaders(req);
+  if (auto authIt = headers.find("authorization"); authIt != headers.end()) {
+    std::string authHeader = authIt->second;
+    if (authHeader.starts_with("Bearer ")) {
+      std::string token = authHeader.substr(7); // Remove "Bearer " prefix
+      return authManager_->validateJWTToken(token);
+    }
+  }
+  return std::nullopt;
+}
+
+bool RequestHandler::isProtectedEndpoint(std::string_view target) const {
+  // Define which endpoints require authentication
+  static const std::vector<std::string> protectedEndpoints = {
+    "/api/etl/jobs",
+    "/api/logs",
+    "/api/monitor",
+    "/api/auth/profile",
+    "/api/auth/logout"
+  };
+
+  for (const auto& endpoint : protectedEndpoints) {
+    if (target.starts_with(endpoint)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+std::string RequestHandler::getClientId(const http::request<http::string_body> &req) const {
+  auto headers = extractHeaders(req);
+
+  // Try to get client IP from X-Forwarded-For header (for proxies/load balancers)
+  if (auto forwardedIt = headers.find("x-forwarded-for"); forwardedIt != headers.end()) {
+    // Take the first IP if there are multiple
+    std::string forwarded = forwardedIt->second;
+    size_t commaPos = forwarded.find(',');
+    if (commaPos != std::string::npos) {
+      return forwarded.substr(0, commaPos);
+    }
+    return forwarded;
+  }
+
+  // Try to get client IP from X-Real-IP header
+  if (auto realIpIt = headers.find("x-real-ip"); realIpIt != headers.end()) {
+    return realIpIt->second;
+  }
+
+  // Fallback: use a default client ID for testing
+  // In production, this should be replaced with actual client IP extraction
+  return "default_client";
+}
+
+bool RequestHandler::checkRateLimit(const http::request<http::string_body> &req) const {
+  std::string clientId = getClientId(req);
+  std::string endpoint = std::string(req.target());
+
+  if (!rateLimiter_->isAllowed(clientId, endpoint)) {
+    REQ_LOG_WARN("Rate limit exceeded for client " + clientId + " on endpoint " + endpoint);
+    return false;
+  }
+
+  return true;
+}
+
+void RequestHandler::addRateLimitHeaders(http::response<http::string_body> &res, const std::string &clientId, const std::string &endpoint) {
+  auto rateLimitInfo = rateLimiter_->getRateLimitInfo(clientId, endpoint);
+
+  // Add standard rate limit headers
+  res.set("X-RateLimit-Limit", std::to_string(rateLimitInfo.limit));
+  res.set("X-RateLimit-Remaining", std::to_string(rateLimitInfo.remainingRequests));
+
+  // Convert reset time to Unix timestamp
+  auto resetTime = std::chrono::duration_cast<std::chrono::seconds>(
+      rateLimitInfo.resetTime.time_since_epoch()).count();
+  res.set("X-RateLimit-Reset", std::to_string(resetTime));
+
+  // Add retry-after header if rate limited
+  if (rateLimitInfo.remainingRequests == 0) {
+    auto now = std::chrono::system_clock::now();
+    auto secondsUntilReset = std::chrono::duration_cast<std::chrono::seconds>(
+        rateLimitInfo.resetTime - now).count();
+    res.set("Retry-After", std::to_string(std::max(0LL, secondsUntilReset)));
+  }
+}
+
 template <class Body, class Allocator>
 http::response<http::string_body> RequestHandler::handleRequest(
     http::request<Body, http::basic_fields<Allocator>> req)
@@ -57,15 +149,15 @@ http::response<http::string_body> RequestHandler::handleRequest(
                 std::string(req.method_string()) + " " +
                 std::string(req.target()));
 
+  // Convert to string_body for processing
+  http::request<http::string_body> string_req;
+  string_req.method(req.method());
+  string_req.target(req.target());
+  string_req.version(req.version());
+  string_req.keep_alive(req.keep_alive());
+
   try
   {
-    // Convert to string_body if needed
-    http::request<http::string_body> string_req;
-    string_req.method(req.method());
-    string_req.target(req.target());
-    string_req.version(req.version());
-    string_req.keep_alive(req.keep_alive());
-
     REQ_LOG_DEBUG(
         "RequestHandler::handleRequest() - Converting request headers");
     // Copy headers - check for valid field names to avoid assertion failures
@@ -102,21 +194,49 @@ http::response<http::string_body> RequestHandler::handleRequest(
     string_req.prepare_payload();
 
     // Perform comprehensive validation and handle request
-    return validateAndHandleRequest(string_req);
+    auto response = validateAndHandleRequest(string_req);
+
+    // Add rate limit headers to the response
+    std::string clientId = getClientId(string_req);
+    std::string endpoint = std::string(string_req.target());
+    addRateLimitHeaders(response, clientId, endpoint);
+
+    return response;
   }
   catch (const etl::ETLException &ex)
   {
     // Use Hana-based exception handling for better type safety and performance
-    return hanaExceptionRegistry_.handle(ex, "handleRequest");
+    auto errorResponse = hanaExceptionRegistry_.handle(ex, "handleRequest");
+
+    // Add rate limit headers to error responses
+    std::string clientId = getClientId(string_req);
+    std::string endpoint = std::string(string_req.target());
+    addRateLimitHeaders(errorResponse, clientId, endpoint);
+
+    return errorResponse;
   }
   catch (const std::exception &e)
   {
     // Fallback to traditional exception mapper for non-ETL exceptions
-    return exceptionMapper_.mapToResponse(e, "handleRequest");
+    auto errorResponse = exceptionMapper_.mapToResponse(e, "handleRequest");
+
+    // Add rate limit headers to error responses
+    std::string clientId = getClientId(string_req);
+    std::string endpoint = std::string(string_req.target());
+    addRateLimitHeaders(errorResponse, clientId, endpoint);
+
+    return errorResponse;
   }
   catch (...)
   {
-    return exceptionMapper_.mapToResponse("handleRequest");
+    auto errorResponse = exceptionMapper_.mapToResponse("handleRequest");
+
+    // Add rate limit headers to error responses
+    std::string clientId = getClientId(string_req);
+    std::string endpoint = std::string(string_req.target());
+    addRateLimitHeaders(errorResponse, clientId, endpoint);
+
+    return errorResponse;
   }
 }
 
@@ -169,6 +289,29 @@ http::response<http::string_body> RequestHandler::validateAndHandleRequest(
         etl::ErrorCode::COMPONENT_UNAVAILABLE,
         "ETL manager not available",
         "RequestHandler");
+  }
+
+  // Step 2.4: Rate Limiting
+  if (!checkRateLimit(req))
+  {
+    REQ_LOG_WARN("RequestHandler::validateAndHandleRequest() - Rate limit exceeded for: " + target);
+    throw etl::ValidationException(
+        etl::ErrorCode::RATE_LIMIT_EXCEEDED,
+        "Rate limit exceeded. Please try again later.");
+  }
+
+  // Step 2.5: JWT Authentication for protected endpoints
+  if (isProtectedEndpoint(target))
+  {
+    auto userId = validateJWTToken(req);
+    if (!userId.has_value())
+    {
+      REQ_LOG_WARN("RequestHandler::validateAndHandleRequest() - JWT validation failed for protected endpoint: " + target);
+      throw etl::ValidationException(
+          etl::ErrorCode::UNAUTHORIZED,
+          "Authentication required for this endpoint");
+    }
+    REQ_LOG_DEBUG("RequestHandler::validateAndHandleRequest() - JWT validated for user: " + userId.value());
   }
 
   // Step 3: Route requests with endpoint-specific validation
@@ -379,8 +522,57 @@ RequestHandler::handleAuth(const http::request<http::string_body> &req) const
     REQ_LOG_INFO(
         "RequestHandler::handleAuth() - Processing validated login request");
 
-    // For now, return a mock success response
-    return createSuccessResponse(R"({"token":"mock_jwt_token","user_id":"123","expires_in":3600})");
+    // Parse login credentials from request body
+    try {
+        auto jsonBody = nlohmann::json::parse(req.body());
+        std::string username = jsonBody["username"];
+        std::string password = jsonBody["password"];
+
+        // Authenticate user
+        if (!authManager_->authenticateUser(username)) {
+            REQ_LOG_WARN("RequestHandler::handleAuth() - Authentication failed for user: " + username);
+            throw etl::ValidationException(
+                etl::ErrorCode::UNAUTHORIZED,
+                "Invalid username or password");
+        }
+
+        // Get user details
+        auto user = authManager_->getUserByUsername(username);
+        if (!user) {
+            REQ_LOG_ERROR("RequestHandler::handleAuth() - User not found after authentication: " + username);
+            throw etl::ValidationException(
+                etl::ErrorCode::UNAUTHORIZED,
+                "User authentication failed");
+        }
+
+        // Generate JWT token
+        std::string token = authManager_->generateJWTToken(user->id);
+        if (token.empty()) {
+            REQ_LOG_ERROR("RequestHandler::handleAuth() - Failed to generate JWT token for user: " + username);
+            throw etl::ValidationException(
+                etl::ErrorCode::INTERNAL_ERROR,
+                "Token generation failed");
+        }
+
+        // Return JWT token response
+        nlohmann::json response = {
+            {"token", token},
+            {"user_id", user->id},
+            {"username", user->username},
+            {"expires_in", AuthManager::JWT_EXPIRY_HOURS * 3600},
+            {"token_type", "Bearer"}
+        };
+
+        REQ_LOG_INFO("RequestHandler::handleAuth() - Login successful for user: " + username);
+        return createSuccessResponse(response.dump());
+    } catch (const nlohmann::json::exception& e) {
+        REQ_LOG_ERROR("RequestHandler::handleAuth() - JSON parsing failed: " + std::string(e.what()));
+        throw etl::ValidationException(
+            etl::ErrorCode::INVALID_INPUT,
+            "Invalid JSON format",
+            "body",
+            req.body());
+    }
   }
   else if (req.method() == http::verb::post && target == "/api/auth/logout")
   {
@@ -398,37 +590,73 @@ RequestHandler::handleAuth(const http::request<http::string_body> &req) const
       }
     }
 
-    return createSuccessResponse(R"({"message":"Logged out successfully"})");
-  }
-  else if (req.method() == http::verb::get && target == "/api/auth/profile")
-  {
-    // Validate authorization header for profile access
+    // Extract token from Authorization header
     auto headers = extractHeaders(req);
+    std::string token;
     if (auto authIt = headers.find("authorization"); authIt != headers.end())
     {
-      auto authValidation =
-          InputValidator::validateAuthorizationHeader(authIt->second);
-      if (!authValidation.isValid)
+      // Extract token from "Bearer <token>" format
+      std::string authHeader = authIt->second;
+      if (authHeader.starts_with("Bearer "))
       {
-        REQ_LOG_WARN(
-            "RequestHandler::handleAuth() - Profile auth validation failed");
-        throw etl::ValidationException(
-            etl::ErrorCode::UNAUTHORIZED,
-            "Profile auth validation failed",
-            "authorization",
-            authIt->second);
+        token = authHeader.substr(7); // Remove "Bearer " prefix
+      }
+    }
+
+    if (!token.empty())
+    {
+      // Validate the token (optional for logout, but good practice)
+      auto userId = authManager_->validateJWTToken(token);
+      if (userId.has_value())
+      {
+        REQ_LOG_INFO("RequestHandler::handleAuth() - Logout for user: " + userId.value());
+      }
+      else
+      {
+        REQ_LOG_WARN("RequestHandler::handleAuth() - Logout with invalid token");
       }
     }
     else
     {
-      throw etl::ValidationException(
-          etl::ErrorCode::UNAUTHORIZED,
-          "Authorization header required",
-          "authorization",
-          "");
+      REQ_LOG_INFO("RequestHandler::handleAuth() - Logout without token");
     }
 
-    return createSuccessResponse(R"({"user_id":"123","username":"testuser","email":"test@example.com"})");
+    return createSuccessResponse(R"({"message":"Logged out successfully"})");
+  }
+  else if (req.method() == http::verb::get && target == "/api/auth/profile")
+  {
+    // JWT validation is now handled by middleware, so we can extract user info from token
+    auto userId = validateJWTToken(req);
+    if (!userId.has_value())
+    {
+      // This should not happen since middleware validates, but just in case
+      throw etl::ValidationException(
+          etl::ErrorCode::UNAUTHORIZED,
+          "Authentication required");
+    }
+
+    // Get user details from database
+    auto user = authManager_->getUser(userId.value());
+    if (!user)
+    {
+      REQ_LOG_ERROR("RequestHandler::handleAuth() - User not found: " + userId.value());
+      throw etl::ValidationException(
+          etl::ErrorCode::UNAUTHORIZED,
+          "User not found");
+    }
+
+    // Return user profile information
+    nlohmann::json response = {
+        {"user_id", user->id},
+        {"username", user->username},
+        {"email", user->email},
+        {"roles", user->roles},
+        {"is_active", user->isActive},
+        {"created_at", std::format("{:%Y-%m-%d %H:%M:%S}", user->createdAt)}
+    };
+
+    REQ_LOG_INFO("RequestHandler::handleAuth() - Profile retrieved for user: " + user->username);
+    return createSuccessResponse(response.dump());
   }
 
   throw etl::ValidationException(

@@ -10,6 +10,11 @@
 #include <string_view>
 #include <format>
 #include <ranges>
+#include <chrono>
+#include <jwt-cpp/jwt.h>
+#include <nlohmann/json.hpp>
+
+const char* AuthManager::JWT_SECRET_KEY = "your-secret-key-change-in-production";
 
 AuthManager::AuthManager(std::shared_ptr<DatabaseManager> dbManager)
     : userRepo_(std::make_shared<UserRepository>(dbManager)),
@@ -89,6 +94,10 @@ std::shared_ptr<User> AuthManager::getUser(const std::string& userId) const {
         return std::make_shared<User>(*user);
     }
     return nullptr;
+}
+
+std::optional<User> AuthManager::getUserByUsername(const std::string& username) const {
+    return userRepo_->getUserByUsername(username);
 }
 
 std::string AuthManager::createSession(const std::string& userId) {
@@ -226,6 +235,69 @@ std::string AuthManager::generateSessionId() const {
     return ss.str();
 }
 
-bool AuthManager::verifyPassword(std::string_view password, std::string_view hash, std::string_view salt) const {
-    return hashPassword(password, salt) == hash;
+std::string AuthManager::generateJWTToken(const std::string &userId) {
+    auto user = userRepo_->getUserById(userId);
+    if (!user || !user->isActive) {
+        AUTH_LOG_ERROR("Cannot generate JWT token for invalid or inactive user: " + userId);
+        return "";
+    }
+
+    try {
+        auto now = std::chrono::system_clock::now();
+        auto expiry = now + std::chrono::hours(JWT_EXPIRY_HOURS);
+
+        auto token = jwt::create()
+            .set_type("JWT")
+            .set_issuer("etl-backend")
+            .set_subject(userId)
+            .set_issued_at(now)
+            .set_expires_at(expiry)
+            .set_payload_claim("username", jwt::claim(std::string(user->username)))
+            .set_payload_claim("roles", jwt::claim(nlohmann::json(user->roles).dump()))
+            .sign(jwt::algorithm::hs256{JWT_SECRET_KEY});
+
+        AUTH_LOG_INFO("Generated JWT token for user: " + userId);
+        return token;
+    } catch (const std::exception& e) {
+        AUTH_LOG_ERROR("Failed to generate JWT token for user " + userId + ": " + e.what());
+        return "";
+    }
+}
+
+std::optional<std::string> AuthManager::validateJWTToken(const std::string &token) {
+    try {
+        auto decoded = jwt::decode(token);
+        auto verifier = jwt::verify()
+            .with_issuer("etl-backend")
+            .allow_algorithm(jwt::algorithm::hs256{JWT_SECRET_KEY});
+
+        verifier.verify(decoded);
+
+        // Check if token is expired
+        auto exp = decoded.get_expires_at();
+        if (exp != jwt::date{}) {
+            auto now = std::chrono::system_clock::now();
+            if (now > exp) {
+                AUTH_LOG_WARN("JWT token expired for user: " + decoded.get_subject());
+                return std::nullopt;
+            }
+        }
+
+        AUTH_LOG_DEBUG("JWT token validated for user: " + decoded.get_subject());
+        return decoded.get_subject();
+    } catch (const std::exception& e) {
+        AUTH_LOG_WARN("JWT token validation failed: " + std::string(e.what()));
+        return std::nullopt;
+    }
+}
+
+std::string AuthManager::refreshJWTToken(const std::string &token) {
+    auto userId = validateJWTToken(token);
+    if (!userId.has_value()) {
+        AUTH_LOG_ERROR("Cannot refresh invalid JWT token");
+        return "";
+    }
+
+    // Generate a new token with fresh expiry
+    return generateJWTToken(userId.value());
 }

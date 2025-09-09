@@ -174,6 +174,45 @@ else()
     endif()
 endif()
 
+# Try to find jwt-cpp (JWT library)
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(JWT_CPP QUIET jwt-cpp)
+endif()
+
+if(NOT JWT_CPP_FOUND)
+    message(STATUS "jwt-cpp not found via pkg-config, trying manual search")
+    
+    # Try to find jwt-cpp installed via Homebrew or manually
+    find_path(JWT_CPP_INCLUDE_DIR jwt-cpp/jwt.h
+        PATHS
+            /opt/homebrew/include
+            /usr/local/include
+            /usr/include
+        NO_DEFAULT_PATH
+    )
+    find_library(JWT_CPP_LIBRARIES
+        NAMES jwt-cpp
+        PATHS
+            /opt/homebrew/lib
+            /usr/local/lib
+            /usr/lib
+        NO_DEFAULT_PATH
+    )
+    
+    if(JWT_CPP_INCLUDE_DIR AND JWT_CPP_LIBRARIES)
+        set(JWT_CPP_FOUND TRUE)
+        message(STATUS "Found jwt-cpp manually: ${JWT_CPP_LIBRARIES}")
+        message(STATUS "jwt-cpp include dir: ${JWT_CPP_INCLUDE_DIR}")
+    else()
+        message(STATUS "jwt-cpp not found, JWT authentication will be disabled")
+        set(JWT_CPP_LIBRARIES "")
+        set(JWT_CPP_INCLUDE_DIRS "")
+    endif()
+else()
+    message(STATUS "Found jwt-cpp via pkg-config: ${JWT_CPP_LIBRARIES}")
+endif()
+
 # Create a shared library for common sources to avoid recompilation
 set(COMMON_SOURCES
     src/logger.cpp
@@ -209,6 +248,7 @@ set(COMMON_SOURCES
     src/pooled_session.cpp
     src/connection_pool_manager.cpp
     src/request_handler.cpp
+    src/rate_limiter.cpp
     src/lock_utils.cpp
     src/type_definitions.cpp
 )
@@ -235,6 +275,12 @@ endif()
 if(LIBPQXX_INCLUDE_DIRS)
     target_include_directories(etl_common PUBLIC ${LIBPQXX_INCLUDE_DIRS})
 endif()
+if(JWT_CPP_INCLUDE_DIR)
+    target_include_directories(etl_common PUBLIC ${JWT_CPP_INCLUDE_DIR})
+endif()
+if(JWT_CPP_INCLUDE_DIRS)
+    target_include_directories(etl_common PUBLIC ${JWT_CPP_INCLUDE_DIRS})
+endif()
 
 # Link libraries to the common library
 target_link_libraries(etl_common PUBLIC
@@ -243,6 +289,9 @@ target_link_libraries(etl_common PUBLIC
     ${CURL_LIBRARIES}
     ${JSONCPP_LIBRARIES}
     ${LIBPQXX_LIBRARIES}
+    ${JWT_CPP_LIBRARIES}
+    /opt/homebrew/Cellar/openssl@3/3.5.2/lib/libssl.dylib
+    /opt/homebrew/Cellar/openssl@3/3.5.2/lib/libcrypto.dylib
 )
 
 # Main executable - now much simpler
@@ -322,6 +371,7 @@ create_test_executable(demo_response_builder_simple scripts/demo_response_builde
 create_test_executable(demo_exception_mapper_integration scripts/demo_exception_mapper_integration.cpp)
 create_test_executable(test_exception_mapper scripts/test_exception_mapper.cpp)
 create_test_executable(test_request_handler_refactored scripts/test_request_handler_refactored.cpp)
+create_test_executable(test_jwt_auth scripts/test_jwt_auth.cpp)
 if(ENABLE_TESTS)
   create_test_executable(test_lock_utils scripts/test_lock_utils.cpp)
   create_test_executable(demo_lock_utils scripts/demo_lock_utils.cpp)
@@ -380,6 +430,10 @@ if(GTest_FOUND AND ENABLE_TESTS)
   # Integration tests
   create_test_executable(test_integration_unit tests/unit/test_integration.cpp)
   target_link_libraries(test_integration_unit GTest::gtest GTest::gtest_main)
+
+  # Rate limiter unit tests
+  create_test_executable(test_rate_limiter_unit tests/unit/test_rate_limiter.cpp)
+  target_link_libraries(test_rate_limiter_unit GTest::gtest GTest::gtest_main)
 
   # Add custom target to run integration tests
   add_custom_target(run_integration_tests

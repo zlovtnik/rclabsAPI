@@ -7,6 +7,7 @@
 #include "input_validator.hpp"
 #include "job_monitoring_models.hpp"
 #include "logger.hpp"
+#include "rate_limiter.hpp"
 #include "transparent_string_hash.hpp"
 #include "websocket_manager.hpp"
 #include <boost/beast/http.hpp>
@@ -44,10 +45,20 @@ private:
   std::shared_ptr<AuthManager> authManager_;
   std::shared_ptr<ETLJobManager> etlManager_;
   std::shared_ptr<JobMonitorService> monitorService_; // Add this member
+  std::unique_ptr<RateLimiter> rateLimiter_;
   ETLPlus::ExceptionHandling::ExceptionMapper exceptionMapper_;
 
   // Hana-based exception handling registry for better type safety
   ETLPlus::ExceptionHandling::HanaExceptionRegistry hanaExceptionRegistry_;
+
+  // JWT validation middleware
+  std::optional<std::string> validateJWTToken(const http::request<http::string_body> &req) const;
+  bool isProtectedEndpoint(std::string_view target) const;
+
+  // Rate limiting middleware
+  std::string getClientId(const http::request<http::string_body> &req) const;
+  bool checkRateLimit(const http::request<http::string_body> &req) const;
+  void addRateLimitHeaders(http::response<http::string_body> &res, const std::string &clientId, const std::string &endpoint);
 
   // Enhanced validation methods
   http::response<http::string_body>
