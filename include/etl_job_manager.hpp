@@ -1,6 +1,6 @@
 #pragma once
 
-#include "job_monitoring_models.hpp"
+#include "etl_job_models.hpp"
 #include "lock_utils.hpp"
 #include "system_metrics.hpp"
 #include <chrono>
@@ -18,36 +18,6 @@ class DataTransformer;
 class DatabaseManager;
 class ETLJobRepository;
 class NotificationService;
-
-struct ETLJobConfig {
-  std::string jobId;
-  JobType type;
-  std::string sourceConfig;
-  std::string targetConfig;
-  std::string transformationRules;
-  std::chrono::system_clock::time_point scheduledTime;
-  bool isRecurring;
-  std::chrono::minutes recurringInterval;
-};
-
-struct ETLJob {
-  std::string jobId;
-  JobType type;
-  JobStatus status;
-  std::string sourceConfig;
-  std::string targetConfig;
-  std::chrono::system_clock::time_point createdAt;
-  std::chrono::system_clock::time_point startedAt;
-  std::chrono::system_clock::time_point completedAt;
-  std::string errorMessage;
-  int recordsProcessed;
-  int recordsSuccessful;
-  int recordsFailed;
-
-  // Enhanced metrics tracking
-  JobMetrics metrics;
-  std::shared_ptr<ETLPlus::Metrics::JobMetricsCollector> metricsCollector;
-};
 
 class DataTransformer;
 class DatabaseManager;
@@ -96,7 +66,7 @@ private:
   std::shared_ptr<JobMonitorServiceInterface> monitorService_;
 
   std::queue<std::shared_ptr<ETLJob>> jobQueue_;
-  std::vector<std::shared_ptr<ETLJob>> jobs_;
+  mutable std::vector<std::shared_ptr<ETLJob>> jobs_;
 
   std::thread workerThread_;
   mutable std::timed_mutex jobMutex_;

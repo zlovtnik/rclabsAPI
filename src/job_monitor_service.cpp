@@ -1,4 +1,5 @@
 #include "job_monitor_service.hpp"
+#include "hana_exception_handling.hpp"
 #include "websocket_manager.hpp"
 #include "notification_service.hpp"
 #include "logger.hpp"
@@ -796,9 +797,9 @@ WebSocketMessage JobMonitorService::createProgressMessage(const std::string& job
     // Create progress data JSON
     std::ostringstream data;
     data << "{"
-         << "\"jobId\":\"" << escapeJsonString(jobId) << "\","
+         << "\"jobId\":\"" << ETLPlus::ExceptionHandling::escapeJsonString(jobId) << "\","
          << "\"progressPercent\":" << progressPercent << ","
-         << "\"currentStep\":\"" << escapeJsonString(currentStep) << "\","
+         << "\"currentStep\":\"" << ETLPlus::ExceptionHandling::escapeJsonString(currentStep) << "\","
          << "\"timestamp\":\"" << formatTimestamp(message.timestamp) << "\""
          << "}";
     

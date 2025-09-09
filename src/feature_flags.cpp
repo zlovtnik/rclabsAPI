@@ -4,6 +4,7 @@
 #include <sstream>
 #include <random>
 #include <functional>
+#include <algorithm>
 #include <nlohmann/json.hpp>
 
 // Singleton instance
@@ -103,7 +104,8 @@ void FeatureFlags::loadFromConfig(const std::string& configFile) {
         if (config.contains("rollout_percentages")) {
             for (const auto& [key, value] : config["rollout_percentages"].items()) {
                 if (value.is_number()) {
-                    rolloutPercentages_[key] = value;
+                    double val = value;
+                    rolloutPercentages_[key] = std::max(0.0, std::min(100.0, val));
                 }
             }
         }

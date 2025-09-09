@@ -164,12 +164,13 @@ if(NOT LIBPQXX_FOUND)
     endif()
 else()
     message(STATUS "Found libpqxx via pkg-config: ${LIBPQXX_LIBRARIES}")
-    # Use full path to library for reliable linking
-    find_library(PQXX_FULL_PATH pqxx HINTS /opt/homebrew/lib)
+    # Use the full path to library for reliable linking if available
+    find_library(PQXX_FULL_PATH pqxx HINTS /opt/homebrew/lib /usr/local/lib /usr/lib)
     if(PQXX_FULL_PATH)
         set(LIBPQXX_LIBRARIES ${PQXX_FULL_PATH})
     else()
-        set(LIBPQXX_LIBRARIES "-lpqxx")
+        # Fall back to pkg-config provided libraries
+        message(STATUS "Using pkg-config provided libpqxx libraries: ${LIBPQXX_LIBRARIES}")
     endif()
 endif()
 

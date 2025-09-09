@@ -40,9 +40,9 @@ public:
                 
                 std::string body = R"({
                     "error": "Rate limit exceeded",
-                    "message": ")" + ex.getMessage() + R"(",
+                    "message": ")" + ETLPlus::ExceptionHandling::escapeJsonString(ex.getMessage()) + R"(",
                     "retryAfter": 60,
-                    "correlationId": ")" + ex.getCorrelationId() + R"("
+                    "correlationId": ")" + ETLPlus::ExceptionHandling::escapeJsonString(ex.getCorrelationId()) + R"("
                 })";
                 
                 response.body() = body;
@@ -59,10 +59,10 @@ public:
                 
                 std::string body = R"({
                     "error": "Service temporarily unavailable",
-                    "message": ")" + ex.getMessage() + R"(",
+                    "message": ")" + ETLPlus::ExceptionHandling::escapeJsonString(ex.getMessage()) + R"(",
                     "maintenance": true,
                     "estimatedRecovery": "5 minutes",
-                    "correlationId": ")" + ex.getCorrelationId() + R"("
+                    "correlationId": ")" + ETLPlus::ExceptionHandling::escapeJsonString(ex.getCorrelationId()) + R"("
                 })";
                 
                 response.body() = body;

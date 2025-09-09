@@ -60,6 +60,10 @@ bool AuthManager::authenticateUser(std::string_view username) const {
 }
 
 bool AuthManager::updateUser(const std::string& userId, const User& updatedUser) {
+    if (updatedUser.id != userId) {
+        AUTH_LOG_ERROR("User ID mismatch: expected " + userId + ", got " + updatedUser.id);
+        return false;
+    }
     if (userRepo_->updateUser(updatedUser)) {
         AUTH_LOG_INFO("Updated user: " + userId);
         return true;

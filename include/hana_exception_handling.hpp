@@ -17,7 +17,14 @@ namespace ExceptionHandling {
 // Helper function to escape JSON strings
 inline std::string escapeJsonString(const std::string &input) {
   std::ostringstream escaped;
-  for (char c : input) {
+  for (size_t i = 0; i < input.size(); ++i) {
+    char c = input[i];
+    // Handle UTF-8 multi-byte sequences (bytes >= 128)
+    if (static_cast<unsigned char>(c) >= 128) {
+      // Copy UTF-8 bytes unchanged
+      escaped << c;
+      continue;
+    }
     switch (c) {
     case '"':
       escaped << "\\\"";

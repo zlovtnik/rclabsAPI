@@ -148,7 +148,6 @@ check_service_health() {
     if ! pgrep -f "etlplus" > /dev/null; then
         log_alert "ETL Plus service is not running" "CRITICAL"
         set_component_status "service" "DOWN"
-        component_status["service"]="DOWN"
         return 1
     fi
 
@@ -164,7 +163,6 @@ check_websocket_health() {
     if ! netstat -tln | grep ":8081 " > /dev/null; then
         log_alert "WebSocket service not listening on port 8081" "WARNING"
         set_component_status "websocket" "DOWN"
-        component_status["websocket"]="DOWN"
         return 1
     fi
 
@@ -185,17 +183,14 @@ check_database_health() {
         if [[ -n "$db_host" && -n "$db_port" ]]; then
             if timeout 5 bash -c "echo > /dev/tcp/$db_host/$db_port" 2>/dev/null; then
                 set_component_status "database" "UP"
-                component_status["database"]="UP"
                 log_info "Database connection is healthy"
             else
                 log_alert "Cannot connect to database at $db_host:$db_port" "WARNING"
                 set_component_status "database" "DOWN"
-                component_status["database"]="DOWN"
             fi
         else
             log_warn "Database configuration not found"
             set_component_status "database" "UNKNOWN"
-            component_status["database"]="UNKNOWN"
         fi
     fi
 }

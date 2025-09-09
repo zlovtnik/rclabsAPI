@@ -227,7 +227,9 @@ std::string errorCodeToString(ErrorCode code) {
         case ErrorCode::PROCESSING_FAILED: return "PROCESSING_FAILED";
         case ErrorCode::TRANSFORMATION_ERROR: return "TRANSFORMATION_ERROR";
         case ErrorCode::DATA_INTEGRITY_ERROR: return "DATA_INTEGRITY_ERROR";
-        default: return "UNKNOWN_ERROR";
+        case ErrorCode::INVALID_CONNECTION: return "INVALID_CONNECTION";
+        case ErrorCode::POOL_NOT_RUNNING: return "POOL_NOT_RUNNING";
+        case ErrorCode::POOL_CAPACITY_EXCEEDED: return "POOL_CAPACITY_EXCEEDED";
     }
 }
 

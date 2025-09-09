@@ -1,6 +1,6 @@
 #pragma once
 
-#include "auth_manager.hpp"
+#include "session_model.hpp"
 #include <memory>
 #include <optional>
 #include <string>

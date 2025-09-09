@@ -155,7 +155,9 @@ migrate_env_configs() {
             if [[ $DRY_RUN == false ]]; then
                 backup_file "$config_file"
                 # Add environment-specific overrides
-                sed -i.bak 's/"debug": false/"debug": true, "log_level": "debug"/g' "$config_file" 2>/dev/null || true
+                temp_file=$(mktemp)
+                sed 's/"debug": false/"debug": true, "log_level": "debug"/g' "$config_file" > "$temp_file" && mv "$temp_file" "$config_file"
+                rm -f "$temp_file"
                 log_success "Migrated $env configuration"
             else
                 log_info "Would migrate $env configuration (dry run)"
@@ -200,15 +202,15 @@ validate_config() {
         # Check for required sections
         local missing_sections=()
 
-        if ! grep -q '"websocket"' "$config_file"; then
+        if ! jq -e '.websocket' "$config_file" > /dev/null 2>&1; then
             missing_sections+=("websocket")
         fi
 
-        if ! grep -q '"logging"' "$config_file"; then
+        if ! jq -e '.logging' "$config_file" > /dev/null 2>&1; then
             missing_sections+=("logging")
         fi
 
-        if ! grep -q '"security"' "$config_file"; then
+        if ! jq -e '.security' "$config_file" > /dev/null 2>&1; then
             missing_sections+=("security")
         fi
 

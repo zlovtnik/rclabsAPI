@@ -51,7 +51,7 @@ std::string ETLJobManager::scheduleJob(const ETLJobConfig& config) {
     // Save to database
     if (!jobRepo_->createJob(*job)) {
         ETL_LOG_ERROR("Failed to save job to database: " + job->jobId);
-        return "";
+        throw std::runtime_error("Failed to create job in database: " + job->jobId);
     }
     
     jobs_.push_back(job);
@@ -131,7 +131,7 @@ std::vector<std::shared_ptr<ETLJob>> ETLJobManager::getAllJobs() const {
     }
     
     // Update cache
-    const_cast<ETLJobManager*>(this)->jobs_ = result;
+    jobs_ = result;
     return result;
 }
 

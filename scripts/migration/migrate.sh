@@ -132,11 +132,11 @@ case $COMMAND in
         ;;
     all)
         log_info "Running complete migration process..."
-        bash "$SCRIPT_DIR/analyze_migration.sh" "$@"
-        bash "$SCRIPT_DIR/migrate_config.sh" "$@"
-        bash "$SCRIPT_DIR/migrate_code.sh" "$@"
-        bash "$SCRIPT_DIR/validate_migration.sh" "$@"
-        bash "$SCRIPT_DIR/install_compatibility.sh" "$@"
+        bash "$SCRIPT_DIR/analyze_migration.sh" "$@" || { log_error "analyze_migration.sh failed"; exit 1; }
+        bash "$SCRIPT_DIR/migrate_config.sh" "$@" || { log_error "migrate_config.sh failed"; exit 1; }
+        bash "$SCRIPT_DIR/migrate_code.sh" "$@" || { log_error "migrate_code.sh failed"; exit 1; }
+        bash "$SCRIPT_DIR/validate_migration.sh" "$@" || { log_error "validate_migration.sh failed"; exit 1; }
+        bash "$SCRIPT_DIR/install_compatibility.sh" "$@" || { log_error "install_compatibility.sh failed"; exit 1; }
         log_success "Migration process completed!"
         ;;
     help|*)

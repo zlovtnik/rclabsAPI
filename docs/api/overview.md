@@ -34,7 +34,7 @@ The ETL Plus API has been refactored to provide a clean, consistent, and type-sa
 
 ### Logger API
 
-#### ComponentLogger&lt;T&gt;
+#### ComponentLogger<T>
 
 The ComponentLogger provides type-safe logging for specific components.
 
@@ -234,7 +234,7 @@ try {
 The WebSocketManager provides high-level WebSocket connection management.
 
 ```cpp
-#include "websocket_manager_enhanced.hpp"
+#include "websocket_manager.hpp"
 
 // Initialize WebSocket manager
 WebSocketManager wsManager;

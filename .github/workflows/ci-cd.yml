@@ -157,11 +157,11 @@ jobs:
       run: |
         echo "Running WebSocket component specific tests..."
         # Run tests for ConnectionPool
-        ctest -R "ConnectionPool" --output-on-failure || echo "ConnectionPool tests not found, continuing..."
+        ctest -R "ConnectionPool" --output-on-failure
         # Run tests for MessageBroadcaster
-        ctest -R "MessageBroadcaster" --output-on-failure || echo "MessageBroadcaster tests not found, continuing..."
+        ctest -R "MessageBroadcaster" --output-on-failure
         # Run tests for WebSocketManager
-        ctest -R "WebSocketManager" --output-on-failure || echo "WebSocketManager tests not found, continuing..."
+        ctest -R "WebSocketManager" --output-on-failure
 
     - name: 📊 Generate Code Coverage
       if: matrix.os == 'ubuntu-latest'

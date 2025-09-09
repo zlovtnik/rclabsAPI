@@ -395,8 +395,14 @@ MessageBroadcasterStats MessageBroadcaster::getStats() const {
 }
 
 void MessageBroadcaster::updateConfig(const MessageBroadcasterConfig& newConfig) {
+    std::lock_guard<std::mutex> lock(configMutex_);
     config_ = newConfig;
     WS_LOG_INFO("Message broadcaster configuration updated");
+}
+
+const MessageBroadcasterConfig MessageBroadcaster::getConfig() const {
+    std::lock_guard<std::mutex> lock(configMutex_);
+    return config_;
 }
 
 void MessageBroadcaster::flushQueue() {

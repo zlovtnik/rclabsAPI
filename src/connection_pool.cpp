@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/steady_timer.hpp>
+#include <nlohmann/json.hpp>
 
 namespace net = boost::asio;
 
@@ -312,7 +313,14 @@ size_t ConnectionPool::getActiveConnectionCount() const {
 
 size_t ConnectionPool::getInactiveConnectionCount() const {
     SCOPED_SHARED_LOCK_TIMEOUT(connectionsMutex_, 500);
-    return connections_.size() - getActiveConnectionCount();
+    size_t total = connections_.size();
+    size_t active = 0;
+    for (const auto& [id, connection] : connections_) {
+        if (connection && connection->isOpen()) {
+            active++;
+        }
+    }
+    return total - active;
 }
 
 ConnectionPoolStats ConnectionPool::getStats() const {
@@ -424,13 +432,13 @@ bool ConnectionPool::isConnectionStale(const std::shared_ptr<WebSocketConnection
 }
 
 std::string ConnectionPoolStats::toJson() const {
-    return "{"
-           "\"totalConnections\":" + std::to_string(totalConnections) + ","
-           "\"activeConnections\":" + std::to_string(activeConnections) + ","
-           "\"inactiveConnections\":" + std::to_string(inactiveConnections) + ","
-           "\"healthyConnections\":" + std::to_string(healthyConnections) + ","
-           "\"unhealthyConnections\":" + std::to_string(unhealthyConnections) + ","
-           "\"lastHealthCheck\":\"" + formatTimestamp(lastHealthCheck) + "\","
-           "\"lastCleanup\":\"" + formatTimestamp(lastCleanup) + "\""
-           "}";
+    nlohmann::json json;
+    json["totalConnections"] = totalConnections;
+    json["activeConnections"] = activeConnections;
+    json["inactiveConnections"] = inactiveConnections;
+    json["healthyConnections"] = healthyConnections;
+    json["unhealthyConnections"] = unhealthyConnections;
+    json["lastHealthCheck"] = formatTimestamp(lastHealthCheck);
+    json["lastCleanup"] = formatTimestamp(lastCleanup);
+    return json.dump();
 }

@@ -1,6 +1,7 @@
 #pragma once
 
-#include "etl_job_manager.hpp"
+#include "etl_job_models.hpp"
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <string>

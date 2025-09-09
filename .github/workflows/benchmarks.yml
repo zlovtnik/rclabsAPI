@@ -114,7 +114,6 @@ jobs:
         name: benchmark-results
         path: |
           performance-report.md
-          wrk-results.txt
           benchmark-results.md
           websocket-stress-results.txt
           connection-pool-benchmark.md

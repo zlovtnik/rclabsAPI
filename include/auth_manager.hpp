@@ -1,29 +1,13 @@
 #pragma once
 
-#include <chrono>
+#include "user.hpp"
+#include "session_model.hpp"
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
-
-struct User {
-  std::string id;
-  std::string username;
-  std::string email;
-  std::string passwordHash;
-  std::vector<std::string> roles;
-  std::chrono::system_clock::time_point createdAt;
-  bool isActive;
-};
-
-struct Session {
-  std::string sessionId;
-  std::string userId;
-  std::chrono::system_clock::time_point createdAt;
-  std::chrono::system_clock::time_point expiresAt;
-  bool isValid;
-};
 
 class DatabaseManager;
 class UserRepository;

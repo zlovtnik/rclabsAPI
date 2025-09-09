@@ -1,6 +1,6 @@
 #pragma once
 
-#include "auth_manager.hpp"
+#include "user.hpp"
 #include <memory>
 #include <optional>
 #include <string>

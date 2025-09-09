@@ -212,8 +212,6 @@ inline HttpResponse mapExceptionToResponse(const etl::ETLException &exception,
 
 inline HttpResponse logAndMapException(const etl::ETLException &exception,
                                        const std::string &operation = "") {
-  ETLPlus::ExceptionHandling::getGlobalExceptionMapper().logException(
-      exception, operation);
   return ETLPlus::ExceptionHandling::getGlobalExceptionMapper().mapToResponse(
       exception, operation);
 }

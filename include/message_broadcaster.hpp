@@ -11,6 +11,7 @@
 #include <mutex>
 #include <queue>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace net = boost::asio;
@@ -145,7 +146,7 @@ public:
 
   // Configuration
   void updateConfig(const MessageBroadcasterConfig &newConfig);
-  const MessageBroadcasterConfig &getConfig() const { return config_; }
+  const MessageBroadcasterConfig getConfig() const;
 
   // Queue management
   void flushQueue();
@@ -157,6 +158,7 @@ private:
   // Dependencies and configuration
   std::shared_ptr<ConnectionPool> connectionPool_;
   MessageBroadcasterConfig config_;
+  mutable std::mutex configMutex_;
   std::atomic<bool> running_{false};
 
   // Message queuing

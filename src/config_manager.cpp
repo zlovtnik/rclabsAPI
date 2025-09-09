@@ -352,7 +352,7 @@ bool ConfigManager::parseConfigFile(const std::string& configPath) {
         configData.clear();
 
         // Flatten JSON into dot-separated keys
-        flattenJson(jsonConfig, "");
+        flattenJson(jsonConfig, "", 0, 100);
 
         return true;
     } catch (const std::exception& e) {
@@ -361,12 +361,18 @@ bool ConfigManager::parseConfigFile(const std::string& configPath) {
     }
 }
 
-void ConfigManager::flattenJson(const nlohmann::json& json, const std::string& prefix) {
+void ConfigManager::flattenJson(const nlohmann::json& json, const std::string& prefix, int currentDepth, int maxDepth) {
+    if (currentDepth >= maxDepth) {
+        std::string key = prefix.empty() ? "deep_nested" : prefix + ".deep_nested";
+        configData[key] = json.dump();
+        return;
+    }
+
     for (auto it = json.begin(); it != json.end(); ++it) {
         std::string key = prefix.empty() ? it.key() : prefix + "." + it.key();
 
         if (it->is_object()) {
-            flattenJson(*it, key);
+            flattenJson(*it, key, currentDepth + 1, maxDepth);
         } else if (it->is_array()) {
             // For arrays, we'll store them as JSON strings for now
             // This handles cases like roles arrays

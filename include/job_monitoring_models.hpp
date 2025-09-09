@@ -8,6 +8,8 @@
 #include <string_view>
 #include <unordered_map>
 #include <vector>
+#include <sstream>
+#include <iomanip>
 
 // Forward declarations
 struct LogMessage;
@@ -222,6 +224,38 @@ std::string
 formatTimestamp(const std::chrono::system_clock::time_point &timePoint);
 std::chrono::system_clock::time_point
 parseTimestamp(const std::string &timestampStr);
+
+// Inline implementation of escapeJsonString
+inline std::string escapeJsonString(const std::string& str) {
+    std::string result;
+    result.reserve(str.length() + 20); // Reserve some extra space for escapes
+    
+    for (char c : str) {
+        switch (c) {
+            case '"': result += "\\\""; break;
+            case '\\': result += "\\\\"; break;
+            case '\b': result += "\\b"; break;
+            case '\f': result += "\\f"; break;
+            case '\n': result += "\\n"; break;
+            case '\r': result += "\\r"; break;
+            case '\t': result += "\\t"; break;
+            default:
+                if (c < 0x20) {
+                    result += "\\u";
+                    result += "0000";
+                    std::ostringstream oss;
+                    oss << std::hex << static_cast<int>(c);
+                    std::string hex = oss.str();
+                    result.replace(result.length() - hex.length(), hex.length(), hex);
+                } else {
+                    result += c;
+                }
+                break;
+        }
+    }
+    
+    return result;
+}
 
 // Validation functions
 bool validateJobId(const std::string &jobId);

@@ -92,7 +92,7 @@ constexpr auto any_satisfy(Tuple tuple, Predicate pred) {
 
 // Generic to_string for strong IDs
 template <typename Tag> std::string to_string(const StrongId<Tag> &id) {
-  return id.value();
+  return std::to_string(id.value());
 }
 
 // Compile-time type name generation
@@ -146,8 +146,9 @@ private:
   boost::hana::tuple<std::unique_ptr<Derived>...> prototypes_;
 
 public:
-  explicit HanaFactory(std::unique_ptr<Derived>... prototypes)
-      : prototypes_(std::move(prototypes)...) {
+  template <typename... Args>
+  explicit HanaFactory(Args&&... prototypes)
+      : prototypes_(std::forward<Args>(prototypes)...) {
     // Compile-time check that all prototype types implement clone()
     (assert_cloneable<Derived>(), ...);
   }
@@ -156,14 +157,14 @@ public:
     // Simple runtime lookup for the prototype
     std::unique_ptr<Base> result;
 
-    boost::hana::for_each(prototypes_, [&](const auto &proto) {
+    auto found = boost::hana::find_if(prototypes_, [](const auto &proto) {
       using ProtoType = std::decay_t<decltype(*proto.get())>;
-      if constexpr (std::is_same_v<ProtoType, T>) {
-        if (!result) {
-          result = proto->clone();
-        }
-      }
+      return std::is_same_v<ProtoType, T>;
     });
+
+    if (found != boost::hana::nothing) {
+      result = (*found)->clone();
+    }
 
     return result;
   }

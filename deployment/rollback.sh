@@ -129,13 +129,18 @@ restart_services() {
     log_info "Restarting ETL Plus services..."
 
     # Stop current processes
-    pkill -f "etlplus" || true
+    pkill -f "/${PROJECT_ROOT}/build/etlplus" || true
 
     # Wait a moment
     sleep 2
 
     # Start services (adjust path as needed)
     if [[ -f "$PROJECT_ROOT/build/etlplus" ]]; then
+        # Ensure logs directory exists with restrictive permissions
+        mkdir -p "$PROJECT_ROOT/logs"
+        chmod 750 "$PROJECT_ROOT/logs"
+        
+        # Start the service with proper log handling
         nohup "$PROJECT_ROOT/build/etlplus" > "$PROJECT_ROOT/logs/etlplus.log" 2>&1 &
         log_success "ETL Plus service restarted (PID: $!)"
     else
@@ -204,9 +209,11 @@ partial_rollback() {
     if [[ -f "$PROJECT_ROOT/config/feature_flags.json" ]]; then
         # Use jq if available, otherwise manual edit
         if command -v jq &> /dev/null; then
+            temp_file=$(mktemp)
             jq --arg flag "$flag_key" '.flags[$flag] = false | .rollout_percentages[$flag] = 0.0' \
-               "$PROJECT_ROOT/config/feature_flags.json" > "$PROJECT_ROOT/config/feature_flags.json.tmp" && \
-            mv "$PROJECT_ROOT/config/feature_flags.json.tmp" "$PROJECT_ROOT/config/feature_flags.json"
+               "$PROJECT_ROOT/config/feature_flags.json" > "$temp_file" && \
+            mv "$temp_file" "$PROJECT_ROOT/config/feature_flags.json"
+            rm -f "$temp_file"
         else
             log_warn "jq not available, manually disabling feature in config"
             sed -i.bak "s/\"$flag_key\": true/\"$flag_key\": false/g" "$PROJECT_ROOT/config/feature_flags.json"
@@ -286,11 +293,21 @@ main() {
         "full")
             if full_rollback; then
                 health_check
+                rc=$?
+                if [[ $rc -ne 0 ]]; then
+                    log_error "Health check failed after full rollback (exit code: $rc)"
+                    exit $rc
+                fi
             fi
             ;;
         "partial")
             if partial_rollback "$feature"; then
                 health_check
+                rc=$?
+                if [[ $rc -ne 0 ]]; then
+                    log_error "Health check failed after partial rollback (exit code: $rc)"
+                    exit $rc
+                fi
             fi
             ;;
         "backup")

@@ -11,6 +11,9 @@
 #include <unordered_map>
 #include <unordered_set>
 
+// Forward declarations
+class WebSocketManager;
+
 /**
  * Structure representing a single log entry with all necessary information
  * for processing and formatting by log handlers.
