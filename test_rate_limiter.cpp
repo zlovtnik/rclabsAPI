@@ -14,33 +14,27 @@ protected:
 
 TEST_F(RateLimiterTest, BasicRateLimiting) {
     std::string clientId = "test_client";
-    std::string endpoint = "/api/test";
+    std::string endpoint = "/api/auth/login";  // Use configured endpoint with 5 requests per minute
 
-    // First request should be allowed
-    EXPECT_TRUE(rateLimiter->isAllowed(clientId, endpoint));
+    // Initialize with default rules
+    rateLimiter->initializeDefaultRules();
 
-    // Make multiple requests to trigger rate limiting
-    for (int i = 0; i < 100; ++i) {
-        rateLimiter->isAllowed(clientId, endpoint);
+    // First 5 requests should be allowed
+    for (int i = 0; i < 5; ++i) {
+        EXPECT_TRUE(rateLimiter->isAllowed(clientId, endpoint)) << "Request " << i + 1 << " should be allowed";
     }
 
-    // Should eventually be rate limited
-    bool eventuallyLimited = false;
-    for (int i = 0; i < 10; ++i) {
-        if (!rateLimiter->isAllowed(clientId, endpoint)) {
-            eventuallyLimited = true;
-            break;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-
-    EXPECT_TRUE(eventuallyLimited);
+    // 6th request should be denied
+    EXPECT_FALSE(rateLimiter->isAllowed(clientId, endpoint)) << "6th request should be rate limited";
 }
 
 TEST_F(RateLimiterTest, DifferentClients) {
     std::string clientId1 = "client1";
     std::string clientId2 = "client2";
-    std::string endpoint = "/api/test";
+    std::string endpoint = "/api/auth/login";
+
+    // Initialize with default rules
+    rateLimiter->initializeDefaultRules();
 
     // Both clients should be allowed initially
     EXPECT_TRUE(rateLimiter->isAllowed(clientId1, endpoint));

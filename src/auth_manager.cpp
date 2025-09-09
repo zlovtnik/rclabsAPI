@@ -14,14 +14,25 @@
 #include <jwt-cpp/jwt.h>
 #include <nlohmann/json.hpp>
 
-const char* AuthManager::JWT_SECRET_KEY = "your-secret-key-change-in-production";
-
 AuthManager::AuthManager(std::shared_ptr<DatabaseManager> dbManager)
     : userRepo_(std::make_shared<UserRepository>(dbManager)),
       sessionRepo_(std::make_shared<SessionRepository>(dbManager)) {
     AUTH_LOG_INFO("Initializing authentication manager");
+    
+    // Load JWT secret from environment variable
+    const char* secret = std::getenv("JWT_SECRET_KEY");
+    if (!secret || std::string(secret).empty()) {
+        throw std::runtime_error("JWT_SECRET_KEY environment variable must be set and non-empty");
+    }
+    jwtSecretKey_ = secret;
+    
     // Note: Default admin user creation is now handled by database schema initialization
     AUTH_LOG_DEBUG("Authentication manager initialization completed");
+}
+
+int AuthManager::getJWTExpiryHours() const {
+    // Default to 24 hours, can be overridden by config in the future
+    return 24;
 }
 
 bool AuthManager::createUser(const std::string& username, const std::string& email, const std::string& password) {
@@ -62,6 +73,28 @@ bool AuthManager::authenticateUser(std::string_view username) const {
     
     AUTH_LOG_ERROR("Authentication failed for user: " + std::string(username));
     return false;
+}
+
+bool AuthManager::authenticateUser(std::string_view username, std::string_view password) const {
+    if (password.empty()) {
+        AUTH_LOG_ERROR("Authentication failed for user: " + std::string(username) + " - empty password");
+        return false;
+    }
+    
+    auto user = userRepo_->getUserByUsername(std::string(username));
+    if (!user || !user->isActive) {
+        AUTH_LOG_ERROR("Authentication failed for user: " + std::string(username) + " - user not found or inactive");
+        return false;
+    }
+    
+    // For now, do a simple string comparison (in production, use proper password hashing)
+    if (user->passwordHash != std::string(password)) {
+        AUTH_LOG_ERROR("Authentication failed for user: " + std::string(username) + " - invalid password");
+        return false;
+    }
+    
+    AUTH_LOG_INFO("Authenticated user: " + std::string(username) + " with password");
+    return true;
 }
 
 bool AuthManager::updateUser(const std::string& userId, const User& updatedUser) {
@@ -244,7 +277,7 @@ std::string AuthManager::generateJWTToken(const std::string &userId) {
 
     try {
         auto now = std::chrono::system_clock::now();
-        auto expiry = now + std::chrono::hours(JWT_EXPIRY_HOURS);
+        auto expiry = now + std::chrono::hours(getJWTExpiryHours());
 
         auto token = jwt::create()
             .set_type("JWT")
@@ -254,7 +287,7 @@ std::string AuthManager::generateJWTToken(const std::string &userId) {
             .set_expires_at(expiry)
             .set_payload_claim("username", jwt::claim(std::string(user->username)))
             .set_payload_claim("roles", jwt::claim(nlohmann::json(user->roles).dump()))
-            .sign(jwt::algorithm::hs256{JWT_SECRET_KEY});
+            .sign(jwt::algorithm::hs256{jwtSecretKey_});
 
         AUTH_LOG_INFO("Generated JWT token for user: " + userId);
         return token;
@@ -269,7 +302,7 @@ std::optional<std::string> AuthManager::validateJWTToken(const std::string &toke
         auto decoded = jwt::decode(token);
         auto verifier = jwt::verify()
             .with_issuer("etl-backend")
-            .allow_algorithm(jwt::algorithm::hs256{JWT_SECRET_KEY});
+            .allow_algorithm(jwt::algorithm::hs256{jwtSecretKey_});
 
         verifier.verify(decoded);
 

@@ -54,6 +54,7 @@ RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
   REQ_LOG_INFO("Hana-based exception handlers registered for improved error handling");
 }
 
+#ifdef ETL_ENABLE_JWT
 std::optional<std::string> RequestHandler::validateJWTToken(const http::request<http::string_body> &req) const {
   auto headers = extractHeaders(req);
   if (auto authIt = headers.find("authorization"); authIt != headers.end()) {
@@ -83,6 +84,7 @@ bool RequestHandler::isProtectedEndpoint(std::string_view target) const {
   }
   return false;
 }
+#endif
 
 std::string RequestHandler::getClientId(const http::request<http::string_body> &req) const {
   auto headers = extractHeaders(req);
@@ -301,6 +303,7 @@ http::response<http::string_body> RequestHandler::validateAndHandleRequest(
   }
 
   // Step 2.5: JWT Authentication for protected endpoints
+#ifdef ETL_ENABLE_JWT
   if (isProtectedEndpoint(target))
   {
     auto userId = validateJWTToken(req);
@@ -313,6 +316,7 @@ http::response<http::string_body> RequestHandler::validateAndHandleRequest(
     }
     REQ_LOG_DEBUG("RequestHandler::validateAndHandleRequest() - JWT validated for user: " + userId.value());
   }
+#endif
 
   // Step 3: Route requests with endpoint-specific validation
   if (target.rfind("/api/auth", 0) == 0)
@@ -528,8 +532,8 @@ RequestHandler::handleAuth(const http::request<http::string_body> &req) const
         std::string username = jsonBody["username"];
         std::string password = jsonBody["password"];
 
-        // Authenticate user
-        if (!authManager_->authenticateUser(username)) {
+        // Authenticate user with password
+        if (!authManager_->authenticateUser(username, password)) {
             REQ_LOG_WARN("RequestHandler::handleAuth() - Authentication failed for user: " + username);
             throw etl::ValidationException(
                 etl::ErrorCode::UNAUTHORIZED,
@@ -559,7 +563,7 @@ RequestHandler::handleAuth(const http::request<http::string_body> &req) const
             {"token", token},
             {"user_id", user->id},
             {"username", user->username},
-            {"expires_in", AuthManager::JWT_EXPIRY_HOURS * 3600},
+            {"expires_in", authManager_->getJWTExpiryHours() * 3600},
             {"token_type", "Bearer"}
         };
 
@@ -625,6 +629,7 @@ RequestHandler::handleAuth(const http::request<http::string_body> &req) const
   }
   else if (req.method() == http::verb::get && target == "/api/auth/profile")
   {
+#ifdef ETL_ENABLE_JWT
     // JWT validation is now handled by middleware, so we can extract user info from token
     auto userId = validateJWTToken(req);
     if (!userId.has_value())
@@ -634,7 +639,14 @@ RequestHandler::handleAuth(const http::request<http::string_body> &req) const
           etl::ErrorCode::UNAUTHORIZED,
           "Authentication required");
     }
+#else
+    // Without JWT, profile endpoint is not available
+    throw etl::ValidationException(
+        etl::ErrorCode::UNAUTHORIZED,
+        "Authentication not available");
+#endif
 
+#ifdef ETL_ENABLE_JWT
     // Get user details from database
     auto user = authManager_->getUser(userId.value());
     if (!user)
@@ -657,6 +669,12 @@ RequestHandler::handleAuth(const http::request<http::string_body> &req) const
 
     REQ_LOG_INFO("RequestHandler::handleAuth() - Profile retrieved for user: " + user->username);
     return createSuccessResponse(response.dump());
+#else
+    // Without JWT, profile endpoint is not available
+    throw etl::ValidationException(
+        etl::ErrorCode::UNAUTHORIZED,
+        "Authentication not available");
+#endif
   }
 
   throw etl::ValidationException(

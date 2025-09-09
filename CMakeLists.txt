@@ -174,7 +174,7 @@ else()
     endif()
 endif()
 
-# Try to find jwt-cpp (JWT library)
+# Try to find jwt-cpp (JWT library) - header-only
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
     pkg_check_modules(JWT_CPP QUIET jwt-cpp)
@@ -183,7 +183,7 @@ endif()
 if(NOT JWT_CPP_FOUND)
     message(STATUS "jwt-cpp not found via pkg-config, trying manual search")
     
-    # Try to find jwt-cpp installed via Homebrew or manually
+    # Try to find jwt-cpp installed via Homebrew or manually (header-only)
     find_path(JWT_CPP_INCLUDE_DIR jwt-cpp/jwt.h
         PATHS
             /opt/homebrew/include
@@ -191,27 +191,30 @@ if(NOT JWT_CPP_FOUND)
             /usr/include
         NO_DEFAULT_PATH
     )
-    find_library(JWT_CPP_LIBRARIES
-        NAMES jwt-cpp
-        PATHS
-            /opt/homebrew/lib
-            /usr/local/lib
-            /usr/lib
-        NO_DEFAULT_PATH
-    )
     
-    if(JWT_CPP_INCLUDE_DIR AND JWT_CPP_LIBRARIES)
+    if(JWT_CPP_INCLUDE_DIR)
         set(JWT_CPP_FOUND TRUE)
-        message(STATUS "Found jwt-cpp manually: ${JWT_CPP_LIBRARIES}")
-        message(STATUS "jwt-cpp include dir: ${JWT_CPP_INCLUDE_DIR}")
+        set(JWT_CPP_INCLUDE_DIRS ${JWT_CPP_INCLUDE_DIR})
+        message(STATUS "Found jwt-cpp headers: ${JWT_CPP_INCLUDE_DIR}")
     else()
         message(STATUS "jwt-cpp not found, JWT authentication will be disabled")
-        set(JWT_CPP_LIBRARIES "")
+        set(JWT_CPP_FOUND FALSE)
         set(JWT_CPP_INCLUDE_DIRS "")
     endif()
 else()
-    message(STATUS "Found jwt-cpp via pkg-config: ${JWT_CPP_LIBRARIES}")
+    message(STATUS "Found jwt-cpp via pkg-config: ${JWT_CPP_INCLUDE_DIRS}")
 endif()
+
+# Find OpenSSL for JWT support
+find_package(OpenSSL REQUIRED)
+if(OpenSSL_FOUND)
+    message(STATUS "Found OpenSSL: ${OPENSSL_VERSION}")
+else()
+    message(FATAL_ERROR "OpenSSL is required for JWT support")
+endif()
+
+# Expose JWT feature flag
+add_compile_definitions(ETL_ENABLE_JWT=$<BOOL:${JWT_CPP_FOUND}>)
 
 # Create a shared library for common sources to avoid recompilation
 set(COMMON_SOURCES
@@ -289,9 +292,8 @@ target_link_libraries(etl_common PUBLIC
     ${CURL_LIBRARIES}
     ${JSONCPP_LIBRARIES}
     ${LIBPQXX_LIBRARIES}
-    ${JWT_CPP_LIBRARIES}
-    /opt/homebrew/Cellar/openssl@3/3.5.2/lib/libssl.dylib
-    /opt/homebrew/Cellar/openssl@3/3.5.2/lib/libcrypto.dylib
+    OpenSSL::SSL
+    OpenSSL::Crypto
 )
 
 # Main executable - now much simpler
@@ -371,7 +373,9 @@ create_test_executable(demo_response_builder_simple scripts/demo_response_builde
 create_test_executable(demo_exception_mapper_integration scripts/demo_exception_mapper_integration.cpp)
 create_test_executable(test_exception_mapper scripts/test_exception_mapper.cpp)
 create_test_executable(test_request_handler_refactored scripts/test_request_handler_refactored.cpp)
-create_test_executable(test_jwt_auth scripts/test_jwt_auth.cpp)
+if(ENABLE_TESTS AND JWT_CPP_FOUND)
+  create_test_executable(test_jwt_auth scripts/test_jwt_auth.cpp)
+endif()
 if(ENABLE_TESTS)
   create_test_executable(test_lock_utils scripts/test_lock_utils.cpp)
   create_test_executable(demo_lock_utils scripts/demo_lock_utils.cpp)

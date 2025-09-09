@@ -40,6 +40,8 @@ public:
     void resetClient(const std::string& clientId);
 
     // Clean up expired entries
+    // This method should be called periodically (e.g., every hour) by a background task
+    // to remove stale client data and prevent memory leaks
     void cleanupExpiredEntries();
 
 private:

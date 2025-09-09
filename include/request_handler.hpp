@@ -13,6 +13,7 @@
 #include <boost/beast/http.hpp>
 #include <chrono>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -52,8 +53,10 @@ private:
   ETLPlus::ExceptionHandling::HanaExceptionRegistry hanaExceptionRegistry_;
 
   // JWT validation middleware
+#ifdef ETL_ENABLE_JWT
   std::optional<std::string> validateJWTToken(const http::request<http::string_body> &req) const;
   bool isProtectedEndpoint(std::string_view target) const;
+#endif
 
   // Rate limiting middleware
   std::string getClientId(const http::request<http::string_body> &req) const;

@@ -21,6 +21,7 @@ public:
   bool createUser(const std::string &username, const std::string &email,
                   const std::string &password);
   bool authenticateUser(std::string_view username) const;
+  bool authenticateUser(std::string_view username, std::string_view password) const;
   bool updateUser(const std::string &userId, const User &updatedUser);
   bool deleteUser(const std::string &userId);
   std::shared_ptr<User> getUser(const std::string &userId) const;
@@ -44,12 +45,12 @@ public:
   void revokeRole(const std::string &userId, const std::string &role);
 
   // JWT configuration
-  static constexpr int JWT_EXPIRY_HOURS = 24;
-  static const char* JWT_SECRET_KEY;
+  int getJWTExpiryHours() const;
 
 private:
   std::shared_ptr<UserRepository> userRepo_;
   std::shared_ptr<SessionRepository> sessionRepo_;
+  std::string jwtSecretKey_;
 
   std::string hashPassword(std::string_view password,
                            std::string_view salt) const;

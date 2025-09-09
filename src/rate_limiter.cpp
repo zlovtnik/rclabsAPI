@@ -90,15 +90,14 @@ RateLimitInfo RateLimiter::getRateLimitInfo(const std::string& clientId, const s
     int hourUsed = clientData.hourCounters[hourKey];
     int hourRemaining = std::max(0, rule->requestsPerHour - hourUsed);
 
-    // Use the more restrictive limit
-    int remaining = std::min(minuteRemaining, hourRemaining);
-    int limit = std::min(rule->requestsPerMinute, rule->requestsPerHour);
+    // Use per-minute limit as the primary enforcement
+    int remaining = minuteRemaining;
+    int limit = rule->requestsPerMinute;
 
-    // Calculate reset time (end of current minute for simplicity)
-    auto nextMinute = now + std::chrono::minutes(1);
-    auto timeSinceEpoch = nextMinute.time_since_epoch();
-    auto secondsSinceEpoch = std::chrono::duration_cast<std::chrono::seconds>(timeSinceEpoch);
-    auto resetTime = std::chrono::system_clock::time_point(secondsSinceEpoch);
+    // Calculate reset time aligned to next minute boundary
+    auto minutesSinceEpoch = std::chrono::duration_cast<std::chrono::minutes>(now.time_since_epoch());
+    auto nextMinuteTime = std::chrono::system_clock::time_point((minutesSinceEpoch + std::chrono::minutes(1)));
+    auto resetTime = nextMinuteTime;
 
     return {remaining, resetTime, limit};
 }
