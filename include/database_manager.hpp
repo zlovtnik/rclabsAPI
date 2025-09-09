@@ -22,6 +22,9 @@ public:
   void disconnect();
   bool isConnected() const;
 
+  // Schema initialization
+  bool initializeSchema();
+
   // Query operations
   bool executeQuery(const std::string &query);
   std::vector<std::vector<std::string>> selectQuery(const std::string &query);

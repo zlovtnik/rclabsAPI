@@ -1,4 +1,5 @@
 #include "websocket_filter_manager.hpp"
+#include "hana_exception_handling.hpp"
 #include "logger.hpp"
 #include "etl_exceptions.hpp"
 #include <regex>
@@ -549,7 +550,7 @@ WebSocketFilterManager::createErrorResponse(http::status status, const std::stri
     res.set(http::field::content_type, "application/json");
     
     std::ostringstream json;
-    json << R"({"error":")" << escapeJsonString(message) << R"("})";
+    json << R"({"error":")" << ETLPlus::ExceptionHandling::escapeJsonString(message) << R"("})";
     res.body() = json.str();
     res.prepare_payload();
     return res;
@@ -584,7 +585,7 @@ std::string WebSocketFilterManager::filterStatisticsToJson(const FilterStatistic
     bool first = true;
     for (const auto& [jobId, count] : stats.jobFilterCounts) {
         if (!first) json << ",";
-        json << R"(")" << escapeJsonString(jobId) << R"(":)" << count;
+        json << R"(")" << ETLPlus::ExceptionHandling::escapeJsonString(jobId) << R"(":)" << count;
         first = false;
     }
     
@@ -600,7 +601,7 @@ std::string WebSocketFilterManager::filterStatisticsToJson(const FilterStatistic
     first = true;
     for (const auto& [logLevel, count] : stats.logLevelFilterCounts) {
         if (!first) json << ",";
-        json << R"(")" << escapeJsonString(logLevel) << R"(":)" << count;
+        json << R"(")" << ETLPlus::ExceptionHandling::escapeJsonString(logLevel) << R"(":)" << count;
         first = false;
     }
     

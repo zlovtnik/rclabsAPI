@@ -136,10 +136,11 @@ class ExceptionHandler {
 public:
   // Execute function with exception handling
   template <typename Func, typename ReturnType = std::invoke_result_t<Func>>
-  static ReturnType executeWithHandling(
-      Func &&func, ExceptionPolicy policy = ExceptionPolicy::PROPAGATE,
-      const std::string &operationName = "",
-      const etl::ErrorContext &context = etl::ErrorContext()) {
+  static ReturnType
+  executeWithHandling(Func &&func,
+                      ExceptionPolicy policy = ExceptionPolicy::PROPAGATE,
+                      const std::string &operationName = "",
+                      const etl::ErrorContext &context = etl::ErrorContext()) {
 
     try {
       return func();
@@ -163,10 +164,10 @@ public:
 
   // Execute function with retry logic
   template <typename Func, typename ReturnType = std::invoke_result_t<Func>>
-  static ReturnType executeWithRetry(
-      Func &&func, const RetryConfig &config = RetryConfig(),
-      const std::string &operationName = "",
-      const etl::ErrorContext &context = etl::ErrorContext()) {
+  static ReturnType
+  executeWithRetry(Func &&func, const RetryConfig &config = RetryConfig(),
+                   const std::string &operationName = "",
+                   const etl::ErrorContext &context = etl::ErrorContext()) {
 
     std::shared_ptr<etl::ETLException> lastException;
 
@@ -196,7 +197,8 @@ public:
         // Convert to ETLException for consistent handling
         auto baseEx = std::make_shared<etl::SystemException>(
             etl::ErrorCode::INTERNAL_ERROR,
-            "Standard exception caught: " + std::string(ex.what()), "", context);
+            "Standard exception caught: " + std::string(ex.what()), "",
+            context);
 
         if (attempt == config.maxAttempts) {
           LOG_ERROR("ExceptionHandler",
@@ -227,9 +229,10 @@ public:
   }
 
   // Convert standard exceptions to ETLException
-  static std::shared_ptr<etl::ETLException> convertException(
-      const std::exception &ex, const std::string &operationName = "",
-      const etl::ErrorContext &context = etl::ErrorContext());
+  static std::shared_ptr<etl::ETLException>
+  convertException(const std::exception &ex,
+                   const std::string &operationName = "",
+                   const etl::ErrorContext &context = etl::ErrorContext());
 
   // Log exception with appropriate level
   static void logException(const etl::ETLException &ex,
@@ -257,13 +260,11 @@ private:
 // Convenience macros for exception handling
 #define EXECUTE_WITH_EXCEPTION_HANDLING(func, policy, operation)               \
   ETLPlus::ExceptionHandling::ExceptionHandler::executeWithHandling(           \
-      [&]() { return func; }, policy, operation,                               \
-      etl::ErrorContext())
+      [&]() { return func; }, policy, operation, etl::ErrorContext())
 
 #define EXECUTE_WITH_RETRY(func, config, operation)                            \
   ETLPlus::ExceptionHandling::ExceptionHandler::executeWithRetry(              \
-      [&]() { return func; }, config, operation,                               \
-      etl::ErrorContext())
+      [&]() { return func; }, config, operation, etl::ErrorContext())
 
 #define TRY_CATCH_LOG(operation, func)                                         \
   try {                                                                        \

@@ -1,33 +1,21 @@
 #pragma once
 
-#include <chrono>
+#include "user.hpp"
+#include "session_model.hpp"
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
 
-struct User {
-  std::string id;
-  std::string username;
-  std::string email;
-  std::string passwordHash;
-  std::vector<std::string> roles;
-  std::chrono::system_clock::time_point createdAt;
-  bool isActive;
-};
-
-struct Session {
-  std::string sessionId;
-  std::string userId;
-  std::chrono::system_clock::time_point createdAt;
-  std::chrono::system_clock::time_point expiresAt;
-  bool isValid;
-};
+class DatabaseManager;
+class UserRepository;
+class SessionRepository;
 
 class AuthManager {
 public:
-  AuthManager();
+  AuthManager(std::shared_ptr<DatabaseManager> dbManager);
 
   // User management
   bool createUser(const std::string &username, const std::string &email,
@@ -50,8 +38,8 @@ public:
   void revokeRole(const std::string &userId, const std::string &role);
 
 private:
-  std::unordered_map<std::string, std::shared_ptr<User>> users_;
-  std::unordered_map<std::string, std::shared_ptr<Session>> sessions_;
+  std::shared_ptr<UserRepository> userRepo_;
+  std::shared_ptr<SessionRepository> sessionRepo_;
 
   std::string hashPassword(std::string_view password,
                            std::string_view salt) const;

@@ -50,7 +50,8 @@ ConnectionPoolManager::~ConnectionPoolManager() {
 }
 
 std::shared_ptr<PooledSession> ConnectionPoolManager::acquireConnection(tcp::socket&& socket) {
-    std::unique_lock<std::timed_mutex> lock(poolMutex_);
+    // Use underlying mutex for condition variable operations
+    std::unique_lock<etl_plus::ContainerMutex> lock(poolMutex_);
     
     if (shutdownRequested_) {
         // Send service unavailable response before throwing
@@ -213,7 +214,7 @@ void ConnectionPoolManager::releaseConnection(std::shared_ptr<PooledSession> ses
         return;
     }
 
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ContainerMutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     
     if (shutdownRequested_) {
         // During shutdown, just remove from active set
@@ -260,7 +261,7 @@ void ConnectionPoolManager::releaseConnection(std::shared_ptr<PooledSession> ses
 }
 
 void ConnectionPoolManager::startCleanupTimer() {
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ContainerMutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     if (!shutdownRequested_) {
         scheduleCleanup();
         Logger::getInstance().log(LogLevel::INFO, "ConnectionPoolManager", "Started cleanup timer");
@@ -268,7 +269,7 @@ void ConnectionPoolManager::startCleanupTimer() {
 }
 
 void ConnectionPoolManager::stopCleanupTimer() {
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ContainerMutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     if (cleanupTimer_) {
         cleanupTimer_->cancel();
         Logger::getInstance().log(LogLevel::INFO, "ConnectionPoolManager", "Stopped cleanup timer");
@@ -276,7 +277,7 @@ void ConnectionPoolManager::stopCleanupTimer() {
 }
 
 size_t ConnectionPoolManager::cleanupIdleConnections() {
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ContainerMutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     
     size_t cleanedUp = 0;
     auto now = std::chrono::steady_clock::now();
@@ -313,7 +314,7 @@ size_t ConnectionPoolManager::cleanupIdleConnections() {
 }
 
 void ConnectionPoolManager::shutdown() {
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ContainerMutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     
     if (shutdownRequested_) {
         return;
@@ -345,17 +346,17 @@ void ConnectionPoolManager::shutdown() {
 // Metrics and monitoring methods
 
 size_t ConnectionPoolManager::getActiveConnections() const noexcept {
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ContainerMutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     return activeConnections_.size();
 }
 
 size_t ConnectionPoolManager::getIdleConnections() const noexcept {
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ContainerMutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     return idleConnections_.size();
 }
 
 size_t ConnectionPoolManager::getTotalConnections() const noexcept {
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ContainerMutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     return activeConnections_.size() + idleConnections_.size();
 }
 
@@ -374,22 +375,22 @@ std::chrono::seconds ConnectionPoolManager::getIdleTimeout() const {
 
 
 size_t ConnectionPoolManager::getConnectionReuseCount() const {
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ContainerMutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     return connectionReuseCount_;
 }
 
 size_t ConnectionPoolManager::getTotalConnectionsCreated() const {
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ContainerMutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     return totalConnectionsCreated_;
 }
 
 bool ConnectionPoolManager::isAtMaxCapacity() const {
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ContainerMutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     return (activeConnections_.size() + idleConnections_.size()) >= maxConnections_;
 }
 
 size_t ConnectionPoolManager::getQueueSize() const {
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ContainerMutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     return requestQueue_.size();
 }
 
@@ -398,12 +399,12 @@ size_t ConnectionPoolManager::getMaxQueueSize() const noexcept {
 }
 
 size_t ConnectionPoolManager::getRejectedRequestCount() const noexcept {
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ContainerMutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     return rejectedRequestCount_;
 }
 
 void ConnectionPoolManager::resetStatistics() {
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ContainerMutex> lock(poolMutex_, std::chrono::milliseconds(5000), "poolMutex");
     connectionReuseCount_ = 0;
     totalConnectionsCreated_ = 0;
     rejectedRequestCount_ = 0;

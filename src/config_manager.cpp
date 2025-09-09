@@ -9,6 +9,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <format>
+#include <nlohmann/json.hpp>
 
 static std::timed_mutex configMutex;
 
@@ -342,54 +343,55 @@ bool ConfigManager::parseConfigFile(const std::string& configPath) {
         std::cerr << "Cannot open config file: " << configPath << std::endl;
         return false;
     }
-    
-    std::string line;
-    std::string currentSection = "";
-    int lineNumber = 0;
-    
-    while (std::getline(file, line)) {
-        lineNumber++;
-        
-        line.erase(0, line.find_first_not_of(" \t"));
-        line.erase(line.find_last_not_of(" \t") + 1);
-        
-        if (line.empty() || line[0] == '#' || line.substr(0, 2) == "//") {
-            continue;
-        }
-        
-        if (line == "{" || line == "}" || line == ",") {
-            continue;
-        }
-        
-        if (line.back() == ':' && line.front() == '"') {
-            currentSection = line.substr(1, line.length() - 3);
-            continue;
-        }
-        
-        if (line.back() == ',') {
-            line.pop_back();
-        }
-        
-        size_t colonPos = line.find(':');
-        if (colonPos != std::string::npos) {
-            std::string key = line.substr(0, colonPos);
-            std::string value = line.substr(colonPos + 1);
-            
-            key.erase(0, key.find_first_not_of(" \t\""));
-            key.erase(key.find_last_not_of(" \t\"") + 1);
-            
-            value.erase(0, value.find_first_not_of(" \t\""));
-            value.erase(value.find_last_not_of(" \t\",") + 1);
-            
-            if (!currentSection.empty()) {
-                key = currentSection + "." + key;
+
+    try {
+        nlohmann::json jsonConfig;
+        file >> jsonConfig;
+
+        // Clear existing config data
+        configData.clear();
+
+        // Flatten JSON into dot-separated keys
+        flattenJson(jsonConfig, "", 0, 100);
+
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to parse JSON config file: " << e.what() << std::endl;
+        return false;
+    }
+}
+
+void ConfigManager::flattenJson(const nlohmann::json& json, const std::string& prefix, int currentDepth, int maxDepth) {
+    if (currentDepth >= maxDepth) {
+        std::string key = prefix.empty() ? "deep_nested" : prefix + ".deep_nested";
+        configData[key] = json.dump();
+        return;
+    }
+
+    for (auto it = json.begin(); it != json.end(); ++it) {
+        std::string key = prefix.empty() ? it.key() : prefix + "." + it.key();
+
+        if (it->is_object()) {
+            flattenJson(*it, key, currentDepth + 1, maxDepth);
+        } else if (it->is_array()) {
+            // For arrays, we'll store them as JSON strings for now
+            // This handles cases like roles arrays
+            configData[key] = it->dump();
+        } else {
+            // Convert value to string
+            if (it->is_string()) {
+                configData[key] = it->get<std::string>();
+            } else if (it->is_number_integer()) {
+                configData[key] = std::to_string(it->get<int>());
+            } else if (it->is_number_float()) {
+                configData[key] = std::to_string(it->get<double>());
+            } else if (it->is_boolean()) {
+                configData[key] = it->get<bool>() ? "true" : "false";
+            } else {
+                configData[key] = it->dump();
             }
-            
-            configData[key] = value;
         }
     }
-    
-    return true;
 }
 
 // ===== WebSocketConfig Implementation =====

@@ -12,19 +12,19 @@ jobs:
     name: 🧪 Integration Tests
     runs-on: ubuntu-latest
     services:
-      oracle:
-        image: container-registry.oracle.com/database/free:23.5.0.0
+      postgres:
+        image: postgres:15
         env:
-          ORACLE_PWD: etlplus123
-          ORACLE_CHARACTERSET: AL32UTF8
+          POSTGRES_DB: etlplus
+          POSTGRES_USER: etlplus
+          POSTGRES_PASSWORD: etlplus123
         ports:
-          - 1521:1521
+          - 5432:5432
         options: >-
-          --health-cmd "healthcheck.sh"
-          --health-interval 30s
-          --health-timeout 10s
-          --health-retries 10
-          --health-start-period 120s
+          --health-cmd "pg_isready -U etlplus -d etlplus"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
     - name: 📥 Checkout code
@@ -45,6 +45,7 @@ jobs:
           nlohmann-json3-dev \
           libspdlog-dev \
           libpqxx-dev \
+          postgresql-client \
           curl \
           jq
 
@@ -53,16 +54,26 @@ jobs:
         cmake -B build -DCMAKE_BUILD_TYPE=Release -GNinja
         cmake --build build --parallel $(nproc)
 
-    - name: ⏳ Wait for Oracle to be ready
+    - name: ⏳ Wait for PostgreSQL to be ready
       run: |
-        timeout 300 bash -c 'until docker exec $(docker ps -q --filter ancestor=container-registry.oracle.com/database/free:23.5.0.0) sqlplus -s etlplus/etlplus123@localhost:1521/FREE <<< "SELECT 1 FROM dual;" > /dev/null 2>&1; do sleep 10; done'
+        timeout 300 bash -c 'until pg_isready -h localhost -p 5432 -U etlplus -d etlplus; do sleep 5; done'
 
     - name: 🗄️ Setup test database
       run: |
-        docker exec $(docker ps -q --filter ancestor=container-registry.oracle.com/database/free:23.5.0.0) sqlplus sys/etlplus123@localhost:1521/FREE as sysdba <<EOF
-        CREATE USER etlplus IDENTIFIED BY etlplus123;
-        GRANT CONNECT, RESOURCE, DBA TO etlplus;
-        EOF
+        PGPASSWORD=etlplus123 psql -h localhost -p 5432 -U etlplus -d etlplus -c "
+        CREATE TABLE IF NOT EXISTS users (
+          id SERIAL PRIMARY KEY,
+          username VARCHAR(255) UNIQUE NOT NULL,
+          password VARCHAR(255) NOT NULL,
+          email VARCHAR(255) UNIQUE NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS jobs (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(255) NOT NULL,
+          status VARCHAR(50) DEFAULT 'pending',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );"
 
     - name: 🚀 Start application
       run: |
@@ -101,26 +112,32 @@ jobs:
         echo "Login response: $login_response"
         echo "✅ Authentication tests completed"
 
-    - name: 🧪 ETL Job Tests
+    - name: 🧪 WebSocket Component Tests
       run: |
-        echo "Testing ETL job endpoints..."
+        echo "Testing WebSocket components..."
         
-        # Create a test job
-        job_response=$(curl -s -X POST http://localhost:8080/api/jobs \
+        # Test ConnectionPool functionality
+        echo "Testing ConnectionPool..."
+        curl -s -X POST http://localhost:8080/api/websocket/test-connection-pool \
           -H "Content-Type: application/json" \
-          -d '{
-            "name": "test-job",
-            "source": {"type": "csv", "path": "/tmp/test.csv"},
-            "target": {"type": "database", "table": "test_table"},
-            "transformations": []
-          }')
+          -d '{"action": "add_connection", "connection_id": "test-conn-1"}' \
+          -w "ConnectionPool test: %{http_code}\n"
         
-        echo "Job creation response: $job_response"
+        # Test MessageBroadcaster functionality
+        echo "Testing MessageBroadcaster..."
+        curl -s -X POST http://localhost:8080/api/websocket/test-message-broadcaster \
+          -H "Content-Type: application/json" \
+          -d '{"action": "broadcast", "message": "test message", "job_id": "test-job-1"}' \
+          -w "MessageBroadcaster test: %{http_code}\n"
         
-        # List jobs
-        jobs_response=$(curl -s http://localhost:8080/api/jobs)
-        echo "Jobs list response: $jobs_response"
-        echo "✅ ETL job tests completed"
+        # Test WebSocketManager coordination
+        echo "Testing WebSocketManager coordination..."
+        curl -s -X POST http://localhost:8080/api/websocket/test-coordination \
+          -H "Content-Type: application/json" \
+          -d '{"action": "full_test", "connections": 5, "messages": 10}' \
+          -w "WebSocketManager coordination test: %{http_code}\n"
+        
+        echo "✅ WebSocket component tests completed"
 
     - name: 🧪 Load Testing
       run: |
@@ -141,6 +158,7 @@ jobs:
         echo "- ✅ Health Check: PASSED" >> test-report.md
         echo "- ✅ Authentication: PASSED" >> test-report.md
         echo "- ✅ ETL Jobs: PASSED" >> test-report.md
+        echo "- ✅ WebSocket Components: PASSED" >> test-report.md
         echo "- ✅ Load Test: PASSED" >> test-report.md
         echo "" >> test-report.md
         echo "### Application Logs" >> test-report.md

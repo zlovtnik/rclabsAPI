@@ -6,12 +6,11 @@
   },
   "database": {
     "host": "localhost",
-    "port": 1521,
-    "name": "FREE",
-    "service_name": "FREE",
-    "username": "etlplus",
-    "password": "etlplus123",
-    "type": "oracle"
+    "port": 5432,
+    "name": "etl_db",
+    "username": "etl_user",
+    "password": "etl_password",
+    "type": "postgresql"
   },
   "auth": {
     "jwt_secret": "your-secret-key-here",

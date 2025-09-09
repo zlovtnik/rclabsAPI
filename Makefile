@@ -27,7 +27,7 @@ BLUE = \033[0;34m
 CYAN = \033[0;36m
 NC = \033[0m
 
-.PHONY: all configure compile clean rebuild run help status docker-up docker-down ninja-info build-info
+.PHONY: all configure compile clean rebuild run help status ninja-info build-info
 
 all: build-info compile
 
@@ -144,11 +144,3 @@ status:
 	else \
 		echo "$(YELLOW)CMake: Not configured$(NC)"; \
 	fi
-
-docker-up:
-	@echo "$(BLUE)Starting Oracle database...$(NC)"
-	@docker-compose up -d oracle-db
-
-docker-down:
-	@echo "$(YELLOW)Stopping Oracle database...$(NC)"
-	@docker-compose down

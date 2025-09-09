@@ -264,7 +264,39 @@ bool is_integer(std::string_view str) noexcept {
 }
 
 bool is_float(std::string_view str) noexcept {
-    return is_numeric(str) && str.find('.') != std::string_view::npos;
+    if (str.empty()) return false;
+
+    std::size_t start = 0;
+    if (str[0] == '+' || str[0] == '-') {
+        start = 1;
+        if (str.size() == 1) return false;
+    }
+
+    // Find the dot position (relative to the start after sign)
+    std::size_t dot_pos = str.find('.', start);
+    if (dot_pos == std::string_view::npos) return false; // No dot found
+
+    // Check for multiple dots
+    if (str.find('.', dot_pos + 1) != std::string_view::npos) return false;
+
+    // Dot cannot be the first character (after sign) or the last character
+    if (dot_pos == start || dot_pos == str.size() - 1) return false;
+
+    // Check that all characters before dot are digits
+    for (std::size_t i = start; i < dot_pos; ++i) {
+        if (!std::isdigit(static_cast<unsigned char>(str[i]))) {
+            return false;
+        }
+    }
+
+    // Check that all characters after dot are digits
+    for (std::size_t i = dot_pos + 1; i < str.size(); ++i) {
+        if (!std::isdigit(static_cast<unsigned char>(str[i]))) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 bool is_alpha(std::string_view str) noexcept {

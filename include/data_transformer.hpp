@@ -1,20 +1,24 @@
 #pragma once
 
+#include "transparent_string_hash.hpp"
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include "transparent_string_hash.hpp"
 
 struct TransformationRule {
   std::string sourceField;
   std::string targetField;
   std::string transformationType;
-  std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> parameters;
+  std::unordered_map<std::string, std::string, TransparentStringHash,
+                     std::equal_to<>>
+      parameters;
 };
 
 struct DataRecord {
-  std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> fields;
+  std::unordered_map<std::string, std::string, TransparentStringHash,
+                     std::equal_to<>>
+      fields;
 };
 
 class DataTransformer {
@@ -27,7 +31,8 @@ public:
   void clearRules();
 
   // Data transformation
-  std::vector<DataRecord> transform(const std::vector<DataRecord> &inputData) const;
+  std::vector<DataRecord>
+  transform(const std::vector<DataRecord> &inputData) const;
   DataRecord transformRecord(const DataRecord &record) const;
 
   // Validation
@@ -41,8 +46,10 @@ private:
                                   const TransformationRule &rule) const;
   std::string applyStringTransformation(
       const std::string &value, const std::string &type,
-      const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> &params) const;
+      const std::unordered_map<std::string, std::string, TransparentStringHash,
+                               std::equal_to<>> &params) const;
   std::string applyNumericTransformation(
       const std::string &value, const std::string &type,
-      const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> &params) const;
+      const std::unordered_map<std::string, std::string, TransparentStringHash,
+                               std::equal_to<>> &params) const;
 };

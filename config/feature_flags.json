@@ -1,0 +1,18 @@
+{
+  "flags": {
+    "new_logger_system": false,
+    "new_exception_system": false,
+    "new_request_handler": false,
+    "new_websocket_manager": false,
+    "new_concurrency_patterns": false,
+    "new_type_system": false
+  },
+  "rollout_percentages": {
+    "new_logger_system": 0.0,
+    "new_exception_system": 0.0,
+    "new_request_handler": 0.0,
+    "new_websocket_manager": 0.0,
+    "new_concurrency_patterns": 0.0,
+    "new_type_system": 0.0
+  }
+}

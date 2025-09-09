@@ -30,7 +30,7 @@ void TimeoutManager::startConnectionTimeout(std::shared_ptr<PooledSession> sessi
         return;
     }
 
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ResourceMutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
     
     // Use provided timeout or default
     auto actualTimeout = (timeout.count() > 0) ? timeout : connectionTimeout_;
@@ -55,8 +55,8 @@ void TimeoutManager::startConnectionTimeout(std::shared_ptr<PooledSession> sessi
     timerInfo->timer->expires_after(actualTimeout);
 
     // Start async wait
-    timerInfo->timer->async_wait([this, session, actualCallback](const boost::system::error_code& ec) {
-        handleTimeout(session, TimeoutType::CONNECTION, actualCallback, ec);
+    timerInfo->timer->async_wait([this, session, actualCallback, timer = timerInfo->timer.get()](const boost::system::error_code& ec) {
+        handleTimeout(session, TimeoutType::CONNECTION, actualCallback, ec, timer);
     });
 
     connectionTimers_[session] = std::move(timerInfo);
@@ -73,7 +73,7 @@ void TimeoutManager::startRequestTimeout(std::shared_ptr<PooledSession> session,
         return;
     }
 
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ResourceMutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
     
     // Use provided timeout or default
     auto actualTimeout = (timeout.count() > 0) ? timeout : requestTimeout_;
@@ -98,8 +98,8 @@ void TimeoutManager::startRequestTimeout(std::shared_ptr<PooledSession> session,
     timerInfo->timer->expires_after(actualTimeout);
 
     // Start async wait
-    timerInfo->timer->async_wait([this, session, actualCallback](const boost::system::error_code& ec) {
-        handleTimeout(session, TimeoutType::REQUEST, actualCallback, ec);
+    timerInfo->timer->async_wait([this, session, actualCallback, timer = timerInfo->timer.get()](const boost::system::error_code& ec) {
+        handleTimeout(session, TimeoutType::REQUEST, actualCallback, ec, timer);
     });
 
     requestTimers_[session] = std::move(timerInfo);
@@ -113,7 +113,7 @@ void TimeoutManager::cancelTimeouts(std::shared_ptr<PooledSession> session) {
         return;
     }
 
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ResourceMutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
     
     // Cancel connection timer
     auto connIt = connectionTimers_.find(session);
@@ -137,7 +137,7 @@ void TimeoutManager::cancelConnectionTimeout(std::shared_ptr<PooledSession> sess
         return;
     }
 
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ResourceMutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
     
     auto it = connectionTimers_.find(session);
     if (it != connectionTimers_.end()) {
@@ -152,7 +152,7 @@ void TimeoutManager::cancelRequestTimeout(std::shared_ptr<PooledSession> session
         return;
     }
 
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ResourceMutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
     
     auto it = requestTimers_.find(session);
     if (it != requestTimers_.end()) {
@@ -163,31 +163,31 @@ void TimeoutManager::cancelRequestTimeout(std::shared_ptr<PooledSession> session
 }
 
 void TimeoutManager::setConnectionTimeout(std::chrono::seconds timeout) {
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ResourceMutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
     connectionTimeout_ = timeout;
     HTTP_LOG_INFO("TimeoutManager::setConnectionTimeout - updated to " + 
                   std::to_string(timeout.count()) + " seconds");
 }
 
 void TimeoutManager::setRequestTimeout(std::chrono::seconds timeout) {
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ResourceMutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
     requestTimeout_ = timeout;
     HTTP_LOG_INFO("TimeoutManager::setRequestTimeout - updated to " + 
                   std::to_string(timeout.count()) + " seconds");
 }
 
 std::chrono::seconds TimeoutManager::getConnectionTimeout() const {
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ResourceMutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
     return connectionTimeout_;
 }
 
 std::chrono::seconds TimeoutManager::getRequestTimeout() const {
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ResourceMutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
     return requestTimeout_;
 }
 
 void TimeoutManager::setDefaultTimeoutCallback(TimeoutCallback callback) {
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ResourceMutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
     defaultCallback_ = callback ? callback : 
                       std::bind(&TimeoutManager::defaultTimeoutHandler, this,
                                std::placeholders::_1, std::placeholders::_2);
@@ -195,17 +195,17 @@ void TimeoutManager::setDefaultTimeoutCallback(TimeoutCallback callback) {
 }
 
 size_t TimeoutManager::getActiveConnectionTimers() const {
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ResourceMutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
     return connectionTimers_.size();
 }
 
 size_t TimeoutManager::getActiveRequestTimers() const {
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ResourceMutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
     return requestTimers_.size();
 }
 
 void TimeoutManager::cancelAllTimers() {
-    etl_plus::ScopedTimedLock<std::timed_mutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
+    etl_plus::ScopedTimedLock<etl_plus::ResourceMutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
     
     HTTP_LOG_DEBUG("TimeoutManager::cancelAllTimers - cancelling " + 
                    std::to_string(connectionTimers_.size()) + " connection timers and " +
@@ -227,7 +227,8 @@ void TimeoutManager::cancelAllTimers() {
 void TimeoutManager::handleTimeout(std::shared_ptr<PooledSession> session,
                                   TimeoutType type,
                                   TimeoutCallback callback,
-                                  const boost::system::error_code& ec) {
+                                  const boost::system::error_code& ec,
+                                  net::steady_timer* firedTimer) {
     std::string typeStr = (type == TimeoutType::CONNECTION) ? "connection" : "request";
     
     if (ec == boost::asio::error::operation_aborted) {
@@ -243,10 +244,14 @@ void TimeoutManager::handleTimeout(std::shared_ptr<PooledSession> session,
 
     HTTP_LOG_DEBUG("TimeoutManager::handleTimeout - timeout occurred for " + typeStr);
 
-    // Remove the timer from our tracking maps
+    // Remove the timer from our tracking maps only if it's still the current timer
     {
-        etl_plus::ScopedTimedLock<std::timed_mutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
-        removeTimer(session, type);
+        etl_plus::ScopedTimedLock<etl_plus::ResourceMutex> lock(timerMutex_, std::chrono::milliseconds(5000), "timerMutex");
+        auto& timers = (type == TimeoutType::CONNECTION) ? connectionTimers_ : requestTimers_;
+        auto it = timers.find(session);
+        if (it != timers.end() && it->second->timer.get() == firedTimer) {
+            removeTimer(session, type);
+        }
     }
 
     // Invoke the callback

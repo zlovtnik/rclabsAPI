@@ -117,11 +117,16 @@ config/*_local.json
 
 # Coverage reports
 coverage/
+coverage_report/
+coverage.info
 *.gcov
 *.gcno
 *.gcda
 lcov.info
 coverage.xml
+gcovr.xml
+*.profraw
+*.profdata
 
 # Profiling data
 gmon.out
