@@ -1,6 +1,7 @@
 #include "exception_handler.hpp"
 #include <thread>
 #include <algorithm>
+#include <cmath>
 
 namespace ETLPlus {
     namespace ExceptionHandling {

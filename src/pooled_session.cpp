@@ -287,8 +287,11 @@ void PooledSession::sendResponse(http::response<http::string_body>&& msg) {
             bool close = msg.need_eof();
             auto self = shared_from_this();
             
-            http::async_write(stream_, msg,
-                [self, close](beast::error_code ec, std::size_t bytes_transferred) {
+            // Create a shared pointer to ensure the response lives for the duration of the async operation
+            auto response = std::make_shared<http::response<http::string_body>>(std::move(msg));
+            
+            http::async_write(stream_, *response,
+                [self, response, close](beast::error_code ec, std::size_t bytes_transferred) {
                     self->onWrite(close, ec, bytes_transferred);
                 });
         }

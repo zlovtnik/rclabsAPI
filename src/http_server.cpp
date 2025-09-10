@@ -87,8 +87,16 @@ private:
         if (ec) {
             HTTP_LOG_ERROR("Listener::onAccept() - Error: " + ec.message());
             fail(ec, "accept");
-            // Don't continue accepting if there's an error
-            return;
+            
+            // Check if this is a fatal error that should stop accepting
+            if (ec == boost::asio::error::operation_aborted ||
+                ec == boost::asio::error::bad_descriptor) {
+                HTTP_LOG_ERROR("Listener::onAccept() - Fatal error, stopping listener");
+                return;
+            }
+            
+            // For other errors (like EINVAL), continue accepting
+            HTTP_LOG_WARN("Listener::onAccept() - Non-fatal error, continuing to accept connections");
         } else {
             HTTP_LOG_INFO("Listener::onAccept() - New connection accepted");
             if (!poolManager_) {
@@ -108,7 +116,8 @@ private:
             }
         }
 
-        // Only continue accepting if there was no error
+        // Continue accepting connections regardless of whether the previous accept succeeded or failed
+        // (unless it was a fatal error)
         doAccept();
     }
 };

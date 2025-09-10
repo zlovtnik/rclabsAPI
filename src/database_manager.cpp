@@ -144,7 +144,7 @@ std::vector<std::vector<std::string>> DatabaseManager::selectQuery(const std::st
         // Add column headers
         if (!result.empty()) {
             std::vector<std::string> headers;
-            for (auto col = result.columns(); col != result.columns() + result[0].size(); ++col) {
+            for (size_t col = 0; col < result.columns(); ++col) {
                 headers.push_back(result.column_name(col));
             }
             rows.push_back(headers);

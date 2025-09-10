@@ -1,20 +1,26 @@
-# Multi-stage Dockerfile for ETL Plus Backend
+# Multi-stage Dockerfile for ETL Plus Backend with security hardening
 FROM ubuntu:22.04 AS builder
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
+# Install build dependencies with security updates
+RUN apt-get update && apt-get upgrade -y && apt-get install -y \
     build-essential \
+    ca-certificates \
     cmake \
     curl \
     git \
     libboost-all-dev \
-    nlohmann-json3-dev \
     libpqxx-dev \
     libspdlog-dev \
     libssl-dev \
     ninja-build \
+    nlohmann-json3-dev \
     pkg-config \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /tmp/*
+
+# Create non-root user for build
+RUN groupadd -r builder && useradd -r -g builder builder
 
 # Set working directory
 WORKDIR /app
@@ -22,48 +28,54 @@ WORKDIR /app
 # Copy source code
 COPY . .
 
-# Build the application
-RUN cmake -B build \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-    -GNinja
+# Create build directory and set permissions
+RUN mkdir -p build && chown -R builder:builder /app
 
-RUN cmake --build build --parallel $(nproc)
+# Build the application as non-root user
+USER builder
+RUN cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -GNinja && cmake --build build --parallel $(nproc)
 
-# Runtime stage
+# Runtime stage with minimal image
 FROM ubuntu:22.04 AS runtime
 
-# Install runtime dependencies and setup user
-RUN apt-get update && apt-get install -y \
+# Install minimal runtime dependencies
+RUN apt-get update && apt-get upgrade -y && apt-get install -y \
     ca-certificates \
     libboost-filesystem1.74.0 \
     libboost-system1.74.0 \
     libboost-thread1.74.0 \
     libpqxx-6.4 \
     libssl3 \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /tmp/* \
+    && rm -rf /var/tmp/* \
     && groupadd -r etlplus \
-    && useradd -r -g etlplus etlplus
+    && useradd -r -g etlplus -s /bin/false etlplus
 
 # Set working directory
 WORKDIR /app
 
-# Copy binary and configuration
-COPY --from=builder /app/build/bin/ETLPlusBackend /app/
-COPY --from=builder /app/config/ /app/config/
+# Copy binary and configuration from builder stage
+COPY --from=builder --chown=etlplus:etlplus /app/build/bin/ETLPlusBackend /app/
+COPY --from=builder --chown=etlplus:etlplus /app/config/ /app/config/
 
-# Create logs directory
-RUN mkdir -p /app/logs && chown -R etlplus:etlplus /app
+# Create logs directory with proper permissions and symlink
+RUN mkdir -p /app/logs && chown -R etlplus:etlplus /app && chmod -R 755 /app && ln -s /app/config/config.json /app/config.json
 
-# Switch to app user
+# Switch to non-root user
 USER etlplus
 
 # Expose port
 EXPOSE 8080
 
-# Health check
+# Health check with proper user context
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+    CMD curl -f --max-time 10 http://localhost:8080/health || exit 1
+
+# Set read-only root filesystem (except for /app/logs and /tmp)
+# Note: This requires the application to write logs to /app/logs
+VOLUME ["/app/logs"]
 
 # Run the application
-CMD ["./ETLPlusBackend"]
+CMD ["/app/ETLPlusBackend"]

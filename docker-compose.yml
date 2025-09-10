@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: etl_postgres
+    environment:
+      POSTGRES_DB: etl_db
+      POSTGRES_USER: etl_user
+      POSTGRES_PASSWORD: etl_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U etl_user -d etl_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  etlplus-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: etlplus_backend
+    ports:
+      - "8080:8080"
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=DEBUG
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_NAME=etl_db
+      - DATABASE_USER=etl_user
+      - DATABASE_PASSWORD=etl_password
+      - DATABASE_TYPE=postgresql
+      - JWT_SECRET=development-jwt-secret-key-for-local-testing
+    volumes:
+      - ./logs:/app/logs
+      - ./config:/app/config:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  postgres_data:

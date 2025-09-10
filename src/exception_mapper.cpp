@@ -271,6 +271,8 @@ HttpResponse ExceptionMapper::createHttpResponse(boost::beast::http::status stat
     response.set(boost::beast::http::field::server, config_.serverHeader);
     response.set(boost::beast::http::field::content_type, "application/json");
     response.set(boost::beast::http::field::access_control_allow_origin, config_.corsOrigin);
+    response.set(boost::beast::http::field::access_control_expose_headers,
+                 "X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After");
     response.keep_alive(config_.keepAlive);
     
     // Set body
