@@ -4,7 +4,19 @@
 #include <sstream>
 #include <iomanip>
 #include <pqxx/pqxx>
-#include <chrono>
+#include <algorithm>
+
+// Helper function to escape SQL strings (basic escaping for single quotes)
+static std::string escapeSqlString(const std::string& input) {
+    std::string result = input;
+    // Replace single quotes with double quotes for SQL escaping
+    size_t pos = 0;
+    while ((pos = result.find('\'', pos)) != std::string::npos) {
+        result.replace(pos, 1, "''");
+        pos += 2; // Skip the doubled quote
+    }
+    return result;
+}
 #include <ctime>
 
 // Helper function to format timestamps for database
@@ -56,9 +68,9 @@ std::optional<User> UserRepository::getUserById(const std::string& userId) {
     
     try {
         std::string query = "SELECT id, username, email, password_hash, roles, created_at, is_active "
-                           "FROM users WHERE id = $1";
+                           "FROM users WHERE id = '" + escapeSqlString(userId) + "'";
         
-        auto result = dbManager_->selectQuery(query, {userId});
+        auto result = dbManager_->selectQuery(query);
         if (result.size() <= 1) { // Only headers or no data
             return std::nullopt;
         }
@@ -78,9 +90,9 @@ std::optional<User> UserRepository::getUserByUsername(const std::string& usernam
     
     try {
         std::string query = "SELECT id, username, email, password_hash, roles, created_at, is_active "
-                           "FROM users WHERE username = $1";
+                           "FROM users WHERE username = '" + escapeSqlString(std::string(username)) + "'";
         
-        auto result = dbManager_->selectQuery(query, {username});
+        auto result = dbManager_->selectQuery(query);
         if (result.size() <= 1) {
             return std::nullopt;
         }
@@ -100,9 +112,9 @@ std::optional<User> UserRepository::getUserByEmail(const std::string& email) {
     
     try {
         std::string query = "SELECT id, username, email, password_hash, roles, created_at, is_active "
-                           "FROM users WHERE email = $1";
+                           "FROM users WHERE email = '" + escapeSqlString(std::string(email)) + "'";
         
-        auto result = dbManager_->selectQuery(query, {email});
+        auto result = dbManager_->selectQuery(query);
         if (result.size() <= 1) {
             return std::nullopt;
         }
