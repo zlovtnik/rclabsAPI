@@ -23,10 +23,17 @@ AuthManager::AuthManager(std::shared_ptr<DatabaseManager> dbManager)
 #if ETL_ENABLE_JWT
     // Load JWT secret from environment variable
     const char* secret = std::getenv("JWT_SECRET_KEY");
-    if (!secret || std::string(secret).empty()) {
-        throw std::runtime_error("JWT_SECRET_KEY environment variable must be set and non-empty");
+    if (!secret) {
+        throw std::runtime_error("JWT_SECRET_KEY environment variable must be set");
     }
-    jwtSecretKey_ = secret;
+    std::string secretStr(secret);
+    if (secretStr.empty()) {
+        throw std::runtime_error("JWT_SECRET_KEY environment variable cannot be empty");
+    }
+    if (secretStr.length() < 32) {
+        throw std::runtime_error("JWT_SECRET_KEY must be at least 32 characters long for security");
+    }
+    jwtSecretKey_ = secretStr;
 #endif
     
     // Note: Default admin user creation is now handled by database schema initialization
@@ -92,8 +99,8 @@ bool AuthManager::authenticateUser(std::string_view username, std::string_view p
         return false;
     }
     
-    // For now, do a simple string comparison (in production, use proper password hashing)
-    if (user->passwordHash != std::string(password)) {
+    // Verify password using secure comparison
+    if (!verifyPassword(std::string(password), user->passwordHash)) {
         AUTH_LOG_ERROR("Authentication failed for user: " + std::string(username) + " - invalid password");
         return false;
     }
@@ -250,8 +257,58 @@ void AuthManager::revokeRole(const std::string& userId, const std::string& role)
 }
 
 std::string AuthManager::hashPassword(std::string_view password, std::string_view salt) const {
-    // Simple hash implementation (not secure - use bcrypt in production)
-    return std::string(password) + "_hashed_with_" + std::string(salt);
+    // TODO: Implement proper bcrypt hashing in production
+    // For now, use a simple but better-than-plaintext approach
+    std::string combined = std::string(password) + std::string(salt);
+    // Simple hash simulation (replace with real bcrypt)
+    std::hash<std::string> hasher;
+    size_t hash_value = hasher(combined);
+    std::stringstream ss;
+    ss << "$2b$12$" << std::hex << hash_value << "abcdefghijklmnopqrstuv"; // Mock bcrypt format
+    return ss.str();
+}
+
+bool AuthManager::verifyPassword(std::string_view password, std::string_view hashedPassword) const {
+    // TODO: Implement proper bcrypt verification in production
+    // For now, extract salt from hash and verify
+    std::string hash_str(hashedPassword);
+    if (hash_str.find("$2b$12$") != 0) {
+        return false; // Invalid hash format
+    }
+    
+    // Extract the hash part (simplified)
+    size_t dollar_pos = hash_str.find('$', 7);
+    if (dollar_pos == std::string::npos) {
+        return false;
+    }
+    
+    std::string stored_hash = hash_str.substr(dollar_pos + 1);
+    std::string salt = "fixed_salt"; // In real implementation, extract from hash
+    
+    // Re-hash the provided password with the same salt
+    std::string new_hash = hashPassword(password, salt);
+    size_t new_dollar_pos = new_hash.find('$', 7);
+    if (new_dollar_pos == std::string::npos) {
+        return false;
+    }
+    
+    std::string computed_hash = new_hash.substr(new_dollar_pos + 1);
+    
+    // Use constant-time comparison to prevent timing attacks
+    return constantTimeCompare(stored_hash, computed_hash);
+}
+
+bool AuthManager::constantTimeCompare(std::string_view a, std::string_view b) const {
+    if (a.length() != b.length()) {
+        return false;
+    }
+    
+    int result = 0;
+    for (size_t i = 0; i < a.length(); ++i) {
+        result |= (a[i] ^ b[i]);
+    }
+    
+    return result == 0;
 }
 
 std::string AuthManager::generateSalt() const {

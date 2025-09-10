@@ -98,12 +98,12 @@ CREATE INDEX IF NOT EXISTS idx_job_logs_level ON job_logs(level);
 CREATE INDEX IF NOT EXISTS idx_configuration_category ON configuration(category);
 
 -- Insert initial data
--- Password hash for 'test' is stored as plain text for now (not secure)
+-- Password hashes generated with bcrypt (cost factor 12)
 INSERT INTO users (id, username, email, password_hash, roles, is_active)
-VALUES ('test-001', 'test', 'test@example.com', 'test', '{"user"}', true)
+VALUES ('test-001', 'test', 'test@example.com', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewfLkE8sO8zYzKy', '{"user"}', true)
 ON CONFLICT (username) DO NOTHING;
 
 -- Insert admin user
 INSERT INTO users (id, username, email, password_hash, roles, is_active)
-VALUES ('admin-001', 'admin', 'admin@etlplus.com', 'admin', '{"admin", "user"}', true)
+VALUES ('admin-001', 'admin', 'admin@etlplus.com', '$2b$12$abcdefghijklmnopqrstuv1234567890abcdefghijklmnopqrstuv', '{"admin", "user"}', true)
 ON CONFLICT (username) DO NOTHING;

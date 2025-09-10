@@ -10,8 +10,16 @@
 // Helper function to format timestamps for database
 static std::string formatTimestampForDB(const std::chrono::system_clock::time_point& tp) {
     auto time_t = std::chrono::system_clock::to_time_t(tp);
+    std::tm tm{};
+    
+#if defined(_WIN32)
+    gmtime_s(&tm, &time_t);
+#else
+    gmtime_r(&time_t, &tm);
+#endif
+    
     std::stringstream ss;
-    ss << std::put_time(std::gmtime(&time_t), "%Y-%m-%d %H:%M:%S");
+    ss << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");
     return ss.str();
 }
 
@@ -48,9 +56,9 @@ std::optional<User> UserRepository::getUserById(const std::string& userId) {
     
     try {
         std::string query = "SELECT id, username, email, password_hash, roles, created_at, is_active "
-                           "FROM users WHERE id = '" + userId + "'";
+                           "FROM users WHERE id = $1";
         
-        auto result = dbManager_->selectQuery(query);
+        auto result = dbManager_->selectQuery(query, {userId});
         if (result.size() <= 1) { // Only headers or no data
             return std::nullopt;
         }
@@ -69,10 +77,10 @@ std::optional<User> UserRepository::getUserByUsername(const std::string& usernam
     }
     
     try {
-        std::string query = "SELECT id, username, email, password_hash "
-                           "FROM users WHERE username = '" + username + "'";
+        std::string query = "SELECT id, username, email, password_hash, roles, created_at, is_active "
+                           "FROM users WHERE username = $1";
         
-        auto result = dbManager_->selectQuery(query);
+        auto result = dbManager_->selectQuery(query, {username});
         if (result.size() <= 1) {
             return std::nullopt;
         }
@@ -92,9 +100,9 @@ std::optional<User> UserRepository::getUserByEmail(const std::string& email) {
     
     try {
         std::string query = "SELECT id, username, email, password_hash, roles, created_at, is_active "
-                           "FROM users WHERE email = '" + email + "'";
+                           "FROM users WHERE email = $1";
         
-        auto result = dbManager_->selectQuery(query);
+        auto result = dbManager_->selectQuery(query, {email});
         if (result.size() <= 1) {
             return std::nullopt;
         }
@@ -220,7 +228,7 @@ std::vector<User> UserRepository::getUsersByRole(const std::string& role) {
 }
 
 User UserRepository::userFromRow(const std::vector<std::string>& row) {
-    if (row.size() < 4) {
+    if (row.size() < 7) {
         throw std::runtime_error("Invalid user row data: insufficient columns");
     }
     
@@ -229,11 +237,9 @@ User UserRepository::userFromRow(const std::vector<std::string>& row) {
     user.username = row[1];
     user.email = row[2];
     user.passwordHash = row[3];
-    
-    // Set default values
-    user.createdAt = std::chrono::system_clock::now();
-    user.roles = {"user"}; // Default role
-    user.isActive = true; // Default value
+    user.roles = stringToRoles(row[4]);
+    user.createdAt = parseTimestamp(row[5]);
+    user.isActive = (row[6] == "t" || row[6] == "true" || row[6] == "1");
     
     return user;
 }
@@ -273,4 +279,15 @@ std::vector<std::string> UserRepository::stringToRoles(const std::string& rolesS
     }
     
     return roles;
+}
+
+std::chrono::system_clock::time_point UserRepository::parseTimestamp(const std::string& timestampStr) {
+    // Simple timestamp parsing for PostgreSQL format
+    std::tm tm = {};
+    std::istringstream ss(timestampStr);
+    ss >> std::get_time(&tm, "%Y-%m-%d %H:%M:%S");
+    if (ss.fail()) {
+        return std::chrono::system_clock::now(); // Fallback
+    }
+    return std::chrono::system_clock::from_time_t(std::mktime(&tm));
 }

@@ -31,4 +31,5 @@ private:
   User userFromRow(const std::vector<std::string> &row);
   std::string rolesToString(const std::vector<std::string> &roles);
   std::vector<std::string> stringToRoles(const std::string &rolesStr);
+  std::chrono::system_clock::time_point parseTimestamp(const std::string& timestampStr);
 };

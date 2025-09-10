@@ -172,7 +172,13 @@ void RateLimiter::cleanupExpiredEntries() {
 
 const RateLimitRule* RateLimiter::getRuleForEndpoint(const std::string& endpoint) const {
     for (const auto& rule : rules_) {
-        if (endpoint.rfind(rule.endpoint, 0) == 0) {
+        // Check for exact match
+        if (endpoint == rule.endpoint) {
+            return &rule;
+        }
+        // Check for prefix match with delimiter
+        if (endpoint.rfind(rule.endpoint, 0) == 0 &&
+            (endpoint.size() == rule.endpoint.size() || endpoint[rule.endpoint.size()] == '/')) {
             return &rule;
         }
     }
