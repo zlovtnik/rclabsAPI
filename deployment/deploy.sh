@@ -10,6 +10,12 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 HELM_CHART_DIR="$PROJECT_ROOT/helm/etlplus-backend"
 LOG_FILE="$PROJECT_ROOT/logs/deploy_$(date +%Y%m%d_%H%M%S).log"
 
+# Ensure logs directory exists
+mkdir -p "$PROJECT_ROOT/logs" || {
+    echo "Error: Failed to create logs directory: $PROJECT_ROOT/logs" >&2
+    exit 1
+}
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -21,6 +27,7 @@ NC='\033[0m' # No Color
 NAMESPACE="default"
 RELEASE_NAME="etlplus-backend"
 ENVIRONMENT="staging"
+DOMAIN="${DOMAIN:-yourdomain.com}"
 VALUES_FILE="$HELM_CHART_DIR/values.yaml"
 
 # Logging functions
@@ -50,6 +57,7 @@ usage() {
     echo "  -n, --namespace NAMESPACE    Kubernetes namespace (default: default)"
     echo "  -r, --release RELEASE        Helm release name (default: etlplus-backend)"
     echo "  -e, --environment ENV        Environment (staging|production) (default: staging)"
+    echo "  --domain DOMAIN              Domain for ingress host (default: yourdomain.com, env: DOMAIN)"
     echo "  -f, --values-file FILE       Custom values file"
     echo "  -u, --upgrade                Upgrade existing release"
     echo "  -d, --dry-run                Dry run mode"
@@ -74,6 +82,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -e|--environment)
             ENVIRONMENT="$2"
+            shift 2
+            ;;
+        --domain)
+            DOMAIN="$2"
             shift 2
             ;;
         -f|--values-file)
@@ -156,7 +168,7 @@ deploy() {
     # Set environment-specific values
     local set_values=(
         "--set" "environment=$ENVIRONMENT"
-        "--set" "ingress.hosts[0].host=etlplus-$ENVIRONMENT.yourdomain.com"
+        "--set" "ingress.hosts[0].host=etlplus-$ENVIRONMENT.$DOMAIN"
     )
 
     if [[ -n "$DRY_RUN" ]]; then
@@ -171,10 +183,12 @@ deploy() {
 
     if [[ -z "$DRY_RUN" ]]; then
         log_info "Waiting for deployment to be ready..."
-        kubectl wait --for=condition=available --timeout=300s deployment/"$RELEASE_NAME" -n "$NAMESPACE"
+        kubectl wait --for=condition=available --timeout=300s \
+            --selector=app.kubernetes.io/instance="$RELEASE_NAME" \
+            deployment -n "$NAMESPACE"
 
         log_success "Deployment completed successfully"
-        log_info "Application should be available at: https://etlplus-$ENVIRONMENT.yourdomain.com"
+        log_info "Application should be available at: https://etlplus-$ENVIRONMENT.$DOMAIN"
     else
         log_success "Dry run completed"
     fi

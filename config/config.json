@@ -5,15 +5,15 @@
     "threads": 4
   },
   "database": {
-    "host": "localhost",
-    "port": 5432,
+    "host": "postgres",
+    "port": "5432",
     "name": "etl_db",
     "username": "etl_user",
     "password": "etl_password",
     "type": "postgresql"
   },
   "auth": {
-    "jwt_secret": "your-secret-key-here",
+    "jwt_secret": "${JWT_SECRET}",
     "session_timeout": 3600
   },
   "etl": {

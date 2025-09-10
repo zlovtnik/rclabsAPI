@@ -65,6 +65,6 @@ private:
                            std::string_view salt) const;
   std::string generateSalt() const;
   std::string generateSessionId() const;
-  bool verifyPassword(std::string_view password, std::string_view hash,
-                      std::string_view salt) const;
+  bool verifyPassword(std::string_view password, std::string_view hashedPassword) const;
+  bool constantTimeCompare(std::string_view a, std::string_view b) const;
 };

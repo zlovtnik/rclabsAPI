@@ -36,7 +36,7 @@ spec:
         - name: {{ .Chart.Name }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           workingDir: /app
           command: ["/app/ETLPlusBackend"]
@@ -85,9 +85,15 @@ spec:
           volumeMounts:
             - name: logs
               mountPath: /app/logs
+            - name: config
+              mountPath: /app/config.json
+              subPath: config.json
       volumes:
         - name: logs
           emptyDir: {}
+        - name: config
+          configMap:
+            name: {{ include "etlplus-backend.fullname" . }}-config
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

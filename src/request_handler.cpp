@@ -15,6 +15,7 @@
 #include <ctime>
 #include <regex>
 #include <algorithm>
+#include <stdexcept>
 #include <unistd.h> // for getpid()
 #include <nlohmann/json.hpp>
 
@@ -67,10 +68,13 @@ RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
                ", ETL: " + std::string(etlManager ? "valid" : "null") +
                ", RateLimiter: " + std::string(rateLimiter_ ? "valid" : "null"));
 
-  // Initialize rate limiter if not provided
-  if (rateLimiter_) {
-    rateLimiter_->initializeDefaultRules();
+  // Validate rate limiter pointer
+  if (!rateLimiter_) {
+    throw std::invalid_argument("RateLimiter pointer cannot be null");
   }
+
+  // Initialize rate limiter
+  rateLimiter_->initializeDefaultRules();
 
   // Configure the exception mapper for RequestHandler
   ETLPlus::ExceptionHandling::ExceptionMappingConfig config;

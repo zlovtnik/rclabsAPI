@@ -6,6 +6,7 @@
 #include <random>
 #include <algorithm>
 #include <chrono>
+#include <nlohmann/json.hpp>
 
 // Static member definition for RetryQueueManager
 const notification_recovery::RetryConfig notification_recovery::RetryQueueManager::defaultConfig_{
@@ -23,10 +24,6 @@ const notification_recovery::RetryConfig notification_recovery::RetryQueueManage
 // Only include curl and json if they are available
 #ifdef CURL_FOUND
 #include <curl/curl.h>
-#endif
-
-#ifdef JSONCPP_FOUND
-#include <json/json.h>
 #endif
 
 // ===== NotificationMessage Implementation =====
@@ -51,8 +48,7 @@ std::string NotificationMessage::generateId() {
 }
 
 std::string NotificationMessage::toJson() const {
-#ifdef JSONCPP_FOUND
-    Json::Value json;
+    nlohmann::json json;
     json["id"] = id;
     json["type"] = static_cast<int>(type);
     json["priority"] = static_cast<int>(priority);
@@ -69,84 +65,51 @@ std::string NotificationMessage::toJson() const {
     json["retryCount"] = retryCount;
     json["maxRetries"] = maxRetries;
     
-    Json::Value methodsArray(Json::arrayValue);
+    nlohmann::json methodsArray = nlohmann::json::array();
     for (auto method : methods) {
-        methodsArray.append(static_cast<int>(method));
+        methodsArray.push_back(static_cast<int>(method));
     }
     json["methods"] = methodsArray;
     
-    Json::Value metadataObj;
+    nlohmann::json metadataObj;
     for (const auto& [key, value] : metadata) {
         metadataObj[key] = value;
     }
     json["metadata"] = metadataObj;
     
-    Json::StreamWriterBuilder builder;
-    return Json::writeString(builder, json);
-#else
-    // Simple JSON-like string without json library
-    std::stringstream ss;
-    ss << "{";
-    ss << "\"id\":\"" << id << "\",";
-    ss << "\"type\":" << static_cast<int>(type) << ",";
-    ss << "\"priority\":" << static_cast<int>(priority) << ",";
-    ss << "\"jobId\":\"" << jobId << "\",";
-    ss << "\"subject\":\"" << subject << "\",";
-    ss << "\"message\":\"" << message << "\",";
-    ss << "\"retryCount\":" << retryCount << ",";
-    ss << "\"maxRetries\":" << maxRetries;
-    ss << "}";
-    return ss.str();
-#endif
+    return json.dump();
 }
 
 NotificationMessage NotificationMessage::fromJson(const std::string& jsonStr) {
-#ifdef JSONCPP_FOUND
-    Json::Value json;
-    Json::CharReaderBuilder builder;
-    std::string errors;
-    std::istringstream stream(jsonStr);
-    
-    if (!Json::parseFromStream(builder, stream, &json, &errors)) {
+    try {
+        nlohmann::json json = nlohmann::json::parse(jsonStr);
+        
+        NotificationMessage msg;
+        msg.id = json["id"];
+        msg.type = static_cast<NotificationType>(json["type"]);
+        msg.priority = static_cast<NotificationPriority>(json["priority"]);
+        msg.jobId = json["jobId"];
+        msg.subject = json["subject"];
+        msg.message = json["message"];
+        msg.retryCount = json["retryCount"];
+        msg.maxRetries = json["maxRetries"];
+        
+        // Parse methods
+        for (const auto& method : json["methods"]) {
+            msg.methods.push_back(static_cast<NotificationMethod>(method));
+        }
+        
+        // Parse metadata
+        for (const auto& [key, value] : json["metadata"].items()) {
+            msg.metadata[key] = value;
+        }
+        
+        return msg;
+    } catch (const nlohmann::json::exception& e) {
         throw etl::SystemException(etl::ErrorCode::PROCESSING_FAILED, 
-                                   "Failed to parse notification JSON: " + errors, 
+                                   "Failed to parse notification JSON: " + std::string(e.what()), 
                                    "NotificationService");
     }
-    
-    NotificationMessage msg;
-    msg.id = json["id"].asString();
-    msg.type = static_cast<NotificationType>(json["type"].asInt());
-    msg.priority = static_cast<NotificationPriority>(json["priority"].asInt());
-    msg.jobId = json["jobId"].asString();
-    msg.subject = json["subject"].asString();
-    msg.message = json["message"].asString();
-    msg.retryCount = json["retryCount"].asInt();
-    msg.maxRetries = json["maxRetries"].asInt();
-    
-    // Parse methods
-    for (const auto& method : json["methods"]) {
-        msg.methods.push_back(static_cast<NotificationMethod>(method.asInt()));
-    }
-    
-    // Parse metadata
-    for (const auto& key : json["metadata"].getMemberNames()) {
-        msg.metadata[key] = json["metadata"][key].asString();
-    }
-    
-    return msg;
-#else
-    // Simple parsing for basic fields (not a complete JSON parser)
-    NotificationMessage msg;
-    msg.id = "simple_notification";
-    msg.type = NotificationType::SYSTEM_ERROR;
-    msg.priority = NotificationPriority::MEDIUM;
-    msg.subject = "Notification";
-    msg.message = "JSON parsing not available";
-    msg.timestamp = std::chrono::system_clock::now();
-    msg.retryCount = 0;
-    msg.maxRetries = 3;
-    return msg;
-#endif
 }
 
 bool NotificationMessage::shouldRetry() const {
@@ -173,8 +136,7 @@ void NotificationMessage::incrementRetry() {
 // ===== ResourceAlert Implementation =====
 
 std::string ResourceAlert::toJson() const {
-#ifdef JSONCPP_FOUND
-    Json::Value json;
+    nlohmann::json json;
     json["type"] = static_cast<int>(type);
     json["description"] = description;
     json["currentValue"] = currentValue;
@@ -186,53 +148,27 @@ std::string ResourceAlert::toJson() const {
     ss << std::put_time(std::gmtime(&time_t), "%Y-%m-%dT%H:%M:%S");
     json["timestamp"] = ss.str();
     
-    Json::StreamWriterBuilder builder;
-    return Json::writeString(builder, json);
-#else
-    std::stringstream ss;
-    ss << "{";
-    ss << "\"type\":" << static_cast<int>(type) << ",";
-    ss << "\"description\":\"" << description << "\",";
-    ss << "\"currentValue\":" << currentValue << ",";
-    ss << "\"thresholdValue\":" << thresholdValue << ",";
-    ss << "\"unit\":\"" << unit << "\"";
-    ss << "}";
-    return ss.str();
-#endif
+    return json.dump();
 }
 
 ResourceAlert ResourceAlert::fromJson(const std::string& jsonStr) {
-#ifdef JSONCPP_FOUND
-    Json::Value json;
-    Json::CharReaderBuilder builder;
-    std::string errors;
-    std::istringstream stream(jsonStr);
-    
-    if (!Json::parseFromStream(builder, stream, &json, &errors)) {
+    try {
+        nlohmann::json json = nlohmann::json::parse(jsonStr);
+        
+        ResourceAlert alert;
+        alert.type = static_cast<ResourceAlertType>(json["type"]);
+        alert.description = json["description"];
+        alert.currentValue = json["currentValue"];
+        alert.thresholdValue = json["thresholdValue"];
+        alert.unit = json["unit"];
+        alert.timestamp = std::chrono::system_clock::now(); // Use current time for simplicity
+        
+        return alert;
+    } catch (const nlohmann::json::exception& e) {
         throw etl::SystemException(etl::ErrorCode::PROCESSING_FAILED, 
-                                   "Failed to parse resource alert JSON: " + errors, 
+                                   "Failed to parse resource alert JSON: " + std::string(e.what()), 
                                    "NotificationService");
     }
-    
-    ResourceAlert alert;
-    alert.type = static_cast<ResourceAlertType>(json["type"].asInt());
-    alert.description = json["description"].asString();
-    alert.currentValue = json["currentValue"].asDouble();
-    alert.thresholdValue = json["thresholdValue"].asDouble();
-    alert.unit = json["unit"].asString();
-    alert.timestamp = std::chrono::system_clock::now(); // Use current time for simplicity
-    
-    return alert;
-#else
-    ResourceAlert alert;
-    alert.type = ResourceAlertType::HIGH_MEMORY_USAGE;
-    alert.description = "Resource alert";
-    alert.currentValue = 0.9;
-    alert.thresholdValue = 0.8;
-    alert.unit = "percentage";
-    alert.timestamp = std::chrono::system_clock::now();
-    return alert;
-#endif
 }
 
 // ===== NotificationConfig Implementation =====
@@ -394,27 +330,17 @@ static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* use
 bool WebhookNotificationDelivery::deliver(const NotificationMessage& message) {
     if (!isConfigured()) return false;
     
-#ifdef JSONCPP_FOUND
-    // Create JSON payload
-    Json::Value payload;
-    payload["id"] = message.id;
-    payload["type"] = static_cast<int>(message.type);
-    payload["priority"] = static_cast<int>(message.priority);
-    payload["subject"] = message.subject;
-    payload["message"] = message.message;
-    payload["jobId"] = message.jobId;
-    payload["timestamp"] = message.toJson(); // Include full message data
-    
-    Json::StreamWriterBuilder builder;
-    std::string jsonPayload = Json::writeString(builder, payload);
-#else
-    // Safe JSON construction using nlohmann/json
-    nlohmann::json safePayload = {
+    // Create JSON payload using nlohmann/json
+    nlohmann::json payload = {
+        {"id", message.id},
+        {"type", static_cast<int>(message.type)},
+        {"priority", static_cast<int>(message.priority)},
         {"subject", message.subject},
-        {"message", message.message}
+        {"message", message.message},
+        {"jobId", message.jobId},
+        {"timestamp", message.toJson()} // Include full message data
     };
-    std::string jsonPayload = safePayload.dump();
-#endif
+    std::string jsonPayload = payload.dump();
     
     return sendWebhook(jsonPayload);
 }
