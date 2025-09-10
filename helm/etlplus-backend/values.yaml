@@ -5,10 +5,13 @@
 replicaCount: 3
 
 image:
-  repository: rclabsapi
+  # In production, set repository to your container registry (e.g., your-registry.com/your-org/etlplus-backend)
+  repository: your-registry.com/your-org/etlplus-backend
   pullPolicy: IfNotPresent
-  # Overrides the image tag whose default is the chart appVersion.
-  tag: "local"
+  # In production, use immutable versioned tags (e.g., v1.2.3) instead of 'latest'
+  # Set tag to a specific version for production deployments
+  tag: "v1.0.0"
+  # Use imagePullSecrets for private registries
 
 imagePullSecrets: []
 nameOverride: ""
@@ -53,14 +56,14 @@ ingress:
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
   hosts:
-    - host: etlplus-{{ .Values.environment }}.yourdomain.com
+    - host: etlplus-ENVIRONMENT.yourdomain.com
       paths:
         - path: /
           pathType: Prefix
   tls:
     - secretName: etlplus-tls
       hosts:
-        - etlplus-{{ .Values.environment }}.yourdomain.com
+        - etlplus-ENVIRONMENT.yourdomain.com
 
 resources:
   limits:
@@ -85,12 +88,14 @@ config:
     port: 8080
     threads: 4
   database:
-    host: "${DATABASE_HOST}"
+    # These values should be set via Kubernetes Secrets or environment variables
+    # The actual values will be injected at runtime from the secrets template
+    host: ""  # Will be populated from secrets
     port: 1521
     name: "FREE"
     service_name: "FREE"
     username: "etlplus"
-    password: "${DATABASE_PASSWORD}"
+    password: ""  # Will be populated from secrets
     type: "oracle"
   auth:
     jwt_secret: "${JWT_SECRET}"
@@ -99,10 +104,16 @@ config:
     max_concurrent_jobs: 5
     job_timeout: 1800
 
+# IMPORTANT: The secrets section below contains placeholder values.
+# These MUST be overridden in production with real secrets.
+# Use one of these approaches:
+# 1. Override via --set flags: --set secrets.databasePassword=YOUR_PASSWORD
+# 2. Use a separate values file with real secrets (not committed to VCS)
+# 3. Use external secret management (e.g., Sealed Secrets, Vault)
 secrets:
-  databaseHost: "oracle-db-service"
-  databasePassword: "etlplus123"
-  jwtSecret: "your-super-secret-jwt-key-here"
+  databaseHost: "CHANGE_ME_ORACLE_DB_SERVICE"
+  databasePassword: "CHANGE_ME_DATABASE_PASSWORD"
+  jwtSecret: "CHANGE_ME_JWT_SECRET"
 
 nodeSelector: {}
 
