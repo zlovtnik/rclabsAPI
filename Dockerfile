@@ -41,6 +41,7 @@ FROM ubuntu:22.04 AS runtime
 # Install minimal runtime dependencies
 RUN apt-get update && apt-get upgrade -y && apt-get install -y \
     ca-certificates \
+    curl \
     libboost-filesystem1.74.0 \
     libboost-system1.74.0 \
     libboost-thread1.74.0 \
@@ -61,7 +62,10 @@ COPY --from=builder --chown=etlplus:etlplus /app/build/bin/ETLPlusBackend /app/
 COPY --from=builder --chown=etlplus:etlplus /app/config/ /app/config/
 
 # Create logs directory with proper permissions and symlink
-RUN mkdir -p /app/logs && chown -R etlplus:etlplus /app && chmod -R 755 /app && ln -s /app/config/config.json /app/config.json
+RUN mkdir -p /app/logs && \
+    chown -R etlplus:etlplus /app && \
+    chmod -R 755 /app && \
+    ln -s /app/config/config.json /app/config.json
 
 # Switch to non-root user
 USER etlplus
