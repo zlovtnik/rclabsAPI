@@ -5,45 +5,46 @@
 #include <sstream>
 
 RedisCache::RedisCache(const RedisConfig& config)
-    : config_(config), context_(nullptr) {
+    : config_(config), context_(nullptr, redisFree) {
     WS_LOG_INFO("Redis cache initialized with host=" + config_.host +
                 ", port=" + std::to_string(config_.port) +
                 ", db=" + std::to_string(config_.db));
 }
 
 RedisCache::~RedisCache() {
-    disconnect();
+    // Smart pointer will automatically call redisFree
 }
 
 bool RedisCache::connect() {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    if (context_) {
-        redisFree(context_);
-        context_ = nullptr;
-    }
+    // Reset the smart pointer (will free existing context if any)
+    context_.reset();
 
     struct timeval timeout = {
         static_cast<time_t>(config_.connectionTimeout.count()),
         0
     };
 
-    context_ = redisConnectWithTimeout(config_.host.c_str(), config_.port, timeout);
+    redisContext* raw_context = redisConnectWithTimeout(config_.host.c_str(), config_.port, timeout);
 
-    if (!context_ || context_->err) {
-        if (context_) {
-            WS_LOG_ERROR("Redis connection failed: " + std::string(context_->errstr));
-            redisFree(context_);
-            context_ = nullptr;
+    if (!raw_context || raw_context->err) {
+        if (raw_context) {
+            WS_LOG_ERROR("Redis connection failed: " + std::string(raw_context->errstr));
+            redisFree(raw_context);
         } else {
             WS_LOG_ERROR("Redis connection failed: can't allocate redis context");
         }
         return false;
     }
 
+    // Transfer ownership to smart pointer
+    context_.reset(raw_context);
+
     // Authenticate if password is provided
     if (!config_.password.empty()) {
-        redisReply* reply = executeCommand("AUTH %s", config_.password.c_str());
+        std::string authCmd = "AUTH " + config_.password;
+        redisReply* reply = executeCommand(authCmd);
         if (!reply || reply->type == REDIS_REPLY_ERROR) {
             WS_LOG_ERROR("Redis authentication failed");
             if (reply) freeReplyObject(reply);
@@ -55,7 +56,8 @@ bool RedisCache::connect() {
 
     // Select database
     if (config_.db != 0) {
-        redisReply* reply = executeCommand("SELECT %d", config_.db);
+        std::string selectCmd = "SELECT " + std::to_string(config_.db);
+        redisReply* reply = executeCommand(selectCmd);
         if (!reply || reply->type == REDIS_REPLY_ERROR) {
             WS_LOG_ERROR("Redis database selection failed");
             if (reply) freeReplyObject(reply);
@@ -72,15 +74,14 @@ bool RedisCache::connect() {
 void RedisCache::disconnect() {
     std::lock_guard<std::mutex> lock(mutex_);
     if (context_) {
-        redisFree(context_);
-        context_ = nullptr;
+        context_.reset(); // Will call redisFree automatically
         WS_LOG_INFO("Redis connection closed");
     }
 }
 
 bool RedisCache::isConnected() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return context_ && !context_->err;
+    return context_ && !context_.get()->err;
 }
 
 bool RedisCache::ping() {
@@ -96,13 +97,13 @@ bool RedisCache::ping() {
     return success;
 }
 
-bool RedisCache::set(const std::string& key, const std::string& value, std::chrono::seconds ttl) {
+bool RedisCache::set(const std::string& key, const std::string& value, std::optional<std::chrono::seconds> ttl) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!isConnected()) return false;
 
     redisReply* reply;
-    if (ttl.count() > 0) {
-        reply = executeCommand("SETEX %s %ld %s", key.c_str(), ttl.count(), value.c_str());
+    if (ttl.has_value()) {
+        reply = executeCommand("SETEX %s %ld %s", key.c_str(), ttl.value().count(), value.c_str());
     } else {
         reply = executeCommand("SET %s %s", key.c_str(), value.c_str());
     }
@@ -186,7 +187,7 @@ std::vector<std::string> RedisCache::keys(const std::string& pattern) {
     return result;
 }
 
-bool RedisCache::setJson(const std::string& key, const nlohmann::json& value, std::chrono::seconds ttl) {
+bool RedisCache::setJson(const std::string& key, const nlohmann::json& value, std::optional<std::chrono::seconds> ttl) {
     return set(key, value.dump(), ttl);
 }
 
@@ -418,7 +419,7 @@ std::vector<std::string> RedisCache::smembers(const std::string& key) {
     return result;
 }
 
-bool RedisCache::setWithTags(const std::string& key, const std::string& value, const std::vector<std::string>& tags, std::chrono::seconds ttl) {
+bool RedisCache::setWithTags(const std::string& key, const std::string& value, const std::vector<std::string>& tags, std::optional<std::chrono::seconds> ttl) {
     if (!set(key, value, ttl)) return false;
 
     // Add key to tag sets
@@ -494,18 +495,39 @@ std::string RedisCache::info() {
     return result;
 }
 
+redisReply* RedisCache::executeCommand(const std::string& command) {
+    if (!context_ || context_.get()->err) {
+        return nullptr;
+    }
+
+    redisReply* reply = static_cast<redisReply*>(redisCommand(context_.get(), command.c_str()));
+
+    if (!reply) {
+        WS_LOG_ERROR("Redis command failed: " + std::string(context_.get()->errstr));
+        return nullptr;
+    }
+
+    if (reply->type == REDIS_REPLY_ERROR) {
+        WS_LOG_ERROR("Redis command error: " + std::string(reply->str));
+        freeReplyObject(reply);
+        return nullptr;
+    }
+
+    return reply;
+}
+
 redisReply* RedisCache::executeCommand(const char* format, ...) {
-    if (!context_ || context_->err) {
+    if (!context_ || context_.get()->err) {
         return nullptr;
     }
 
     va_list args;
     va_start(args, format);
-    redisReply* reply = static_cast<redisReply*>(redisvCommand(context_, format, args));
+    redisReply* reply = static_cast<redisReply*>(redisvCommand(context_.get(), format, args));
     va_end(args);
 
     if (!reply) {
-        WS_LOG_ERROR("Redis command failed: " + std::string(context_->errstr));
+        WS_LOG_ERROR("Redis command failed: " + std::string(context_.get()->errstr));
         return nullptr;
     }
 
@@ -519,14 +541,14 @@ redisReply* RedisCache::executeCommand(const char* format, ...) {
 }
 
 redisReply* RedisCache::executeCommandArgv(int argc, const char** argv, const size_t* argvlen) {
-    if (!context_ || context_->err) {
+    if (!context_ || context_.get()->err) {
         return nullptr;
     }
 
-    redisReply* reply = static_cast<redisReply*>(redisCommandArgv(context_, argc, argv, argvlen));
+    redisReply* reply = static_cast<redisReply*>(redisCommandArgv(context_.get(), argc, argv, argvlen));
 
     if (!reply) {
-        WS_LOG_ERROR("Redis command failed: " + std::string(context_->errstr));
+        WS_LOG_ERROR("Redis command failed: " + std::string(context_.get()->errstr));
         return nullptr;
     }
 

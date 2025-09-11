@@ -39,11 +39,12 @@ run_cache_test() {
     echo "Client $client_id: Starting cache test..."
 
     # Build Redis CLI command
-    REDIS_CMD="redis-cli"
+    REDIS_CMD="redis-cli -h $REDIS_HOST -p $REDIS_PORT -n $REDIS_DB"
+    
+    # Set authentication via environment variable to avoid command line exposure
     if [ -n "$REDIS_PASSWORD" ]; then
-        REDIS_CMD="$REDIS_CMD -a $REDIS_PASSWORD"
+        export REDISCLI_AUTH="$REDIS_PASSWORD"
     fi
-    REDIS_CMD="$REDIS_CMD -h $REDIS_HOST -p $REDIS_PORT -n $REDIS_DB"
 
     for ((i=1; i<=OPERATIONS_PER_CLIENT; i++)); do
         local key="${CACHE_KEY_PREFIX}client${client_id}:key$i"
@@ -61,9 +62,14 @@ run_cache_test() {
                 ;;
             1)
                 # GET operation
-                if $REDIS_CMD GET "$key" > /dev/null 2>&1; then
+                local result
+                if result=$($REDIS_CMD GET "$key" 2>/dev/null); then
                     ((operations++))
-                    ((hits++))
+                    if [ "$result" != "(nil)" ] && [ -n "$result" ]; then
+                        ((hits++))
+                    else
+                        ((misses++))
+                    fi
                 else
                     ((misses++))
                 fi
@@ -91,6 +97,9 @@ run_cache_test() {
     local duration=$(echo "$end_time - $start_time" | bc)
 
     echo "Client $client_id: Completed $operations operations ($hits hits, $misses misses, $errors errors) in ${duration}s"
+
+    # Clean up authentication environment variable
+    unset REDISCLI_AUTH
 
     # Return results as JSON
     cat << EOF
@@ -120,7 +129,12 @@ monitor_redis() {
 
     for ((i=0; i<samples; i++)); do
         # Get Redis info
-        local info=$(redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" INFO 2>/dev/null)
+        local info
+        if [ -n "$REDIS_PASSWORD" ]; then
+            info=$(redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" INFO 2>/dev/null)
+        else
+            info=$(redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" INFO 2>/dev/null)
+        fi
 
         if [ $? -eq 0 ]; then
             # Memory usage
@@ -193,16 +207,31 @@ EOF
 
 # Check if Redis is accessible
 echo "Checking Redis connectivity..."
-if ! redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" PING > /dev/null 2>&1; then
-    echo "ERROR: Cannot connect to Redis at $REDIS_HOST:$REDIS_PORT"
-    exit 1
+if [ -n "$REDIS_PASSWORD" ]; then
+    if ! redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" PING > /dev/null 2>&1; then
+        echo "ERROR: Cannot connect to Redis at $REDIS_HOST:$REDIS_PORT"
+        exit 1
+    fi
+else
+    if ! redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" PING > /dev/null 2>&1; then
+        echo "ERROR: Cannot connect to Redis at $REDIS_HOST:$REDIS_PORT"
+        exit 1
+    fi
 fi
 echo "Redis connection successful"
 echo
 
 # Clean up any existing test keys
 echo "Cleaning up existing test keys..."
-redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -n "$REDIS_DB" KEYS "${CACHE_KEY_PREFIX}*" | xargs redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -n "$REDIS_DB" DEL > /dev/null 2>&1
+if [ -n "$REDIS_PASSWORD" ]; then
+    redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" -n "$REDIS_DB" KEYS "${CACHE_KEY_PREFIX}*" | while read -r key; do
+        [ -n "$key" ] && redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -a "$REDIS_PASSWORD" -n "$REDIS_DB" DEL "$key" > /dev/null 2>&1
+    done
+else
+    redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -n "$REDIS_DB" KEYS "${CACHE_KEY_PREFIX}*" | while read -r key; do
+        [ -n "$key" ] && redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -n "$REDIS_DB" DEL "$key" > /dev/null 2>&1
+    done
+fi
 
 # Start Redis monitoring in background
 monitor_redis $TEST_DURATION > /tmp/redis_monitor_$$.json &
@@ -264,8 +293,20 @@ done
 # Calculate overall statistics
 avg_duration=$(echo "scale=2; $total_duration / $CONCURRENT_CLIENTS" | bc)
 total_ops_per_sec=$(echo "scale=2; $total_operations / $DURATION" | bc)
-hit_rate=$(echo "scale=2; $total_hits * 100 / ($total_hits + $total_misses)" | bc 2>/dev/null || echo "0")
-success_rate=$(echo "scale=2; ($total_operations - $total_errors) * 100 / $total_operations" | bc 2>/dev/null || echo "0")
+
+# Calculate hit rate (avoid division by zero)
+if [ $((total_hits + total_misses)) -gt 0 ]; then
+    hit_rate=$(echo "scale=2; $total_hits * 100 / ($total_hits + $total_misses)" | bc)
+else
+    hit_rate="0"
+fi
+
+# Calculate success rate (avoid division by zero)
+if [ $total_operations -gt 0 ]; then
+    success_rate=$(echo "scale=2; ($total_operations - $total_errors) * 100 / $total_operations" | bc)
+else
+    success_rate="0"
+fi
 
 # Get Redis monitoring results
 redis_data=$(cat "/tmp/redis_monitor_$$.json")

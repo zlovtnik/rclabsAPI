@@ -23,7 +23,7 @@ bool DatabaseManager::connect(const ConnectionConfig& config) {
     pImpl->poolConfig.port = config.port;
     pImpl->poolConfig.database = config.database;
     pImpl->poolConfig.username = config.username;
-    pImpl->poolConfig.password = config.password;
+    pImpl->poolConfig.setPassword(config.password);
 
     DB_LOG_INFO("Attempting to connect to PostgreSQL database: " + config.host + ":" + std::to_string(config.port) + "/" + config.database);
     DB_LOG_DEBUG("Using username: " + config.username);
@@ -98,7 +98,15 @@ bool DatabaseManager::initializeSchema() {
 void DatabaseManager::disconnect() {
     if (pImpl->connected && pImpl->connectionPool) {
         DB_LOG_INFO("Disconnecting PostgreSQL database connection pool");
-        pImpl->connectionPool->closeAll();
+
+        // Attempt graceful shutdown with 30 second timeout
+        constexpr auto GRACEFUL_SHUTDOWN_TIMEOUT = std::chrono::seconds(30);
+        bool gracefulSuccess = pImpl->connectionPool->gracefulShutdown(GRACEFUL_SHUTDOWN_TIMEOUT);
+
+        if (!gracefulSuccess) {
+            DB_LOG_WARN("Graceful shutdown failed, some connections may have been forcibly closed");
+        }
+
         pImpl->connectionPool.reset();
         pImpl->connected = false;
         DB_LOG_DEBUG("PostgreSQL database connection pool disconnection completed");

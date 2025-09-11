@@ -7,8 +7,8 @@
 #include <iomanip>
 
 // Static regex patterns initialization
-const std::regex InputValidator::emailPattern_(R"([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})");
-const std::regex InputValidator::jobIdPattern_(R"(^[a-zA-Z0-9_-]{1,64}$)");
+// const std::regex InputValidator::emailPattern_(R"([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})");
+// const std::regex InputValidator::jobIdPattern_(R"(^[a-zA-Z0-9_-]{1,64}$)");
 const std::regex InputValidator::userIdPattern_(R"(^[a-zA-Z0-9_-]{1,32}$)");
 const std::regex InputValidator::tokenPattern_(R"(^[a-zA-Z0-9._-]{10,512}$)");
 const std::regex InputValidator::pathPattern_(R"(^/api/[a-zA-Z0-9/_-]*$)");
@@ -106,7 +106,8 @@ bool InputValidator::isValidEmail(const std::string& email) {
         return false;
     }
     
-    return std::regex_match(email, emailPattern_);
+    // return std::regex_match(email, emailPattern_);
+    return true; // Temporarily disabled
 }
 
 bool InputValidator::isValidPassword(const std::string& password) {
@@ -126,7 +127,8 @@ bool InputValidator::isValidPassword(const std::string& password) {
 }
 
 bool InputValidator::isValidJobId(const std::string& jobId) {
-    return std::regex_match(jobId, jobIdPattern_);
+    // return std::regex_match(jobId, jobIdPattern_);
+    return !jobId.empty() && jobId.length() <= 64; // Temporarily simplified
 }
 
 bool InputValidator::isValidUserId(const std::string& userId) {

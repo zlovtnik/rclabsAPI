@@ -8,6 +8,7 @@
 #include <chrono>
 #include <mutex>
 #include <atomic>
+#include <optional>
 #include <nlohmann/json.hpp>
 
 struct RedisConfig {
@@ -40,14 +41,14 @@ public:
     bool ping();
 
     // Basic operations
-    bool set(const std::string& key, const std::string& value, std::chrono::seconds ttl = std::chrono::seconds(0));
+    bool set(const std::string& key, const std::string& value, std::optional<std::chrono::seconds> ttl = std::nullopt);
     std::string get(const std::string& key);
     bool del(const std::string& key);
     bool exists(const std::string& key);
     std::vector<std::string> keys(const std::string& pattern);
 
     // JSON operations
-    bool setJson(const std::string& key, const nlohmann::json& value, std::chrono::seconds ttl = std::chrono::seconds(0));
+    bool setJson(const std::string& key, const nlohmann::json& value, std::optional<std::chrono::seconds> ttl = std::nullopt);
     nlohmann::json getJson(const std::string& key);
 
     // Hash operations
@@ -71,7 +72,7 @@ public:
     std::vector<std::string> smembers(const std::string& key);
 
     // Cache-specific operations
-    bool setWithTags(const std::string& key, const std::string& value, const std::vector<std::string>& tags, std::chrono::seconds ttl = std::chrono::seconds(0));
+    bool setWithTags(const std::string& key, const std::string& value, const std::vector<std::string>& tags, std::optional<std::chrono::seconds> ttl = std::nullopt);
     bool invalidateByTag(const std::string& tag);
     bool invalidateByTags(const std::vector<std::string>& tags);
 
@@ -83,6 +84,13 @@ public:
         uint64_t deletes = 0;
         uint64_t errors = 0;
         std::chrono::steady_clock::time_point lastAccess;
+
+        // Defaulted operations for efficiency and compatibility
+        CacheMetrics() = default;
+        CacheMetrics(const CacheMetrics&) = default;
+        CacheMetrics(CacheMetrics&&) = default;
+        CacheMetrics& operator=(const CacheMetrics&) = default;
+        CacheMetrics& operator=(CacheMetrics&&) = default;
     };
 
     CacheMetrics getMetrics() const;
@@ -93,7 +101,7 @@ public:
 
 private:
     RedisConfig config_;
-    redisContext* context_;
+    std::unique_ptr<redisContext, decltype(&redisFree)> context_;
     mutable std::mutex mutex_;
     std::atomic<uint64_t> hits_{0};
     std::atomic<uint64_t> misses_{0};
@@ -103,8 +111,13 @@ private:
     std::chrono::steady_clock::time_point lastAccess_;
 
     // Private methods
-    redisReply* executeCommand(const char* format, ...);
+    // Safe command execution methods
+    redisReply* executeCommand(const std::string& command);
     redisReply* executeCommandArgv(int argc, const char** argv, const size_t* argvlen);
+
+    // Deprecated - use executeCommand(const std::string&) instead
+    [[deprecated("Use executeCommand(const std::string&) for type safety")]]
+    redisReply* executeCommand(const char* format, ...);
     bool reconnect();
     void updateMetrics(bool success, bool isRead = true);
     std::string generateTagKey(const std::string& tag);

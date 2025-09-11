@@ -4,6 +4,7 @@
 #include <pqxx/pqxx>
 #include <memory>
 #include <queue>
+#include <deque>
 #include <mutex>
 #include <condition_variable>
 #include <atomic>
@@ -18,7 +19,7 @@ struct DatabaseConnectionConfig {
     int port = 5432;
     std::string database = "etl_db";
     std::string username = "etl_user";
-    std::string password = "";
+    std::vector<char> password; // Secure password storage
     int maxConnections = 10;
     int minConnections = 2;
     std::chrono::seconds connectionTimeout = std::chrono::seconds(30);
@@ -26,6 +27,20 @@ struct DatabaseConnectionConfig {
     bool enableHealthChecks = true;
     int maxRetries = 3;
     std::chrono::milliseconds retryDelay = std::chrono::milliseconds(1000);
+
+    // Helper methods for password management
+    void setPassword(const std::string& pwd) {
+        password.assign(pwd.begin(), pwd.end());
+    }
+
+    std::string getPassword() const {
+        return std::string(password.begin(), password.end());
+    }
+
+    void clearPassword() {
+        std::fill(password.begin(), password.end(), 0);
+        password.clear();
+    }
 };
 
 class DatabaseConnectionPool {
@@ -43,6 +58,7 @@ public:
     std::shared_ptr<pqxx::connection> acquireConnection();
     void releaseConnection(std::shared_ptr<pqxx::connection> conn);
     void closeAll();
+    bool gracefulShutdown(std::chrono::milliseconds timeout);
 
     // Health monitoring
     void startHealthMonitoring();
@@ -77,7 +93,11 @@ private:
         PooledConnection(std::shared_ptr<pqxx::connection> conn)
             : connection(std::move(conn)),
               createdTime(std::chrono::steady_clock::now()),
-              lastUsedTime(std::chrono::steady_clock::now()) {}
+              lastUsedTime(std::chrono::steady_clock::now()) {
+            if (!connection) {
+                throw std::invalid_argument("PooledConnection requires a non-null connection");
+            }
+        }
     };
 
     DatabaseConnectionConfig config_;
@@ -86,12 +106,14 @@ private:
     mutable std::mutex poolMutex_;
     std::condition_variable poolCondition_;
     std::atomic<bool> running_{false};
+    std::atomic<bool> shutdown_{false};
     std::thread healthCheckThread_;
 
     // Metrics
     mutable std::mutex metricsMutex_;
     PoolMetrics metrics_;
-    std::vector<double> waitTimes_;
+    static constexpr size_t MAX_WAIT_TIMES = 100;
+    std::deque<double> waitTimes_;
 
     // Private methods
     std::shared_ptr<pqxx::connection> createConnection();

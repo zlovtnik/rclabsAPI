@@ -98,16 +98,40 @@ monitor_resources() {
     local conn_samples=()
 
     for ((i=0; i<samples; i++)); do
-        # CPU usage
-        local cpu=$(top -bn1 | grep "Cpu(s)" | sed "s/.*, *\([0-9.]*\)%* id.*/\1/" | awk '{print 100 - $1}')
+        # CPU usage - portable detection
+        local cpu
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS
+            cpu=$(top -l 1 | grep "CPU usage" | awk '{print $3}' | sed 's/%//')
+        elif command -v mpstat >/dev/null 2>&1; then
+            # Linux with mpstat
+            cpu=$(mpstat 1 1 | awk '/Average/ {print 100 - $NF}')
+        else
+            # Fallback to /proc/stat
+            local stat1=($(cat /proc/stat | head -1))
+            sleep 1
+            local stat2=($(cat /proc/stat | head -1))
+            local total1=$((stat1[1] + stat1[2] + stat1[3] + stat1[4]))
+            local idle1=${stat1[4]}
+            local total2=$((stat2[1] + stat2[2] + stat2[3] + stat2[4]))
+            local idle2=${stat2[4]}
+            local total_diff=$((total2 - total1))
+            local idle_diff=$((idle2 - idle1))
+            if [ $total_diff -gt 0 ]; then
+                cpu=$((100 * (total_diff - idle_diff) / total_diff))
+            else
+                cpu=0
+            fi
+        fi
         cpu_samples+=("$cpu")
 
         # Memory usage
         local mem=$(free | grep Mem | awk '{printf "%.2f", $3/$2 * 100.0}')
         mem_samples+=("$mem")
 
-        # Database connections (simplified)
-        local connections=$(ps aux | grep postgres | grep "$DB_USER" | wc -l)
+        # Database connections - use SQL query instead of process grep
+        local connections
+        PGPASSWORD="$DB_PASSWORD" connections=$(psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -t -c "SELECT count(*) FROM pg_stat_activity WHERE usename = '$DB_USER';" 2>/dev/null || echo "0")
         conn_samples+=("$connections")
 
         sleep $interval
@@ -154,7 +178,8 @@ EOF
 
 # Check if database is accessible
 echo "Checking database connectivity..."
-if ! psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1" --quiet > /dev/null 2>&1; then
+PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1" --quiet > /dev/null 2>&1
+if [ $? -ne 0 ]; then
     echo "ERROR: Cannot connect to database $DB_HOST:$DB_PORT/$DB_NAME as $DB_USER"
     exit 1
 fi
