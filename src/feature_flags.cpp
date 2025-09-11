@@ -1,11 +1,10 @@
 #include "feature_flags.hpp"
 #include <algorithm>
+#include <cstdio>
 #include <fstream>
 #include <functional>
 #include <iostream>
 #include <nlohmann/json.hpp>
-#include <random>
-#include <sstream>
 
 // Singleton instance
 FeatureFlags &FeatureFlags::getInstance() {
@@ -17,6 +16,8 @@ FeatureFlags::FeatureFlags() { initializeDefaults(); }
 
 void FeatureFlags::initializeDefaults() {
   // All features disabled by default for safety
+  flags_.clear();
+  rolloutPercentages_.clear();
   flags_[NEW_LOGGER_SYSTEM] = false;
   flags_[NEW_EXCEPTION_SYSTEM] = false;
   flags_[NEW_REQUEST_HANDLER] = false;
@@ -47,7 +48,7 @@ bool FeatureFlags::isEnabled(const std::string &flag) const {
 void FeatureFlags::setRolloutPercentage(const std::string &flag,
                                         double percentage) {
   std::lock_guard<std::mutex> lock(mutex_);
-  rolloutPercentages_[flag] = std::max(0.0, std::min(100.0, percentage));
+  rolloutPercentages_[flag] = std::clamp(percentage, 0.0, 100.0);
 }
 
 double FeatureFlags::getRolloutPercentage(const std::string &flag) const {
@@ -64,12 +65,15 @@ bool FeatureFlags::shouldEnableForUser(const std::string &flag,
   if (percentage <= 0.0)
     return false;
 
-  // Use user ID hash to determine if user should get the feature
-  std::hash<std::string> hasher;
-  size_t hash = hasher(userId);
-  double userPercentage = static_cast<double>(hash % 100);
-
-  return userPercentage < percentage;
+  // Use stable FNV-1a hash with finer granularity (10,000 buckets for 0.01% precision)
+  auto fnv1a64 = [](std::string_view s) {
+    uint64_t h = 1469598103934665603ull;
+    for (unsigned char c : s) { h ^= c; h *= 1099511628211ull; }
+    return h;
+  };
+  const uint64_t h = fnv1a64(userId);
+  const double bucket = static_cast<double>(h % 10000) / 100.0; // [0,100)
+  return bucket < percentage;
 }
 
 std::unordered_map<std::string, bool> FeatureFlags::getAllFlags() const {
@@ -87,36 +91,42 @@ void FeatureFlags::loadFromConfig(const std::string &configFile) {
     std::ifstream file(configFile);
     if (!file.is_open()) {
       std::cerr << "Warning: Could not open feature flags config file: "
-                << configFile << std::endl;
+                << configFile << '\n';
       return;
     }
 
     nlohmann::json config;
     file >> config;
 
-    std::lock_guard<std::mutex> lock(mutex_);
-
-    if (config.contains("flags")) {
+    // Prepare merged snapshots
+    std::unordered_map<std::string, bool> newFlags;
+    std::unordered_map<std::string, double> newRollouts;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      newFlags = flags_;
+      newRollouts = rolloutPercentages_;
+    }
+    if (config.contains("flags") && config["flags"].is_object()) {
       for (const auto &[key, value] : config["flags"].items()) {
-        if (value.is_boolean()) {
-          flags_[key] = value;
-        }
+        if (value.is_boolean()) newFlags[key] = value.get<bool>();
       }
     }
-
-    if (config.contains("rollout_percentages")) {
+    if (config.contains("rollout_percentages") && config["rollout_percentages"].is_object()) {
       for (const auto &[key, value] : config["rollout_percentages"].items()) {
         if (value.is_number()) {
-          double val = value;
-          rolloutPercentages_[key] = std::max(0.0, std::min(100.0, val));
+          const double val = value.get<double>();
+          newRollouts[key] = std::clamp(val, 0.0, 100.0);
         }
       }
     }
-
-    std::cout << "Feature flags loaded from: " << configFile << std::endl;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      flags_.swap(newFlags);
+      rolloutPercentages_.swap(newRollouts);
+    }
+    std::cout << "Feature flags loaded from: " << configFile << '\n';
   } catch (const std::exception &e) {
-    std::cerr << "Error loading feature flags config: " << e.what()
-              << std::endl;
+    std::cerr << "Error loading feature flags config: " << e.what() << '\n';
   }
 }
 
@@ -129,17 +139,26 @@ void FeatureFlags::saveToConfig(const std::string &configFile) const {
     config["flags"] = flags_;
     config["rollout_percentages"] = rolloutPercentages_;
 
-    std::ofstream file(configFile);
+    // Atomic-ish save: write temp then rename
+    const std::string tmpFile = configFile + ".tmp";
+    std::ofstream file(tmpFile);
     if (!file.is_open()) {
-      std::cerr
-          << "Error: Could not open feature flags config file for writing: "
-          << configFile << std::endl;
+      std::cerr << "Error: Could not open temp file for writing: "
+                << tmpFile << '\n';
       return;
     }
 
     file << config.dump(4);
-    std::cout << "Feature flags saved to: " << configFile << std::endl;
+    file.close();
+    // If you add <filesystem>, prefer std::filesystem::rename with error_code.
+    if (std::rename(tmpFile.c_str(), configFile.c_str()) != 0) {
+      std::cerr << "Error: Could not replace config file: "
+                << configFile << '\n';
+      std::remove(tmpFile.c_str());
+      return;
+    }
+    std::cout << "Feature flags saved to: " << configFile << '\n';
   } catch (const std::exception &e) {
-    std::cerr << "Error saving feature flags config: " << e.what() << std::endl;
+    std::cerr << "Error saving feature flags config: " << e.what() << '\n';
   }
 }
