@@ -224,7 +224,7 @@ endif()
 
 if(NOT HIREDIS_FOUND)
     message(STATUS "hiredis not found via pkg-config, trying manual search")
-    
+
     # Try to find hiredis installed via Homebrew or manually
     find_path(HIREDIS_INCLUDE_DIR hiredis/hiredis.h
         PATHS
@@ -241,7 +241,7 @@ if(NOT HIREDIS_FOUND)
             /usr/lib
         NO_DEFAULT_PATH
     )
-    
+
     if(HIREDIS_INCLUDE_DIR AND HIREDIS_LIBRARIES)
         set(HIREDIS_FOUND TRUE)
         message(STATUS "Found hiredis manually: ${HIREDIS_LIBRARIES}")
@@ -253,9 +253,27 @@ if(NOT HIREDIS_FOUND)
     endif()
 else()
     message(STATUS "Found hiredis via pkg-config: ${HIREDIS_LIBRARIES}")
-    # Force the use of full paths for reliable linking
-    set(HIREDIS_LIBRARIES "/opt/homebrew/lib/libhiredis.dylib")
-    message(STATUS "Using explicit hiredis library path: ${HIREDIS_LIBRARIES}")
+    # Expose override in cache for user convenience
+    set(HIREDIS_LIBRARIES_OVERRIDE "" CACHE FILEPATH "Override absolute path to hiredis library")
+    # Allow user override via CMake variable
+    if(NOT HIREDIS_LIBRARIES_OVERRIDE)
+        # Use pkg-config result but resolve to full path if needed
+        if(HIREDIS_LIBRARIES)
+            # If it's already a full path, keep it; otherwise try to resolve it
+            if(NOT IS_ABSOLUTE "${HIREDIS_LIBRARIES}")
+                find_library(HIREDIS_RESOLVED_LIBRARY
+                    NAMES hiredis
+                    PATHS ${HIREDIS_LIBRARY_DIRS}
+                )
+                if(HIREDIS_RESOLVED_LIBRARY)
+                    set(HIREDIS_LIBRARIES "${HIREDIS_RESOLVED_LIBRARY}")
+                endif()
+            endif()
+        endif()
+    else()
+        set(HIREDIS_LIBRARIES "${HIREDIS_LIBRARIES_OVERRIDE}")
+    endif()
+    message(STATUS "Using hiredis library: ${HIREDIS_LIBRARIES}")
 endif()
 
 # Create a shared library for common sources to avoid recompilation
@@ -299,6 +317,10 @@ set(COMMON_SOURCES
     src/rate_limiter.cpp
     src/lock_utils.cpp
     src/type_definitions.cpp
+    src/security_validator.cpp
+    src/ssl_manager.cpp
+    $<$<BOOL:${JWT_CPP_FOUND}>:src/jwt_key_manager.cpp>
+    src/security_auditor.cpp
 )
 
 add_library(etl_common STATIC ${COMMON_SOURCES})
@@ -407,6 +429,10 @@ create_test_executable(test_websocket_filtering_unit scripts/test_websocket_filt
 create_test_executable(test_websocket_error_handling scripts/test_websocket_error_handling.cpp)
 create_test_executable(test_job_monitoring_models scripts/test_job_monitoring_models.cpp)
 create_test_executable(test_etl_job_manager_monitoring scripts/test_etl_job_manager_monitoring.cpp)
+if(ENABLE_TESTS)
+  create_test_executable(test_cache_warmup scripts/test_cache_warmup.cpp)
+  create_test_executable(test_optional_ttl scripts/test_optional_ttl.cpp)
+endif()
 create_test_executable(test_job_monitor_service scripts/test_job_monitor_service.cpp)
 create_test_executable(test_job_monitor_service_simple scripts/test_job_monitor_service_simple.cpp)
 create_test_executable(test_job_monitor_service_error_handling scripts/test_job_monitor_service_error_handling.cpp)
@@ -425,6 +451,9 @@ create_test_executable(demo_response_builder_simple scripts/demo_response_builde
 create_test_executable(demo_exception_mapper_integration scripts/demo_exception_mapper_integration.cpp)
 create_test_executable(test_exception_mapper scripts/test_exception_mapper.cpp)
 create_test_executable(test_request_handler_refactored scripts/test_request_handler_refactored.cpp)
+if(ENABLE_TESTS AND JWT_CPP_FOUND)
+  create_test_executable(security_demo scripts/security_demo.cpp)
+endif()
 create_test_executable(load_test_advanced scripts/load_test_advanced.cpp)
 if(ENABLE_TESTS AND JWT_CPP_FOUND)
   create_test_executable(test_jwt_auth scripts/test_jwt_auth.cpp)

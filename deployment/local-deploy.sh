@@ -113,7 +113,10 @@ start_services() {
 
     if [ $timeout -le 0 ]; then
         log_error "Application failed to start within 60 seconds"
-        show_logs
+        local failure_log="$PROJECT_ROOT/logs/startup_failure_$(date +%Y%m%d_%H%M%S).log"
+        log_info "Dumping service logs to: $failure_log"
+        dump_logs "$failure_log"
+        log_error "Service logs dumped for debugging. Check: $failure_log"
         exit 1
     fi
 
@@ -153,6 +156,57 @@ show_app_logs() {
 show_db_logs() {
     cd "$PROJECT_ROOT"
     docker-compose logs -f postgres
+}
+
+# Dump logs (non-following, for programmatic use)
+dump_logs() {
+    local output_file="${1:-}"
+    cd "$PROJECT_ROOT"
+    if [ -n "$output_file" ]; then
+        if ! docker_compose_cmd logs --timestamps --no-color > "$output_file" 2>&1; then
+            log_warn "Failed to dump all logs to $output_file"
+            return 1
+        fi
+        log_info "All logs dumped to: $output_file"
+    else
+        docker_compose_cmd logs --timestamps --no-color 2>&1 || true
+    fi
+}
+
+# Docker Compose wrapper for consistent usage
+docker_compose_cmd() {
+    docker-compose "$@"
+}
+
+dump_app_logs() {
+    local output_file="${1:-}"
+    cd "$PROJECT_ROOT"
+
+    if [ -n "$output_file" ]; then
+        # Use docker-compose wrapper with timestamps and no-color, redirect to file
+        if ! docker_compose_cmd logs --timestamps --no-color etlplus-backend > "$output_file" 2>&1; then
+            log_warn "Failed to dump application logs to $output_file"
+            return 1
+        fi
+        log_info "Application logs dumped to: $output_file"
+    else
+        # Display logs to stdout with formatting
+        docker_compose_cmd logs --timestamps --no-color etlplus-backend 2>&1 || true
+    fi
+}
+
+dump_db_logs() {
+    local output_file="${1:-}"
+    cd "$PROJECT_ROOT"
+    if [ -n "$output_file" ]; then
+        if ! docker_compose_cmd logs --timestamps --no-color postgres > "$output_file" 2>&1; then
+            log_warn "Failed to dump database logs to $output_file"
+            return 1
+        fi
+        log_info "Database logs dumped to: $output_file"
+    else
+        docker_compose_cmd logs --timestamps --no-color postgres 2>&1 || true
+    fi
 }
 
 # Restart services

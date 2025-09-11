@@ -10,6 +10,7 @@
 #include <sstream>
 #include <algorithm>
 #include <curl/curl.h>
+#include <nlohmann/json.hpp>
 
 // System components
 #include "logger.hpp"
@@ -18,6 +19,8 @@
 #include "cache_manager.hpp"
 #include "performance_monitor.hpp"
 #include "system_metrics.hpp"
+#include "redis_cache.hpp"
+#include "database_connection_pool.hpp"
 
 // Namespace aliases for convenience
 using ETLPlus::Metrics::SystemMetrics;
@@ -78,6 +81,10 @@ struct LoadTestMetrics {
 class LoadTester {
 public:
     LoadTester(const LoadTestConfig& config) : config_(config) {}
+    ~LoadTester() {
+        // Cleanup CURL global state
+        curl_global_cleanup();
+    }
 
     void runLoadTest() {
         std::cout << "\n=== Advanced Load Testing Suite ===\n";
@@ -124,11 +131,17 @@ private:
         // Initialize database manager
         if (config_.enableDatabaseLoad) {
             ConnectionConfig dbConfig;
-            dbConfig.host = "localhost";
-            dbConfig.port = 5432;
-            dbConfig.database = "etl_db";
-            dbConfig.username = "etl_user";
-            dbConfig.password = "password";
+            dbConfig.host = std::getenv("DB_HOST") ? std::getenv("DB_HOST") : "localhost";
+            dbConfig.port = std::getenv("DB_PORT") ? std::stoi(std::getenv("DB_PORT")) : 5432;
+            dbConfig.database = std::getenv("DB_NAME") ? std::getenv("DB_NAME") : "etl_db";
+            dbConfig.username = std::getenv("DB_USER") ? std::getenv("DB_USER") : "etl_user";
+            
+            const char* dbPassword = std::getenv("DB_PASSWORD");
+            if (!dbPassword) {
+                std::cerr << "Error: DB_PASSWORD environment variable is required but not set\n";
+                return;
+            }
+            dbConfig.password = dbPassword;
 
             dbManager_ = std::make_unique<DatabaseManager>();
             if (!dbManager_->connect(dbConfig)) {
@@ -182,10 +195,9 @@ private:
         std::string url = config_.serverUrl;
         std::string endpoint;
 
-        // Randomly select endpoint
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::uniform_int_distribution<> dis(1, 5);
+        // Randomly select endpoint (thread-local PRNG)
+        static thread_local std::mt19937 gen(std::random_device{}());
+        static thread_local std::uniform_int_distribution<int> dis(1, 5);
 
         switch (dis(gen)) {
             case 1:
@@ -265,8 +277,11 @@ private:
     }
 
     void performCacheLoad() {
-        // Simulate cache operations
-        std::string testKey = "test_key_" + std::to_string(rand() % 1000);
+        // Simulate cache operations with thread-safe RNG
+        static thread_local std::mt19937 rng(std::random_device{}());
+        static thread_local std::uniform_int_distribution<int> dist(0, 999);
+        
+        std::string testKey = "test_key_" + std::to_string(dist(rng));
         nlohmann::json testData = {{"test", "data"}, {"timestamp", std::time(nullptr)}};
 
         // Try to get from cache first
@@ -390,10 +405,17 @@ private:
         // Print summary to console
         std::cout << "\n=== Load Test Results ===\n";
         std::cout << "Duration: " << duration.count() << " seconds\n";
-        std::cout << "Total Requests: " << metrics_.totalRequests << "\n";
-        std::cout << "Successful: " << metrics_.successfulRequests << " (" << successRate << "%)\n";
-        std::cout << "Failed: " << metrics_.failedRequests << "\n";
-        std::cout << "Timeouts: " << metrics_.timeoutRequests << "\n";
+        
+        // Use snapshot values when printing atomics to avoid multiple loads
+        const auto total = metrics_.totalRequests.load();
+        const auto successful = metrics_.successfulRequests.load();
+        const auto failed = metrics_.failedRequests.load();
+        const auto timeouts = metrics_.timeoutRequests.load();
+        
+        std::cout << "Total Requests: " << total << "\n";
+        std::cout << "Successful: " << successful << " (" << successRate << "%)\n";
+        std::cout << "Failed: " << failed << "\n";
+        std::cout << "Timeouts: " << timeouts << "\n";
         std::cout << "Avg Response Time: " << metrics_.avgResponseTime << " ms\n";
         std::cout << "95th Percentile: " << metrics_.p95ResponseTime << " ms\n";
         std::cout << "99th Percentile: " << metrics_.p99ResponseTime << " ms\n";
@@ -428,11 +450,26 @@ int main(int argc, char* argv[]) {
         if (arg == "--url" && i + 1 < argc) {
             config.serverUrl = argv[++i];
         } else if (arg == "--threads" && i + 1 < argc) {
-            config.numThreads = std::stoi(argv[++i]);
+            try {
+                config.numThreads = std::stoi(argv[++i]);
+            } catch (const std::exception&) {
+                std::cerr << "Error: Invalid value for --threads. Must be a positive integer.\n";
+                return 1;
+            }
         } else if (arg == "--requests" && i + 1 < argc) {
-            config.requestsPerThread = std::stoi(argv[++i]);
+            try {
+                config.requestsPerThread = std::stoi(argv[++i]);
+            } catch (const std::exception&) {
+                std::cerr << "Error: Invalid value for --requests. Must be a positive integer.\n";
+                return 1;
+            }
         } else if (arg == "--duration" && i + 1 < argc) {
-            config.testDurationSeconds = std::stoi(argv[++i]);
+            try {
+                config.testDurationSeconds = std::stoi(argv[++i]);
+            } catch (const std::exception&) {
+                std::cerr << "Error: Invalid value for --duration. Must be a positive integer.\n";
+                return 1;
+            }
         } else if (arg == "--no-db") {
             config.enableDatabaseLoad = false;
         } else if (arg == "--no-cache") {
@@ -442,6 +479,20 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--report" && i + 1 < argc) {
             config.reportFile = argv[++i];
         }
+    }
+
+    // Validate parsed values
+    if (config.numThreads <= 0) {
+        std::cerr << "Error: --threads must be a positive integer (got " << config.numThreads << ")\n";
+        return 1;
+    }
+    if (config.requestsPerThread <= 0) {
+        std::cerr << "Error: --requests must be a positive integer (got " << config.requestsPerThread << ")\n";
+        return 1;
+    }
+    if (config.testDurationSeconds <= 0) {
+        std::cerr << "Error: --duration must be a positive integer (got " << config.testDurationSeconds << ")\n";
+        return 1;
     }
 
     LoadTester tester(config);

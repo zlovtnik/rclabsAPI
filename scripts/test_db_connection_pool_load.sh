@@ -12,7 +12,10 @@ DB_HOST=${DB_HOST:-"localhost"}
 DB_PORT=${DB_PORT:-5432}
 DB_NAME=${DB_NAME:-"etl_db"}
 DB_USER=${DB_USER:-"etl_user"}
-DB_PASSWORD=${DB_PASSWORD:-"password"}
+if [ -z "$DB_PASSWORD" ]; then
+    echo "ERROR: DB_PASSWORD environment variable must be set"
+    exit 1
+fi
 
 CONCURRENT_CONNECTIONS=${CONCURRENT_CONNECTIONS:-50}
 TEST_DURATION=${TEST_DURATION:-60}
@@ -98,16 +101,57 @@ monitor_resources() {
     local conn_samples=()
 
     for ((i=0; i<samples; i++)); do
-        # CPU usage
-        local cpu=$(top -bn1 | grep "Cpu(s)" | sed "s/.*, *\([0-9.]*\)%* id.*/\1/" | awk '{print 100 - $1}')
+        # CPU usage - portable detection
+        local cpu=0
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS - use top command
+            if command -v top >/dev/null 2>&1; then
+                cpu=$(top -l 1 | grep "CPU usage" | awk '{print $3}' | sed 's/%//' 2>/dev/null || echo "0")
+                # Ensure cpu is numeric, default to 0 if not
+                if ! [[ "$cpu" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+                    cpu=0
+                fi
+            fi
+        else
+            # Linux - prefer mpstat, fallback to vmstat
+            if command -v mpstat >/dev/null 2>&1; then
+                # Use mpstat for CPU usage (simpler than /proc/stat parsing)
+                cpu=$(mpstat 1 1 2>/dev/null | awk 'NR==4 {print 100 - $NF}' 2>/dev/null || echo "0")
+            elif command -v vmstat >/dev/null 2>&1; then
+                # Fallback to vmstat - get idle percentage from second sample
+                cpu=$(vmstat 1 2 2>/dev/null | awk 'NR==4 {print 100 - $15}' 2>/dev/null || echo "0")
+            fi
+            # Ensure cpu is numeric, default to 0 if not
+            if ! [[ "$cpu" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+                cpu=0
+            fi
+        fi
         cpu_samples+=("$cpu")
 
-        # Memory usage
-        local mem=$(free | grep Mem | awk '{printf "%.2f", $3/$2 * 100.0}')
+        # Memory usage - portable detection
+        local mem
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS - calculate memory usage percentage
+            local total_mem=$(sysctl -n hw.memsize)
+            local page_size=$(sysctl -n vm.pagesize)
+            local pages_active=$(sysctl -n vm.page_pageable_internal_count)
+            local pages_inactive=$(sysctl -n vm.page_pageable_external_count)
+            local used_pages=$((pages_active + pages_inactive))
+            local total_pages=$((total_mem / page_size))
+            if [ $total_pages -gt 0 ]; then
+                mem=$(awk "BEGIN {printf \"%.2f\", ($used_pages / $total_pages) * 100.0}")
+            else
+                mem="0.00"
+            fi
+        else
+            # Linux
+            mem=$(free | grep Mem | awk '{printf "%.2f", $3/$2 * 100.0}')
+        fi
         mem_samples+=("$mem")
 
-        # Database connections (simplified)
-        local connections=$(ps aux | grep postgres | grep "$DB_USER" | wc -l)
+        # Database connections - use psql variables to prevent SQL injection
+        local connections
+        connections=$(PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -v user="$DB_USER" -t -c "SELECT count(*) FROM pg_stat_activity WHERE usename = :'user';" 2>/dev/null || echo "0")
         conn_samples+=("$connections")
 
         sleep $interval
@@ -154,7 +198,8 @@ EOF
 
 # Check if database is accessible
 echo "Checking database connectivity..."
-if ! psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1" --quiet > /dev/null 2>&1; then
+PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1" --quiet > /dev/null 2>&1
+if [ $? -ne 0 ]; then
     echo "ERROR: Cannot connect to database $DB_HOST:$DB_PORT/$DB_NAME as $DB_USER"
     exit 1
 fi

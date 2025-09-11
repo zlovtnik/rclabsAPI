@@ -40,13 +40,33 @@ std::shared_ptr<pqxx::connection> DatabaseConnectionPool::acquireConnection() {
     std::unique_lock<std::mutex> lock(poolMutex_);
     auto startTime = std::chrono::steady_clock::now();
 
-    // Wait for an available connection
-    while (idleConnections_.empty() && activeConnections_.size() >= config_.maxConnections) {
-        if (poolCondition_.wait_for(lock, config_.connectionTimeout) == std::cv_status::timeout) {
+    // Check if shutdown is in progress
+    if (shutdown_.load()) {
+        throw etl::ETLException(etl::ErrorCode::DATABASE_ERROR,
+                               "Connection pool is shutting down - no new connections allowed");
+    }
+
+    // Wait for an available connection using predicate-based wait
+    auto endTime = startTime + config_.connectionTimeout;
+    while (!poolCondition_.wait_until(lock, endTime, [this]() {
+        // Return true if we should stop waiting (connection available or can create new)
+        return !idleConnections_.empty() ||
+               activeConnections_.size() < config_.maxConnections ||
+               shutdown_.load();
+    })) {
+        // Wait timed out - check if we should retry or fail
+        if (std::chrono::steady_clock::now() >= endTime) {
             metrics_.connectionTimeouts++;
             throw etl::ETLException(etl::ErrorCode::NETWORK_ERROR,
                                    "Connection pool timeout - no available connections");
         }
+        // Spurious wakeup - continue waiting
+    }
+
+    // Check if shutdown occurred while waiting
+    if (shutdown_.load()) {
+        throw etl::ETLException(etl::ErrorCode::DATABASE_ERROR,
+                               "Connection pool is shutting down - no new connections allowed");
     }
 
     std::shared_ptr<PooledConnection> pooledConn;
@@ -55,33 +75,52 @@ std::shared_ptr<pqxx::connection> DatabaseConnectionPool::acquireConnection() {
         pooledConn = idleConnections_.front();
         idleConnections_.pop();
     } else if (activeConnections_.size() < config_.maxConnections) {
-        // Create new connection if under max limit
+        // Reserve a slot and release lock to create connection
+        // This prevents blocking other threads during slow connection creation
+        activeConnections_.emplace_back(nullptr); // Reserve slot
+        
+        // Release lock temporarily during connection creation
+        lock.unlock();
+        
+        std::shared_ptr<pqxx::connection> conn;
         try {
-            auto conn = createConnection();
-            if (conn) {
-                pooledConn = std::make_shared<PooledConnection>(conn);
-                metrics_.totalConnections++;
-                metrics_.connectionsCreated++;
-            }
+            conn = createConnection();
         } catch (const std::exception& e) {
+            // Reacquire lock to remove reserved slot on failure
+            lock.lock();
+            activeConnections_.pop_back(); // Remove reserved slot
             DB_LOG_ERROR("Failed to create new connection: " + std::string(e.what()));
             throw etl::ETLException(etl::ErrorCode::DATABASE_ERROR,
                                    "Failed to create new database connection");
+        }
+        
+        // Reacquire lock to finalize connection setup
+        lock.lock();
+        
+        if (conn) {
+            pooledConn = std::make_shared<PooledConnection>(conn);
+            // Replace the reserved nullptr with actual connection
+            activeConnections_.back() = pooledConn;
+            metrics_.totalConnections++;
+            metrics_.connectionsCreated++;
+        } else {
+            // Remove reserved slot if connection creation failed
+            activeConnections_.pop_back();
         }
     }
 
     if (pooledConn) {
         pooledConn->lastUsedTime = std::chrono::steady_clock::now();
-        activeConnections_.push_back(pooledConn);
+        // Note: pooledConn is already in activeConnections_ (replaced nullptr placeholder)
 
-        // Record wait time
+        // Record wait time using circular buffer
         auto waitTime = std::chrono::steady_clock::now() - startTime;
         double waitTimeMs = std::chrono::duration<double, std::milli>(waitTime).count();
         {
             std::lock_guard<std::mutex> metricsLock(metricsMutex_);
             waitTimes_.push_back(waitTimeMs);
-            if (waitTimes_.size() > 100) { // Keep last 100 measurements
-                waitTimes_.erase(waitTimes_.begin());
+            if (waitTimes_.size() > MAX_WAIT_TIMES) {
+                waitTimes_.pop_front();
             }
         }
 
@@ -122,12 +161,61 @@ void DatabaseConnectionPool::releaseConnection(std::shared_ptr<pqxx::connection>
 }
 
 void DatabaseConnectionPool::closeAll() {
+    shutdown_.store(true);
     stopHealthMonitoring();
 
     std::lock_guard<std::mutex> lock(poolMutex_);
     idleConnections_ = std::queue<std::shared_ptr<PooledConnection>>();
     activeConnections_.clear();
     metrics_.totalConnections = 0;
+}
+
+bool DatabaseConnectionPool::gracefulShutdown(std::chrono::milliseconds timeout) {
+    DB_LOG_INFO("Initiating graceful shutdown of database connection pool");
+
+    // Set shutdown flag to prevent new connections
+    shutdown_.store(true);
+
+    // Stop health monitoring
+    stopHealthMonitoring();
+
+    auto startTime = std::chrono::steady_clock::now();
+    auto endTime = startTime + timeout;
+
+    std::unique_lock<std::mutex> lock(poolMutex_);
+
+    // Wait for all active connections to be released using predicate-based wait
+    while (!poolCondition_.wait_until(lock, endTime, [this]() {
+        return activeConnections_.empty();
+    })) {
+        // Check if we actually timed out (not just a spurious wakeup)
+        if (std::chrono::steady_clock::now() >= endTime) {
+            DB_LOG_WARN("Graceful shutdown timeout elapsed, forcing close of " +
+                       std::to_string(activeConnections_.size()) + " active connections");
+            break;
+        }
+        // Spurious wakeup - continue waiting
+        DB_LOG_DEBUG("Spurious wakeup during graceful shutdown, continuing to wait");
+    }
+
+    // Close all connections (both idle and remaining active)
+    idleConnections_ = std::queue<std::shared_ptr<PooledConnection>>();
+    activeConnections_.clear();
+    metrics_.totalConnections = 0;
+
+    auto elapsed = std::chrono::steady_clock::now() - startTime;
+    auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+
+    if (activeConnections_.empty()) {
+        DB_LOG_INFO("Graceful shutdown completed successfully in " +
+                   std::to_string(elapsedMs) + "ms");
+        return true;
+    } else {
+        DB_LOG_ERROR("Graceful shutdown timed out after " + std::to_string(elapsedMs) +
+                    "ms with " + std::to_string(activeConnections_.size()) +
+                    " active connections remaining");
+        return false;
+    }
 }
 
 void DatabaseConnectionPool::startHealthMonitoring() {
@@ -318,6 +406,6 @@ std::string DatabaseConnectionPool::buildConnectionString() const {
            " port=" + std::to_string(config_.port) +
            " dbname=" + config_.database +
            " user=" + config_.username +
-           " password=" + config_.password +
+           " password=" + config_.getPassword() +
            " connect_timeout=" + std::to_string(config_.connectionTimeout.count());
 }

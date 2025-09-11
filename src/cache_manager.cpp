@@ -1,10 +1,61 @@
 #include "cache_manager.hpp"
+#include "redis_cache.hpp"
+#include "database_manager.hpp"
 #include "logger.hpp"
 #include <algorithm>
+#include <atomic>
+#include <future>
+#include <thread>
+#include <optional>
 
 CacheManager::CacheManager(const CacheConfig& config)
-    : config_(config) {
-    WS_LOG_INFO("Cache manager initialized with TTL=" + std::to_string(config_.defaultTTL.count()) + "s");
+    : config_(config),
+      lastHealthCheckTime_(std::chrono::steady_clock::time_point::min()),
+      lastHealthStatus_(false) {
+
+    // Validate warmup configuration to prevent resource exhaustion and invalid states
+    if (config_.enableWarmup) {
+        if (config_.warmupBatchSize == 0) {
+            throw std::invalid_argument("CacheManager: warmupBatchSize must be greater than 0");
+        }
+
+        if (config_.warmupMaxKeys < config_.warmupBatchSize) {
+            throw std::invalid_argument("CacheManager: warmupMaxKeys (" +
+                                      std::to_string(config_.warmupMaxKeys) +
+                                      ") must be >= warmupBatchSize (" +
+                                      std::to_string(config_.warmupBatchSize) + ")");
+        }
+
+        if (config_.warmupBatchTimeout <= std::chrono::seconds(0)) {
+            throw std::invalid_argument("CacheManager: warmupBatchTimeout must be positive");
+        }
+
+        if (config_.warmupTotalTimeout <= std::chrono::seconds(0)) {
+            throw std::invalid_argument("CacheManager: warmupTotalTimeout must be positive");
+        }
+
+        if (config_.warmupTotalTimeout < config_.warmupBatchTimeout) {
+            throw std::invalid_argument("CacheManager: warmupTotalTimeout (" +
+                                      std::to_string(config_.warmupTotalTimeout.count()) + "s) " +
+                                      "must be >= warmupBatchTimeout (" +
+                                      std::to_string(config_.warmupBatchTimeout.count()) + "s)");
+        }
+
+        // Additional bounds checking for resource protection
+        if (config_.warmupBatchSize > 1000) {
+            throw std::invalid_argument("CacheManager: warmupBatchSize (" +
+                                      std::to_string(config_.warmupBatchSize) +
+                                      ") exceeds maximum allowed (1000)");
+        }
+
+        if (config_.warmupMaxKeys > 100000) {
+            throw std::invalid_argument("CacheManager: warmupMaxKeys (" +
+                                      std::to_string(config_.warmupMaxKeys) +
+                                      ") exceeds maximum allowed (100000)");
+        }
+    }
+
+    WS_LOG_INFO("Cache manager initialized with TTL=" + std::to_string(config_.defaultTTL.count()) + "s, health check TTL=" + std::to_string(config_.healthCheckTTL.count()) + "s");
 }
 
 CacheManager::~CacheManager() {
@@ -36,9 +87,8 @@ bool CacheManager::cacheUserData(const std::string& userId, const nlohmann::json
     std::string key = makeUserKey(userId);
     std::vector<std::string> tags = {"user", "user:" + userId};
 
-    bool success = redisCache_->setJson(key, userData, config_.userDataTTL);
+    bool success = redisCache_->setWithTags(key, userData.dump(), tags, config_.userDataTTL);
     if (success) {
-        redisCache_->setWithTags(key, userData.dump(), tags, config_.userDataTTL);
         updateStats(false, false);
         stats_.sets++;
     } else {
@@ -85,9 +135,8 @@ bool CacheManager::cacheJobData(const std::string& jobId, const nlohmann::json& 
     std::string key = makeJobKey(jobId);
     std::vector<std::string> tags = {"job", "job:" + jobId};
 
-    bool success = redisCache_->setJson(key, jobData, config_.jobDataTTL);
+    bool success = redisCache_->setWithTags(key, jobData.dump(), tags, config_.jobDataTTL);
     if (success) {
-        redisCache_->setWithTags(key, jobData.dump(), tags, config_.jobDataTTL);
         updateStats(false, false);
         stats_.sets++;
     } else {
@@ -140,9 +189,8 @@ bool CacheManager::cacheSessionData(const std::string& sessionId, const nlohmann
     std::string key = makeSessionKey(sessionId);
     std::vector<std::string> tags = {"session", "session:" + sessionId};
 
-    bool success = redisCache_->setJson(key, sessionData, config_.sessionDataTTL);
+    bool success = redisCache_->setWithTags(key, sessionData.dump(), tags, config_.sessionDataTTL);
     if (success) {
-        redisCache_->setWithTags(key, sessionData.dump(), tags, config_.sessionDataTTL);
         updateStats(false, false);
         stats_.sets++;
     } else {
@@ -185,22 +233,26 @@ bool CacheManager::invalidateSessionData(const std::string& sessionId) {
 
 bool CacheManager::cacheData(const std::string& key, const nlohmann::json& data,
                              const std::vector<std::string>& tags,
-                             std::chrono::seconds ttl) {
+                             std::optional<std::chrono::seconds> ttl) {
     if (!isCacheEnabled() || !redisCache_) return false;
 
     std::string cacheKey = makeCacheKey(key);
-    std::chrono::seconds actualTTL = (ttl.count() > 0) ? ttl : getTTLForTags(tags);
+    std::chrono::seconds actualTTL = ttl.has_value() ? ttl.value() : getTTLForTags(tags);
 
-    bool success = redisCache_->setJson(cacheKey, data, actualTTL);
-    if (success && !tags.empty()) {
-        redisCache_->setWithTags(cacheKey, data.dump(), tags, actualTTL);
-        updateStats(false, false);
-        stats_.sets++;
-    } else if (success) {
-        updateStats(false, false);
+    bool success = false;
+    if (!tags.empty()) {
+        // Use setWithTags when tags are present
+        success = redisCache_->setWithTags(cacheKey, data.dump(), tags, actualTTL);
+    } else {
+        // Use setJson when no tags are needed
+        success = redisCache_->setJson(cacheKey, data, actualTTL);
+    }
+    
+    if (success) {
+        updateStats(true, false);  // hit=true for successful set
         stats_.sets++;
     } else {
-        updateStats(false, true);
+        updateStats(false, true);  // error=true for failed set
     }
 
     return success;
@@ -242,6 +294,7 @@ bool CacheManager::invalidateByTags(const std::vector<std::string>& tags) {
 }
 
 CacheManager::CacheStats CacheManager::getCacheStats() const {
+    std::lock_guard<std::mutex> lock(statsMutex_);
     CacheStats stats = stats_;
     if (redisCache_) {
         auto redisMetrics = redisCache_->getMetrics();
@@ -266,16 +319,90 @@ void CacheManager::clearAllCache() {
 }
 
 void CacheManager::warmupCache(DatabaseManager* dbManager) {
-    if (!isCacheEnabled() || !redisCache_ || !dbManager) return;
+    if (!isCacheEnabled() || !redisCache_ || !dbManager || !config_.enableWarmup) {
+        return;
+    }
 
-    WS_LOG_INFO("Starting cache warmup...");
+    WS_LOG_INFO("Starting cache warmup with batch size: " + std::to_string(config_.warmupBatchSize) +
+                ", max keys: " + std::to_string(config_.warmupMaxKeys));
+
+    auto startTime = std::chrono::steady_clock::now();
+    std::atomic<size_t> totalLoaded = 0;
+    std::atomic<size_t> totalErrors = 0;
+
+    // Strictly validate and sanitize warmupMaxKeys to prevent SQL injection
+    // Clamp to safe range and ensure it's a valid positive integer
+    size_t safeMaxKeys = 1000; // Default safe value
+    if (config_.warmupMaxKeys > 0 && config_.warmupMaxKeys <= 50000) {
+        // Only accept values in reasonable range (1-50000)
+        safeMaxKeys = static_cast<size_t>(config_.warmupMaxKeys);
+    } else if (config_.warmupMaxKeys > 50000) {
+        WS_LOG_WARN("warmupMaxKeys value " + std::to_string(config_.warmupMaxKeys) +
+                   " exceeds maximum allowed (50000), clamping to 50000");
+        safeMaxKeys = 50000;
+    } else {
+        WS_LOG_WARN("Invalid warmupMaxKeys value " + std::to_string(config_.warmupMaxKeys) +
+                   ", using default of 1000");
+    }
 
     try {
-        // This is a placeholder for cache warmup logic
-        // In a real implementation, you would query the database
-        // for frequently accessed data and preload it into cache
+        // Build SQL query using validated integer value
+        // Use stringstream for safe integer formatting
+        std::stringstream queryStream;
+        queryStream << "SELECT DISTINCT key_name, data_type FROM cache_access_log "
+                   << "ORDER BY access_count DESC LIMIT " << safeMaxKeys;
+        std::string query = queryStream.str();
 
-        WS_LOG_INFO("Cache warmup completed");
+        auto results = dbManager->selectQuery(query);
+
+        if (results.empty()) {
+            WS_LOG_INFO("No frequently accessed keys found for warmup");
+            return;
+        }
+
+        WS_LOG_INFO("Found " + std::to_string(results.size()) + " keys to warmup");
+
+        // Process keys in batches
+        std::vector<std::future<bool>> batchFutures;
+        auto batchStart = results.begin();
+
+        while (batchStart != results.end()) {
+            auto batchEnd = std::min(batchStart + config_.warmupBatchSize, results.end());
+            std::vector<std::vector<std::string>> batch(batchStart, batchEnd);
+
+            // Launch async batch processing
+            batchFutures.push_back(std::async(std::launch::async, [this, batch, &totalLoaded, &totalErrors]() {
+                return processWarmupBatch(batch, totalLoaded, totalErrors);
+            }));
+
+            batchStart = batchEnd;
+
+            // Check total timeout
+            auto currentTime = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(currentTime - startTime);
+            if (elapsed >= config_.warmupTotalTimeout) {
+                WS_LOG_WARN("Cache warmup timed out after " + std::to_string(elapsed.count()) + " seconds");
+                break;
+            }
+        }
+
+        // Wait for all batches to complete
+        for (auto& future : batchFutures) {
+            try {
+                future.wait_for(config_.warmupBatchTimeout);
+            } catch (const std::exception& e) {
+                WS_LOG_ERROR("Batch processing error: " + std::string(e.what()));
+                totalErrors++;
+            }
+        }
+
+        auto endTime = std::chrono::steady_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
+
+        WS_LOG_INFO("Cache warmup completed: loaded=" + std::to_string(totalLoaded.load()) +
+                    ", errors=" + std::to_string(totalErrors.load()) +
+                    ", duration=" + std::to_string(duration.count()) + "ms");
+
     } catch (const std::exception& e) {
         WS_LOG_ERROR("Cache warmup failed: " + std::string(e.what()));
     }
@@ -286,7 +413,37 @@ bool CacheManager::isCacheEnabled() const {
 }
 
 bool CacheManager::isCacheHealthy() const {
-    return isCacheEnabled() && redisCache_->isConnected() && redisCache_->ping();
+    // Quick preconditions - these are fast checks
+    if (!isCacheEnabled() || !redisCache_->isConnected()) {
+        return false;
+    }
+
+    // Check if we have a valid cached health status
+    auto now = std::chrono::steady_clock::now();
+    auto timeSinceLastCheck = now - lastHealthCheckTime_.load(std::memory_order_acquire);
+
+    if (timeSinceLastCheck < config_.healthCheckTTL) {
+        // Cached status is still valid
+        return lastHealthStatus_.load(std::memory_order_acquire);
+    }
+
+    // Cached status is stale, perform health check
+    std::lock_guard<std::mutex> lock(healthMutex_);
+
+    // Double-check after acquiring lock (another thread might have updated it)
+    timeSinceLastCheck = now - lastHealthCheckTime_.load(std::memory_order_acquire);
+    if (timeSinceLastCheck < config_.healthCheckTTL) {
+        return lastHealthStatus_.load(std::memory_order_acquire);
+    }
+
+    // Perform the expensive ping operation
+    bool currentHealthStatus = redisCache_->ping();
+
+    // Update cached values
+    lastHealthCheckTime_.store(now, std::memory_order_release);
+    lastHealthStatus_.store(currentHealthStatus, std::memory_order_release);
+
+    return currentHealthStatus;
 }
 
 std::string CacheManager::makeCacheKey(const std::string& key) const {
@@ -306,6 +463,8 @@ std::string CacheManager::makeSessionKey(const std::string& sessionId) const {
 }
 
 void CacheManager::updateStats(bool hit, bool error) {
+    std::lock_guard<std::mutex> lock(statsMutex_);
+    // Note: hits and misses are updated by calling methods, not here
     if (error) {
         stats_.errors++;
     }
@@ -324,4 +483,61 @@ std::chrono::seconds CacheManager::getTTLForTags(const std::vector<std::string>&
     }
 
     return config_.defaultTTL;
+}
+
+bool CacheManager::processWarmupBatch(const std::vector<std::vector<std::string>>& batch,
+                                     std::atomic<size_t>& totalLoaded,
+                                     std::atomic<size_t>& totalErrors) {
+    bool batchSuccess = true;
+
+    for (const auto& row : batch) {
+        if (row.size() < 2) {
+            WS_LOG_WARN("Invalid row format in warmup batch, expected at least 2 columns");
+            totalErrors++;
+            continue;
+        }
+
+        try {
+            std::string keyName = row[0];
+            std::string dataType = row[1];
+
+            // Create a cache key and fetch data from database
+            std::string cacheKey = makeCacheKey(keyName);
+
+            // For this implementation, we'll create a simple JSON object
+            // In a real system, you'd fetch the actual data based on dataType
+            nlohmann::json data;
+            data["key"] = keyName;
+            data["type"] = dataType;
+            data["warmup_timestamp"] = std::chrono::system_clock::now().time_since_epoch().count();
+
+            // Determine TTL based on data type
+            std::chrono::seconds ttl = config_.defaultTTL;
+            std::vector<std::string> tags = {dataType};
+
+            if (dataType == "user") {
+                ttl = config_.userDataTTL;
+            } else if (dataType == "job") {
+                ttl = config_.jobDataTTL;
+            } else if (dataType == "session") {
+                ttl = config_.sessionDataTTL;
+            }
+
+            // Cache the data
+            if (cacheData(keyName, data, tags, ttl)) {
+                totalLoaded++;
+            } else {
+                WS_LOG_WARN("Failed to cache key: " + keyName);
+                totalErrors++;
+                batchSuccess = false;
+            }
+
+        } catch (const std::exception& e) {
+            WS_LOG_ERROR("Error processing warmup key '" + row[0] + "': " + std::string(e.what()));
+            totalErrors++;
+            batchSuccess = false;
+        }
+    }
+
+    return batchSuccess;
 }

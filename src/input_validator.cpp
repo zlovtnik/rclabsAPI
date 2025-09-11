@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <cctype>
 #include <iomanip>
+#include <nlohmann/json.hpp>
+#include <unordered_set>
 
 // Static regex patterns initialization
 const std::regex InputValidator::emailPattern_(R"([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})");
@@ -13,26 +15,25 @@ const std::regex InputValidator::userIdPattern_(R"(^[a-zA-Z0-9_-]{1,32}$)");
 const std::regex InputValidator::tokenPattern_(R"(^[a-zA-Z0-9._-]{10,512}$)");
 const std::regex InputValidator::pathPattern_(R"(^/api/[a-zA-Z0-9/_-]*$)");
 
-std::string InputValidator::ValidationResult::toJsonString() const {
-    std::ostringstream json;
-    json << "{";
-    json << "\"valid\":" << (isValid ? "true" : "false");
-    
-    if (!errors.empty()) {
-        json << ",\"errors\":[";
-        for (size_t i = 0; i < errors.size(); ++i) {
-            if (i > 0) json << ",";
-            json << "{";
-            json << "\"field\":\"" << sanitizeString(errors[i].field) << "\",";
-            json << "\"message\":\"" << sanitizeString(errors[i].message) << "\",";
-            json << "\"code\":\"" << sanitizeString(errors[i].code) << "\"";
-            json << "}";
-        }
-        json << "]";
+namespace {
+    // Utility function to normalize status values to uppercase
+    std::string normalizeStatus(const std::string& status) {
+        std::string normalized = status;
+        std::transform(normalized.begin(), normalized.end(), normalized.begin(), ::toupper);
+        return normalized;
     }
-    
-    json << "}";
-    return json.str();
+}
+
+std::string InputValidator::ValidationResult::toJsonString() const {
+    nlohmann::json j;
+    j["valid"] = isValid;
+    if (!errors.empty()) {
+        j["errors"] = nlohmann::json::array();
+        for (const auto& e : errors) {
+            j["errors"].push_back({{"field", e.field}, {"message", e.message}, {"code", e.code}});
+        }
+    }
+    return j.dump();
 }
 
 InputValidator::ValidationResult InputValidator::validateJson(const std::string& json) {
@@ -251,13 +252,16 @@ InputValidator::ValidationResult InputValidator::validateJobQueryParams(const st
     
     for (const auto& [key, value] : params) {
         if (key == "status") {
-            // Use the canonical stringToJobStatus function for validation
+            // Convert to lowercase for case-insensitive comparison
+            std::string lowerValue = value;
+            std::transform(lowerValue.begin(), lowerValue.end(), lowerValue.begin(), ::tolower);
+            
             JobStatus status;
             try {
-                status = stringToJobStatus(value);
-                // If stringToJobStatus doesn't throw and returns a valid status, it's valid
-                // Note: stringToJobStatus returns PENDING as default for unknown values
-                if (value != jobStatusToString(status)) {
+                status = stringToJobStatus(lowerValue);
+                // If stringToJobStatus returns PENDING for an unknown status, it's invalid
+                // (unless the input was actually "pending")
+                if (status == JobStatus::PENDING && lowerValue != "pending") {
                     result.addError("status", "Invalid status filter", "INVALID_STATUS_FILTER");
                 }
             } catch (const std::exception&) {
@@ -621,9 +625,11 @@ InputValidator::ValidationResult InputValidator::validateMonitoringParams(
     // Validate status parameter if present
     auto statusIt = params.find("status");
     if (statusIt != params.end()) {
-        const std::string& status = statusIt->second;
-        if (status != "pending" && status != "running" && status != "completed" && 
-            status != "failed" && status != "cancelled") {
+        std::string normalizedStatus = normalizeStatus(statusIt->second);
+        static const std::unordered_set<std::string> validStatuses = {
+            "PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"
+        };
+        if (validStatuses.find(normalizedStatus) == validStatuses.end()) {
             result.addError("status", "Invalid job status value", "INVALID_STATUS");
         }
     }

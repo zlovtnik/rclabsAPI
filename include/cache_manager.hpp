@@ -1,13 +1,18 @@
 #ifndef CACHE_MANAGER_HPP
 #define CACHE_MANAGER_HPP
 
-#include "redis_cache.hpp"
-#include "database_manager.hpp"
+// Forward declarations to avoid circular includes
+class RedisCache;
+class DatabaseManager;
+
 #include <memory>
 #include <string>
 #include <vector>
 #include <chrono>
+#include <mutex>
 #include <nlohmann/json.hpp>
+#include <optional>
+#include <atomic>
 
 struct CacheConfig {
     bool enabled = true;
@@ -15,8 +20,16 @@ struct CacheConfig {
     std::chrono::seconds userDataTTL = std::chrono::seconds(600); // 10 minutes
     std::chrono::seconds jobDataTTL = std::chrono::seconds(60); // 1 minute
     std::chrono::seconds sessionDataTTL = std::chrono::seconds(1800); // 30 minutes
+    std::chrono::seconds healthCheckTTL = std::chrono::seconds(30); // 30 seconds
     size_t maxCacheSize = 10000; // Maximum number of cached items
     std::string cachePrefix = "etlplus:"; // Prefix for cache keys
+
+    // Cache warmup configuration
+    bool enableWarmup = true; // Enable/disable cache warmup
+    size_t warmupBatchSize = 10; // Number of keys to fetch per batch
+    size_t warmupMaxKeys = 100; // Maximum number of keys to warmup
+    std::chrono::seconds warmupBatchTimeout = std::chrono::seconds(5); // Timeout per batch
+    std::chrono::seconds warmupTotalTimeout = std::chrono::seconds(60); // Total warmup timeout
 };
 
 class CacheManager {
@@ -46,7 +59,7 @@ public:
     // Generic data caching with tags
     bool cacheData(const std::string& key, const nlohmann::json& data,
                    const std::vector<std::string>& tags = {},
-                   std::chrono::seconds ttl = std::chrono::seconds(0));
+                   std::optional<std::chrono::seconds> ttl = std::nullopt);
     nlohmann::json getCachedData(const std::string& key);
     bool invalidateData(const std::string& key);
     bool invalidateByTags(const std::vector<std::string>& tags);
@@ -73,6 +86,12 @@ private:
     CacheConfig config_;
     std::unique_ptr<RedisCache> redisCache_;
     mutable CacheStats stats_;
+    mutable std::mutex statsMutex_;
+
+    // Health check caching
+    mutable std::atomic<std::chrono::steady_clock::time_point> lastHealthCheckTime_;
+    mutable std::atomic<bool> lastHealthStatus_;
+    mutable std::mutex healthMutex_; // For atomic operations that need synchronization
 
     // Private methods
     std::string makeCacheKey(const std::string& key) const;
@@ -81,6 +100,9 @@ private:
     std::string makeSessionKey(const std::string& sessionId) const;
     void updateStats(bool hit, bool error = false);
     std::chrono::seconds getTTLForTags(const std::vector<std::string>& tags) const;
+    bool processWarmupBatch(const std::vector<std::vector<std::string>>& batch,
+                           std::atomic<size_t>& totalLoaded,
+                           std::atomic<size_t>& totalErrors);
 };
 
 #endif // CACHE_MANAGER_HPP
