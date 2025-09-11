@@ -25,6 +25,7 @@ class DatabaseManager;
 class AuthManager;
 class ETLJobManager;
 class JobMonitorService;
+class WebSocketManager;
 
 class RequestHandler {
 public:
@@ -36,6 +37,17 @@ public:
                  std::shared_ptr<AuthManager> authManager,
                  std::shared_ptr<ETLJobManager> etlManager,
                  std::unique_ptr<RateLimiter> rateLimiter);
+
+  RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
+                 std::shared_ptr<AuthManager> authManager,
+                 std::shared_ptr<ETLJobManager> etlManager,
+                 std::shared_ptr<WebSocketManager> wsManager);
+
+  RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
+                 std::shared_ptr<AuthManager> authManager,
+                 std::shared_ptr<ETLJobManager> etlManager,
+                 std::unique_ptr<RateLimiter> rateLimiter,
+                 std::shared_ptr<WebSocketManager> wsManager);
 
   template <class Body, class Allocator>
   http::response<http::string_body>
@@ -52,6 +64,7 @@ private:
   std::shared_ptr<AuthManager> authManager_;
   std::shared_ptr<ETLJobManager> etlManager_;
   std::shared_ptr<JobMonitorService> monitorService_; // Add this member
+  std::shared_ptr<WebSocketManager> wsManager_;
   std::unique_ptr<RateLimiter> rateLimiter_;
   ETLPlus::ExceptionHandling::ExceptionMapper exceptionMapper_;
 
