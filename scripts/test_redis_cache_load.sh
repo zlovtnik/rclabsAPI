@@ -85,7 +85,7 @@ run_cache_test() {
                 ;;
             2)
                 # HSET operation
-                if $REDIS_CMD HSET "${key}:hash" field1 "$value" field2 "value2" > /dev/null 2>&1; then
+                if redis_cli HSET "${key}:hash" field1 "$value" field2 "value2" > /dev/null 2>&1; then
                     ((operations++))
                 else
                     ((errors++))
@@ -93,7 +93,7 @@ run_cache_test() {
                 ;;
             3)
                 # DEL operation
-                if $REDIS_CMD DEL "$key" > /dev/null 2>&1; then
+                if redis_cli DEL "$key" > /dev/null 2>&1; then
                     ((operations++))
                 else
                     ((errors++))

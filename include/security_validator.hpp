@@ -7,6 +7,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <mutex>
+#include <chrono>
 
 namespace ETLPlus::Security {
 
@@ -46,6 +48,7 @@ public:
 
     // File upload validation
     std::vector<std::string> allowedContentTypes;
+    std::vector<std::string> allowedFileExtensions;
 
     // Content Security Policy
     std::string cspHeader;
@@ -62,21 +65,54 @@ public:
           maxPathLength(2048),
           blockedSqlKeywords({
               "SELECT", "INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER",
-              "EXEC", "EXECUTE", "UNION", "JOIN", "WHERE", "FROM", "INTO"
+              "EXEC", "EXECUTE", "UNION", "JOIN", "WHERE", "FROM", "INTO",
+              "TRUNCATE", "CALL", "MERGE", "GRANT", "REVOKE", "--", "/*", "*/",
+              "xp_", "sp_"
           }),
           blockedXssPatterns({
-              "<script", "</script>", "javascript:", "onload=", "onerror=",
-              "onclick=", "onmouseover=", "<iframe", "<object", "<embed"
+              "<script", "</script>", "<svg", "<iframe", "<object", "<embed",
+              "javascript:", "data:text/html", "data:", "vbscript:", "onload=",
+              "onerror=", "onclick=", "onmouseover=", "onmouseenter=", "onfocus=",
+              "oninput=", "onchange=", "onkeypress=", "onkeydown=", "onkeyup=",
+              "style=", "expression(", "url(", "background:", "&#x", "&#", "%3C", "%3E"
           }),
           allowedContentTypes({
               "text/plain", "text/csv", "application/json",
               "application/xml", "text/xml", "image/jpeg",
               "image/png", "image/gif"
           }),
-          cspHeader("default-src 'self'; script-src 'self'; "
+          allowedFileExtensions({".txt", ".csv", ".json", ".xml", ".jpg", ".jpeg", ".png", ".gif"}),
+          cspHeader("default-src 'self'; script-src 'self' 'nonce-<CSP_NONCE>'; "
                    "style-src 'self' 'unsafe-inline'; "
                    "img-src 'self' data: https:; "
                    "font-src 'self'; connect-src 'self'") {}
+  };
+
+  /**
+   * @brief Rate limit options
+   */
+  struct RateLimitOptions {
+    size_t allowedRequests = 1000;
+    std::chrono::minutes windowDuration = std::chrono::minutes(1);
+    std::string timeUnit = "minute"; // "second", "minute", "hour"
+    std::string context = ""; // endpoint or context identifier
+
+    RateLimitOptions()
+        : allowedRequests(1000),
+          windowDuration(std::chrono::minutes(1)),
+          timeUnit("minute"),
+          context("") {}
+    RateLimitOptions(size_t requests, std::chrono::minutes duration, const std::string& unit = "minute")
+        : allowedRequests(requests), windowDuration(duration), timeUnit(unit) {}
+  };
+
+  /**
+   * @brief Rate limit metadata
+   */
+  struct RateLimitMetadata {
+    size_t remaining = 0;
+    std::chrono::seconds reset = std::chrono::seconds(0);
+    size_t limit = 0;
   };
 
   /**
@@ -107,6 +143,18 @@ public:
 
   /**
    * @brief Comprehensive input security validation
+   * @param input The input string to validate
+   * @param context The validation context that determines security rules:
+   *   - "sql": Disallow/escape SQL metacharacters and enforce no unparameterized queries
+   *   - "html": Strip/encode HTML tags and attributes to prevent XSS
+   *   - "json": Validate UTF-8 encoding and JSON structural safety
+   *   - "xml": Validate well-formedness and disallow external entities
+   *   - "url": Percent-encode/validate scheme and host components
+   *   - "general": Default generic sanitization for general-purpose input
+   * @return SecurityResult indicating validation success/failure with violations
+   * @note Validation returns an error for disallowed input; unknown contexts fall back to "general"
+   * @example SecurityResult result = validator.validateInput(userInput, "sql");
+   *          if (!result.isSecure) { handleValidationError(result.violations); }
    */
   SecurityResult validateInput(const std::string &input,
                               const std::string &context = "general");
@@ -135,7 +183,19 @@ public:
       const std::unordered_map<std::string, std::string> &headers);
 
   /**
-   * @brief Input sanitization
+   * @brief Input sanitization with context-aware cleaning
+   * @param input The input string to sanitize
+   * @param context The sanitization context that determines cleaning rules:
+   *   - "sql": Escape SQL metacharacters and prepare for parameterized queries
+   *   - "html": Encode HTML tags and attributes while preserving safe content
+   *   - "json": Ensure UTF-8 encoding and escape special characters
+   *   - "xml": Escape XML entities and ensure well-formed output
+   *   - "url": Percent-encode unsafe characters for URL components
+   *   - "general": Default generic sanitization for general-purpose input
+   * @return Sanitized string safe for the specified context
+   * @note Sanitization returns a cleaned string; unknown contexts fall back to "general"
+   * @example std::string safeInput = validator.sanitizeInput(userInput, "html");
+   *          // safeInput now has encoded HTML entities
    */
   std::string sanitizeInput(const std::string &input,
                            const std::string &context = "general");
@@ -156,7 +216,63 @@ public:
    * @brief Rate limiting validation
    */
   bool isRateLimitExceeded(const std::string &clientId,
-                          size_t maxRequestsPerMinute = 1000);
+                          const RateLimitOptions& options = RateLimitOptions());
+
+  /**
+   * @brief Get rate limit metadata
+   */
+  RateLimitMetadata getRateLimitMetadata(const std::string &clientId,
+                                        const std::string& context = "");
+
+  /**
+   * @brief Generate a cryptographically secure CSP nonce
+   * @return A base64-encoded nonce string
+   * 
+   * Usage:
+   * std::string nonce = SecurityValidator::generateCSPNonce();
+   * std::string cspHeader = SecurityValidator::createCSPHeaderWithNonce(nonce);
+   * // Add nonce to script tags: <script nonce="nonce_value">...</script>
+   */
+  static std::string generateCSPNonce();
+
+  /**
+   * @brief Generate a SHA-256 hash for CSP script-src
+   * @param scriptContent The script content to hash
+   * @return SHA-256 hash in CSP format (sha256-<base64>)
+   * 
+   * Usage:
+   * std::string hash = SecurityValidator::generateScriptHash(scriptContent);
+   * std::string cspHeader = SecurityValidator::createCSPHeaderWithScriptHash(hash);
+   */
+  static std::string generateScriptHash(const std::string& scriptContent);
+
+  /**
+   * @brief Create CSP header with nonce
+   * @param nonce The nonce to include in the CSP
+   * @return CSP header string with nonce
+   * 
+   * Example output:
+   * "default-src 'self'; script-src 'self' 'nonce-abc123...'; ..."
+   */
+  static std::string createCSPHeaderWithNonce(const std::string& nonce);
+
+  /**
+   * @brief Create CSP header with script hash
+   * @param scriptHash The script hash to include in the CSP
+   * @return CSP header string with script hash
+   * 
+   * Example output:
+   * "default-src 'self'; script-src 'self' 'sha256-abc123...'; ..."
+   */
+  static std::string createCSPHeaderWithScriptHash(const std::string& scriptHash);
+
+  /**
+   * @brief Validate CSP nonce
+   * @param nonce The nonce to validate
+   * @param expectedNonce The expected nonce value
+   * @return true if nonce is valid
+   */
+  static bool validateCSPNonce(const std::string& nonce, const std::string& expectedNonce);
 
 private:
   SecurityConfig config_;

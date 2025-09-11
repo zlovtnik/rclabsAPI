@@ -9,6 +9,16 @@
 namespace ETLPlus::Security {
 
 SecurityAuditor::SecurityAuditor(const AuditConfig &config) : config_(config) {
+  // Precompile regex patterns for dangerous functions
+  try {
+    for (const auto &func : dangerousFunctions_) {
+      dangerousFunctionPatterns_.emplace_back("\\b" + func + "\\s*\\(",
+                                             std::regex_constants::icase);
+    }
+  } catch (const std::regex_error &e) {
+    std::cerr << "Failed to compile dangerous function regex patterns: " << e.what() << std::endl;
+    // Continue with empty patterns - will result in no matches
+  }
 }
 
 SecurityAuditor::AuditResult SecurityAuditor::performAudit() {
@@ -187,9 +197,10 @@ SecurityAuditor::AuditResult SecurityAuditor::checkForDangerousFunctions(const s
                                                                        const std::string &filePath) {
   AuditResult result;
 
-  for (const auto &func : dangerousFunctions_) {
-    if (containsRegex(content, "\\b" + func + "\\s*\\(")) {
-      result.addCritical("Dangerous function '" + func + "' found in " + filePath +
+  // Use precompiled regex patterns for better performance
+  for (size_t i = 0; i < dangerousFunctions_.size() && i < dangerousFunctionPatterns_.size(); ++i) {
+    if (std::regex_search(content, dangerousFunctionPatterns_[i])) {
+      result.addCritical("Dangerous function '" + dangerousFunctions_[i] + "' found in " + filePath +
                         " - consider using safer alternatives");
     }
   }
@@ -297,8 +308,8 @@ SecurityAuditor::AuditResult SecurityAuditor::checkForPathTraversal(const std::s
                                                                   const std::string &filePath) {
   AuditResult result;
 
-  // Check for path traversal patterns
-  if (containsRegex(content, "\\.\\./|\\.\\./")) {
+  // Check for path traversal patterns (Unix and Windows)
+  if (containsRegex(content, R"(\.\.(/|\\))")) {
     result.addHigh("Potential path traversal vulnerability in " + filePath +
                   " - validate and sanitize file paths");
   }
@@ -313,7 +324,7 @@ SecurityAuditor::AuditResult SecurityAuditor::scanDependencies() {
   std::string cmakeContent = readFileContent("CMakeLists.txt");
   if (!cmakeContent.empty()) {
     // Check for old OpenSSL versions
-    if (containsRegex(cmakeContent, "OpenSSL.*1\\.[01]\\.")) {
+    if (containsRegex(cmakeContent, R"(OpenSSL\s*1\.(?:0|1)\.[0-9]+)")) {
       result.addHigh("Potentially vulnerable OpenSSL version detected - upgrade to 1.1.1 or later");
     }
 
@@ -402,11 +413,15 @@ std::string SecurityAuditor::generateReport(const AuditResult &result) {
   ss << "Audit Status: " << (result.passed ? "PASSED" : "FAILED") << "\n\n";
 
   ss << "Issue Summary:\n";
-  ss << "Critical: " << result.issueCounts.at("critical") << "\n";
-  ss << "High: " << result.issueCounts.at("high") << "\n";
-  ss << "Medium: " << result.issueCounts.at("medium") << "\n";
-  ss << "Low: " << result.issueCounts.at("low") << "\n";
-  ss << "Informational: " << result.issueCounts.at("info") << "\n\n";
+  auto getCount = [&](const std::string& key) -> size_t {
+    auto it = result.issueCounts.find(key);
+    return it != result.issueCounts.end() ? it->second : 0;
+  };
+  ss << "Critical: " << getCount("critical") << "\n";
+  ss << "High: " << getCount("high") << "\n";
+  ss << "Medium: " << getCount("medium") << "\n";
+  ss << "Low: " << getCount("low") << "\n";
+  ss << "Informational: " << getCount("info") << "\n\n";
 
   if (!result.criticalIssues.empty()) {
     ss << "Critical Issues:\n";

@@ -102,27 +102,27 @@ monitor_resources() {
 
     for ((i=0; i<samples; i++)); do
         # CPU usage - portable detection
-        local cpu
+        local cpu=0
         if [[ "$OSTYPE" == "darwin"* ]]; then
-            # macOS
-            cpu=$(top -l 1 | grep "CPU usage" | awk '{print $3}' | sed 's/%//')
-        elif command -v mpstat >/dev/null 2>&1; then
-            # Linux with mpstat
-            cpu=$(mpstat 1 1 | awk '/Average/ {print 100 - $NF}')
+            # macOS - use top command
+            if command -v top >/dev/null 2>&1; then
+                cpu=$(top -l 1 | grep "CPU usage" | awk '{print $3}' | sed 's/%//' 2>/dev/null || echo "0")
+                # Ensure cpu is numeric, default to 0 if not
+                if ! [[ "$cpu" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+                    cpu=0
+                fi
+            fi
         else
-            # Fallback to /proc/stat
-            local stat1=($(cat /proc/stat | head -1))
-            sleep 1
-            local stat2=($(cat /proc/stat | head -1))
-            local total1=$((stat1[1] + stat1[2] + stat1[3] + stat1[4]))
-            local idle1=${stat1[4]}
-            local total2=$((stat2[1] + stat2[2] + stat2[3] + stat2[4]))
-            local idle2=${stat2[4]}
-            local total_diff=$((total2 - total1))
-            local idle_diff=$((idle2 - idle1))
-            if [ $total_diff -gt 0 ]; then
-                cpu=$((100 * (total_diff - idle_diff) / total_diff))
-            else
+            # Linux - prefer mpstat, fallback to vmstat
+            if command -v mpstat >/dev/null 2>&1; then
+                # Use mpstat for CPU usage (simpler than /proc/stat parsing)
+                cpu=$(mpstat 1 1 2>/dev/null | awk 'NR==4 {print 100 - $NF}' 2>/dev/null || echo "0")
+            elif command -v vmstat >/dev/null 2>&1; then
+                # Fallback to vmstat - get idle percentage from second sample
+                cpu=$(vmstat 1 2 2>/dev/null | awk 'NR==4 {print 100 - $15}' 2>/dev/null || echo "0")
+            fi
+            # Ensure cpu is numeric, default to 0 if not
+            if ! [[ "$cpu" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
                 cpu=0
             fi
         fi
@@ -131,17 +131,27 @@ monitor_resources() {
         # Memory usage - portable detection
         local mem
         if [[ "$OSTYPE" == "darwin"* ]]; then
-            # macOS - simplified approach using top
-            mem=$(top -l 1 -s 0 | grep "PhysMem" | awk '{print $2}' | sed 's/M.*//' || echo "0")
+            # macOS - calculate memory usage percentage
+            local total_mem=$(sysctl -n hw.memsize)
+            local page_size=$(sysctl -n vm.pagesize)
+            local pages_active=$(sysctl -n vm.page_pageable_internal_count)
+            local pages_inactive=$(sysctl -n vm.page_pageable_external_count)
+            local used_pages=$((pages_active + pages_inactive))
+            local total_pages=$((total_mem / page_size))
+            if [ $total_pages -gt 0 ]; then
+                mem=$(awk "BEGIN {printf \"%.2f\", ($used_pages / $total_pages) * 100.0}")
+            else
+                mem="0.00"
+            fi
         else
             # Linux
             mem=$(free | grep Mem | awk '{printf "%.2f", $3/$2 * 100.0}')
         fi
         mem_samples+=("$mem")
 
-        # Database connections - use SQL query instead of process grep
+        # Database connections - use psql variables to prevent SQL injection
         local connections
-        connections=$(PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -t -c "SELECT count(*) FROM pg_stat_activity WHERE usename = '$DB_USER';" 2>/dev/null || echo "0")
+        connections=$(PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -v user="$DB_USER" -t -c "SELECT count(*) FROM pg_stat_activity WHERE usename = :'user';" 2>/dev/null || echo "0")
         conn_samples+=("$connections")
 
         sleep $interval

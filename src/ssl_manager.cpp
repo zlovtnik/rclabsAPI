@@ -9,7 +9,12 @@
 #include <openssl/pem.h>
 #include <openssl/bio.h>
 #include <openssl/err.h>
+#include <openssl/rsa.h>
+#include <openssl/evp.h>
 #include <sstream>
+#include <limits>
+#include <logger.hpp>
+#include <sys/stat.h>
 
 namespace ETLPlus::SSL {
 
@@ -157,25 +162,171 @@ SSLManager::SSLResult SSLManager::generateSelfSignedCertificate(const std::strin
   SSLResult result;
 
   try {
-    // This is a simplified self-signed certificate generation
-    // In production, you should use proper certificate authorities
+    // Validate and canonicalize output directory
+    std::filesystem::path outputPath(outputDir);
+    if (!std::filesystem::exists(outputPath)) {
+      std::filesystem::create_directories(outputPath);
+    }
 
-    std::string certPath = outputDir + "/server.crt";
-    std::string keyPath = outputDir + "/server.key";
+    // Canonicalize paths to prevent directory traversal
+    outputPath = std::filesystem::canonical(outputPath);
+    std::filesystem::path certPath = outputPath / "server.crt";
+    std::filesystem::path keyPath = outputPath / "server.key";
 
-    // Generate private key
-    std::system(("openssl genrsa -out " + keyPath + " 2048").c_str());
+    // Convert to strings for OpenSSL API
+    std::string certPathStr = certPath.string();
+    std::string keyPathStr = keyPath.string();
 
-    // Generate self-signed certificate
-    std::string cmd = "openssl req -new -x509 -key " + keyPath +
-                     " -out " + certPath + " -days 365 -subj \"/C=US/ST=State/L=City/O=Organization/CN=localhost\"";
-    std::system(cmd.c_str());
+    Logger::getInstance().info("SSLManager", "Generating self-signed certificate in: " + outputDir);
+
+    // Declare ALL variables at the beginning to avoid goto issues
+    EVP_PKEY *pkey = nullptr;
+    EVP_PKEY_CTX *ctx = nullptr;
+    X509 *x509 = nullptr;
+    BIO *keyBio = nullptr;
+    BIO *certBio = nullptr;
+    FILE *keyFile = nullptr;
+    FILE *certFile = nullptr;
+    X509_NAME *name = nullptr;
+
+    // Generate RSA private key using OpenSSL API
+    // Create EVP_PKEY context for RSA key generation
+    ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
+    if (!ctx) {
+      result.setError("Failed to create EVP_PKEY context for RSA key generation");
+      goto cleanup;
+    }
+
+    if (EVP_PKEY_keygen_init(ctx) <= 0) {
+      result.setError("Failed to initialize RSA key generation");
+      goto cleanup;
+    }
+
+    // Set RSA key size to 2048 bits
+    if (EVP_PKEY_CTX_set_rsa_keygen_bits(ctx, 2048) <= 0) {
+      result.setError("Failed to set RSA key size to 2048 bits");
+      goto cleanup;
+    }
+
+    // Generate the RSA key pair
+    if (EVP_PKEY_keygen(ctx, &pkey) <= 0) {
+      result.setError("Failed to generate RSA key pair");
+      goto cleanup;
+    }
+
+    Logger::getInstance().info("SSLManager", "RSA key pair generated successfully");
+
+    // Create X.509 certificate
+    x509 = X509_new();
+    if (!x509) {
+      result.setError("Failed to create X.509 certificate");
+      goto cleanup;
+    }
+
+    // Set certificate version to X.509 v3
+    if (X509_set_version(x509, 2) != 1) {
+      result.setError("Failed to set certificate version");
+      goto cleanup;
+    }
+
+    // Set serial number
+    ASN1_INTEGER_set(X509_get_serialNumber(x509), 1);
+
+    // Set validity period (365 days from now)
+    X509_gmtime_adj(X509_get_notBefore(x509), 0);
+    X509_gmtime_adj(X509_get_notAfter(x509), 365 * 24 * 60 * 60);
+
+    // Set public key
+    if (X509_set_pubkey(x509, pkey) != 1) {
+      result.setError("Failed to set certificate public key");
+      goto cleanup;
+    }
+
+    // Set certificate subject
+    name = X509_get_subject_name(x509);
+    X509_NAME_add_entry_by_txt(name, "C", MBSTRING_ASC, (unsigned char*)"US", -1, -1, 0);
+    X509_NAME_add_entry_by_txt(name, "ST", MBSTRING_ASC, (unsigned char*)"State", -1, -1, 0);
+    X509_NAME_add_entry_by_txt(name, "L", MBSTRING_ASC, (unsigned char*)"City", -1, -1, 0);
+    X509_NAME_add_entry_by_txt(name, "O", MBSTRING_ASC, (unsigned char*)"Organization", -1, -1, 0);
+    X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, (unsigned char*)"localhost", -1, -1, 0);
+
+    // Set issuer (self-signed)
+    X509_set_issuer_name(x509, name);
+
+    // Sign the certificate with the private key
+    if (X509_sign(x509, pkey, EVP_sha256()) == 0) {
+      result.setError("Failed to sign certificate");
+      goto cleanup;
+    }
+
+    Logger::getInstance().info("SSLManager", "X.509 certificate created and signed successfully");
+
+    // Write private key to file with secure permissions
+    keyFile = fopen(keyPathStr.c_str(), "wb");
+    if (!keyFile) {
+      result.setError("Failed to open private key file for writing: " + keyPathStr);
+      goto cleanup;
+    }
+
+    // Set secure file permissions (0600) before writing
+    if (chmod(keyPathStr.c_str(), S_IRUSR | S_IWUSR) != 0) {
+      result.setError("Failed to set secure permissions on private key file");
+      goto cleanup;
+    }
+
+    keyBio = BIO_new_fp(keyFile, BIO_NOCLOSE);
+    if (!keyBio) {
+      result.setError("Failed to create BIO for private key file");
+      goto cleanup;
+    }
+
+    if (PEM_write_bio_PrivateKey(keyBio, pkey, nullptr, nullptr, 0, nullptr, nullptr) != 1) {
+      result.setError("Failed to write private key to file");
+      goto cleanup;
+    }
+
+    Logger::getInstance().info("SSLManager", "Private key written to: " + keyPathStr);
+
+    // Write certificate to file
+    certFile = fopen(certPathStr.c_str(), "wb");
+    if (!certFile) {
+      result.setError("Failed to open certificate file for writing: " + certPathStr);
+      goto cleanup;
+    }
+
+    certBio = BIO_new_fp(certFile, BIO_NOCLOSE);
+    if (!certBio) {
+      result.setError("Failed to create BIO for certificate file");
+      goto cleanup;
+    }
+
+    if (PEM_write_bio_X509(certBio, x509) != 1) {
+      result.setError("Failed to write certificate to file");
+      goto cleanup;
+    }
+
+    Logger::getInstance().info("SSLManager", "Certificate written to: " + certPathStr);
 
     result.addWarning("Generated self-signed certificate for development only");
     result.addWarning("Use proper CA-signed certificates in production");
 
+    Logger::getInstance().info("SSLManager", "Self-signed certificate generation completed successfully");
+
+cleanup:
+    // Clean up resources
+    if (certBio) BIO_free(certBio);
+    if (keyBio) BIO_free(keyBio);
+    if (certFile) fclose(certFile);
+    if (keyFile) fclose(keyFile);
+    if (x509) X509_free(x509);
+    if (ctx) EVP_PKEY_CTX_free(ctx);
+    if (pkey) EVP_PKEY_free(pkey);
+
     return result;
 
+  } catch (const std::filesystem::filesystem_error &e) {
+    result.setError("Filesystem error during certificate generation: " + std::string(e.what()));
+    return result;
   } catch (const std::exception &e) {
     result.setError("Failed to generate self-signed certificate: " + std::string(e.what()));
     return result;
@@ -193,10 +344,38 @@ std::unordered_map<std::string, std::string> SSLManager::getSecurityHeaders() {
     }
     
     if (config_.hstsPreload) {
-      // Validate requirements for preload
-      long maxAge = std::stol(config_.hstsMaxAge);
-      if (maxAge >= 31536000 && config_.hstsIncludeSubDomains) {
+      // Safely parse HSTS max-age with validation
+      long long maxAge = 0;
+      bool parseSuccess = false;
+
+      try {
+        // Use std::stoll for better range checking
+        size_t pos = 0;
+        maxAge = std::stoll(config_.hstsMaxAge, &pos);
+
+        // Validate that the entire string was consumed
+        if (pos != config_.hstsMaxAge.length()) {
+          Logger::getInstance().warn("SSLManager", "Invalid HSTS max-age format: '" + config_.hstsMaxAge + "' - contains non-numeric characters");
+        } else if (maxAge < 0) {
+          Logger::getInstance().warn("SSLManager", "Invalid HSTS max-age: '" + config_.hstsMaxAge + "' - negative values not allowed");
+        } else if (maxAge > std::numeric_limits<long>::max()) {
+          Logger::getInstance().warn("SSLManager", "HSTS max-age too large: '" + config_.hstsMaxAge + "' - clamping to maximum safe value");
+          maxAge = std::numeric_limits<long>::max();
+          parseSuccess = true;
+        } else {
+          parseSuccess = true;
+        }
+      } catch (const std::invalid_argument& e) {
+        Logger::getInstance().warn("SSLManager", "Invalid HSTS max-age format: '" + config_.hstsMaxAge + "' - not a valid number");
+      } catch (const std::out_of_range& e) {
+        Logger::getInstance().warn("SSLManager", "HSTS max-age out of range: '" + config_.hstsMaxAge + "' - using default value");
+      }
+
+      // Only add preload if parsing succeeded and requirements are met
+      if (parseSuccess && maxAge >= 31536000 && config_.hstsIncludeSubDomains) {
         hstsValue += "; preload";
+      } else if (!parseSuccess) {
+        Logger::getInstance().warn("SSLManager", "Skipping HSTS preload due to invalid max-age value");
       }
     }
     

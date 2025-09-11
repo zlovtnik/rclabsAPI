@@ -134,6 +134,9 @@ private:
       "password", "secret", "key", "token", "api_key", "private_key"
   };
 
+  // Precompiled regex patterns for dangerous functions
+  std::vector<std::regex> dangerousFunctionPatterns_;
+
   // Helper methods
   AuditResult analyzeFile(const std::string &filePath);
   AuditResult analyzeSourceCode(const std::string &content, const std::string &filePath);

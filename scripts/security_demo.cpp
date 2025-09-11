@@ -4,6 +4,10 @@
 #include <string>
 #include <unordered_map>
 #include <cstdlib>
+#include <filesystem>
+#include <chrono>
+#include <iomanip>
+#include <sstream>
 
 #include "security_validator.hpp"
 #include "ssl_manager.hpp"
@@ -48,7 +52,8 @@ int main(int argc, char* argv[]) {
 
     // Test rate limiting
     std::string clientId = "test_client";
-    bool rateLimited = validator.isRateLimitExceeded(clientId, 10); // 10 requests per minute
+    ETLPlus::Security::SecurityValidator::RateLimitOptions rateLimitOpts(10, std::chrono::minutes(1), "minute");
+    bool rateLimited = validator.isRateLimitExceeded(clientId, rateLimitOpts);
     std::cout << "   Rate limited: " << (rateLimited ? "YES" : "NO") << "\n";
 
     std::cout << "\n";
@@ -160,14 +165,62 @@ int main(int argc, char* argv[]) {
     std::cout << "5. Security Audit Report Summary:\n";
     std::cout << auditResult.getSummary() << "\n\n";
 
-    // Save full report to file
-    std::ofstream reportFile("security_audit_report.txt");
-    if (reportFile.is_open()) {
-        reportFile << report;
-        reportFile.close();
-        std::cout << "Full security audit report saved to: security_audit_report.txt\n";
-    } else {
-        std::cerr << "Failed to write security audit report to security_audit_report.txt\n";
+    // Save full report to file with robust path handling
+    bool reportSaved = false;
+    std::filesystem::path reportPath;
+
+    try {
+        // Determine writable directory (prefer temp, fallback to home)
+        std::filesystem::path writableDir;
+        try {
+            writableDir = std::filesystem::temp_directory_path();
+        } catch (const std::filesystem::filesystem_error&) {
+            // Fallback to home directory
+            const char* homeEnv = std::getenv("HOME");
+            if (homeEnv) {
+                writableDir = std::filesystem::path(homeEnv);
+            } else {
+                writableDir = std::filesystem::current_path();
+            }
+        }
+
+        // Create reports subdirectory
+        std::filesystem::path reportsDir = writableDir / "security_reports";
+        std::filesystem::create_directories(reportsDir);
+
+        // Generate unique filename with timestamp
+        auto now = std::chrono::system_clock::now();
+        auto time_t = std::chrono::system_clock::to_time_t(now);
+        std::stringstream filename;
+        filename << "security_audit_report_"
+                 << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S")
+                 << ".txt";
+
+        reportPath = reportsDir / filename.str();
+
+        // Attempt to open and write the file
+        std::ofstream reportFile(reportPath);
+        if (reportFile.is_open()) {
+            reportFile << report;
+            reportFile.close();
+            reportSaved = true;
+            std::cout << "Full security audit report saved to: " << reportPath.string() << "\n";
+        } else {
+            std::cerr << "Failed to open file for writing: " << reportPath.string() << "\n";
+        }
+    } catch (const std::filesystem::filesystem_error& e) {
+        std::cerr << "Filesystem error while saving report: " << e.what() << "\n";
+        reportPath = std::filesystem::path("security_audit_report.txt");
+    } catch (const std::exception& e) {
+        std::cerr << "Error while saving report: " << e.what() << "\n";
+        reportPath = std::filesystem::path("security_audit_report.txt");
+    }
+
+    // Fallback: write to stdout if file saving failed
+    if (!reportSaved) {
+        std::cout << "\n=== FALLBACK: Writing report to stdout ===\n";
+        std::cout << report << "\n";
+        std::cout << "=== End of security audit report ===\n";
     }
 
     std::cout << "=== Security Features Demo Complete ===\n";

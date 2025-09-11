@@ -1,9 +1,17 @@
 #include "security_validator.hpp"
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cctype>
 #include <regex>
 #include <sstream>
+#include <string_view>
+#include <random>
+#include <iomanip>
+#include <openssl/rand.h>
+#include <openssl/sha.h>
+#include <openssl/bio.h>
+#include <openssl/evp.h>
 
 namespace ETLPlus::Security {
 
@@ -259,25 +267,25 @@ SecurityValidator::validateFileUpload(const std::string &filename,
 }
 
 bool SecurityValidator::isRateLimitExceeded(const std::string &clientId,
-                                           size_t maxRequestsPerMinute) {
+                                           const RateLimitOptions& options) {
   std::lock_guard<std::mutex> lock(rateLimitMutex_);
 
   cleanupExpiredRateLimitEntries();
 
   auto now = std::chrono::system_clock::now();
-  auto oneMinuteAgo = now - std::chrono::minutes(1);
+  auto windowStart = now - options.windowDuration;
 
   auto &timestamps = rateLimitStore_[clientId];
 
-  // Count requests in the last minute
+  // Count requests in the time window
   size_t recentRequests = 0;
   for (const auto &timestamp : timestamps) {
-    if (timestamp > oneMinuteAgo) {
+    if (timestamp > windowStart) {
       recentRequests++;
     }
   }
 
-  if (recentRequests >= maxRequestsPerMinute) {
+  if (recentRequests >= options.allowedRequests) {
     return true;
   }
 
@@ -297,17 +305,27 @@ bool SecurityValidator::containsBlockedPattern(
 }
 
 std::string SecurityValidator::escapeHtml(const std::string &input) {
-  std::string escaped = input;
-  std::unordered_map<std::string, std::string> htmlEntities = {
-      {"&", "&amp;"}, {"<", "&lt;"}, {">", "&gt;"},
-      {"\"", "&quot;"}, {"'", "&#x27;"}, {"/", "&#x2F;"}
-  };
+  std::string escaped;
+  escaped.reserve(input.size() * 1.2); // Reserve ~20% extra for escape sequences
 
-  for (const auto &[entity, replacement] : htmlEntities) {
-    size_t pos = 0;
-    while ((pos = escaped.find(entity, pos)) != std::string::npos) {
-      escaped.replace(pos, entity.length(), replacement);
-      pos += replacement.length();
+  // Fast lookup table for HTML entities (single character keys)
+  static const std::array<std::string_view, 256> htmlEntities = []() {
+    std::array<std::string_view, 256> entities{};
+    entities['&'] = "&amp;";
+    entities['<'] = "&lt;";
+    entities['>'] = "&gt;";
+    entities['"'] = "&quot;";
+    entities['\''] = "&#x27;";
+    entities['/'] = "&#x2F;";
+    return entities;
+  }();
+
+  for (char c : input) {
+    unsigned char uc = static_cast<unsigned char>(c);
+    if (uc < htmlEntities.size() && !htmlEntities[uc].empty()) {
+      escaped.append(htmlEntities[uc]);
+    } else {
+      escaped.push_back(c);
     }
   }
 
@@ -358,6 +376,97 @@ void SecurityValidator::cleanupExpiredRateLimitEntries() {
       ++it;
     }
   }
+}
+
+std::string SecurityValidator::generateCSPNonce() {
+  unsigned char random_bytes[16]; // 128 bits for security
+  
+  if (RAND_bytes(random_bytes, sizeof(random_bytes)) != 1) {
+    // Fallback to less secure random if OpenSSL fails
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, 255);
+    
+    for (size_t i = 0; i < sizeof(random_bytes); ++i) {
+      random_bytes[i] = static_cast<unsigned char>(dis(gen));
+    }
+  }
+  
+  // Base64 encode the random bytes
+  BIO* bio = BIO_new(BIO_s_mem());
+  BIO* b64 = BIO_new(BIO_f_base64());
+  BIO_push(b64, bio);
+  
+  BIO_write(b64, random_bytes, sizeof(random_bytes));
+  BIO_flush(b64);
+  
+  char* encoded_data = nullptr;
+  long encoded_length = BIO_get_mem_data(bio, &encoded_data);
+  
+  std::string nonce(encoded_data, encoded_length);
+  
+  // Remove any trailing newlines
+  nonce.erase(std::remove(nonce.begin(), nonce.end(), '\n'), nonce.end());
+  
+  BIO_free_all(b64);
+  
+  return nonce;
+}
+
+std::string SecurityValidator::generateScriptHash(const std::string& scriptContent) {
+  unsigned char hash[SHA256_DIGEST_LENGTH];
+  
+  SHA256_CTX sha256;
+  SHA256_Init(&sha256);
+  SHA256_Update(&sha256, scriptContent.c_str(), scriptContent.length());
+  SHA256_Final(hash, &sha256);
+  
+  // Base64 encode the hash
+  BIO* bio = BIO_new(BIO_s_mem());
+  BIO* b64 = BIO_new(BIO_f_base64());
+  BIO_push(b64, bio);
+  
+  BIO_write(b64, hash, SHA256_DIGEST_LENGTH);
+  BIO_flush(b64);
+  
+  char* encoded_data = nullptr;
+  long encoded_length = BIO_get_mem_data(bio, &encoded_data);
+  
+  std::string hash_b64(encoded_data, encoded_length);
+  
+  // Remove any trailing newlines and construct CSP hash
+  hash_b64.erase(std::remove(hash_b64.begin(), hash_b64.end(), '\n'), hash_b64.end());
+  
+  BIO_free_all(b64);
+  
+  return "sha256-" + hash_b64;
+}
+
+std::string SecurityValidator::createCSPHeaderWithNonce(const std::string& nonce) {
+  std::ostringstream csp;
+  csp << "default-src 'self'; "
+      << "script-src 'self' 'nonce-" << nonce << "'; "
+      << "style-src 'self' 'unsafe-inline'; "
+      << "img-src 'self' data: https:; "
+      << "font-src 'self'; "
+      << "connect-src 'self'";
+  return csp.str();
+}
+
+std::string SecurityValidator::createCSPHeaderWithScriptHash(const std::string& scriptHash) {
+  std::ostringstream csp;
+  csp << "default-src 'self'; "
+      << "script-src 'self' '" << scriptHash << "'; "
+      << "style-src 'self' 'unsafe-inline'; "
+      << "img-src 'self' data: https:; "
+      << "font-src 'self'; "
+      << "connect-src 'self'";
+  return csp.str();
+}
+
+bool SecurityValidator::validateCSPNonce(const std::string& nonce, const std::string& expectedNonce) {
+  // Simple string comparison - in production, you might want to use constant-time comparison
+  return nonce == expectedNonce;
 }
 
 } // namespace ETLPlus::Security

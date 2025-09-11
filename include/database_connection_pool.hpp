@@ -13,6 +13,7 @@
 #include <vector>
 #include <thread>
 #include <cstring>
+#include <openssl/crypto.h>
 #include "logger.hpp"
 
 struct DatabaseConnectionConfig {
@@ -40,8 +41,9 @@ struct DatabaseConnectionConfig {
 
     void clearPassword() {
         if (!password.empty()) {
-            volatile char* p = const_cast<volatile char*>(password.data());
-            std::memset(const_cast<char*>(p), 0, password.size());
+            // Use OPENSSL_cleanse for secure memory wiping
+            // This is guaranteed not to be optimized away by the compiler
+            OPENSSL_cleanse(password.data(), password.size());
         }
         password.clear();
     }

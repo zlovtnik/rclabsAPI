@@ -3,6 +3,8 @@
 #include <cstdarg>
 #include <algorithm>
 #include <sstream>
+#include <cstring>
+#include <cerrno>
 
 RedisCache::RedisCache(const RedisConfig& config)
     : config_(config), context_(nullptr, redisFree) {
@@ -29,12 +31,31 @@ bool RedisCache::connect() {
     redisContext* raw_context = redisConnectWithTimeout(config_.host.c_str(), config_.port, timeout);
 
     if (!raw_context || raw_context->err) {
+        std::ostringstream error_msg;
+        error_msg << "Redis connection failed [host=" << config_.host
+                  << ", port=" << config_.port << "]";
+
         if (raw_context) {
-            WS_LOG_ERROR("Redis connection failed: " + std::string(raw_context->errstr));
+            // Include Redis-specific error information
+            error_msg << " | redis_err=" << raw_context->err
+                      << " | redis_errstr='" << raw_context->errstr << "'";
+
+            // Include system errno information if available
+            if (errno != 0) {
+                error_msg << " | system_errno=" << errno
+                          << " | system_errstr='" << std::strerror(errno) << "'";
+            }
+
             redisFree(raw_context);
         } else {
-            WS_LOG_ERROR("Redis connection failed: can't allocate redis context");
+            error_msg << " | reason='cannot allocate redis context'";
+            if (errno != 0) {
+                error_msg << " | system_errno=" << errno
+                          << " | system_errstr='" << std::strerror(errno) << "'";
+            }
         }
+
+        WS_LOG_ERROR(error_msg.str());
         return false;
     }
 
@@ -46,7 +67,13 @@ bool RedisCache::connect() {
         std::string authCmd = "AUTH " + config_.password;
         redisReply* reply = executeCommand(authCmd);
         if (!reply || reply->type == REDIS_REPLY_ERROR) {
-            WS_LOG_ERROR("Redis authentication failed");
+            std::ostringstream auth_error_msg;
+            auth_error_msg << "Redis authentication failed [host=" << config_.host
+                          << ", port=" << config_.port << "]";
+            if (reply && reply->str) {
+                auth_error_msg << " | redis_error='" << reply->str << "'";
+            }
+            WS_LOG_ERROR(auth_error_msg.str());
             if (reply) freeReplyObject(reply);
             disconnect();
             return false;
@@ -59,7 +86,13 @@ bool RedisCache::connect() {
         std::string selectCmd = "SELECT " + std::to_string(config_.db);
         redisReply* reply = executeCommand(selectCmd);
         if (!reply || reply->type == REDIS_REPLY_ERROR) {
-            WS_LOG_ERROR("Redis database selection failed");
+            std::ostringstream db_error_msg;
+            db_error_msg << "Redis database selection failed [host=" << config_.host
+                        << ", port=" << config_.port << ", db=" << config_.db << "]";
+            if (reply && reply->str) {
+                db_error_msg << " | redis_error='" << reply->str << "'";
+            }
+            WS_LOG_ERROR(db_error_msg.str());
             if (reply) freeReplyObject(reply);
             disconnect();
             return false;

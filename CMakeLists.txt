@@ -231,6 +231,7 @@ if(NOT HIREDIS_FOUND)
             /opt/homebrew/include
             /usr/local/include
             /usr/include
+        NO_DEFAULT_PATH
     )
     find_library(HIREDIS_LIBRARIES
         NAMES hiredis
@@ -238,6 +239,7 @@ if(NOT HIREDIS_FOUND)
             /opt/homebrew/lib
             /usr/local/lib
             /usr/lib
+        NO_DEFAULT_PATH
     )
 
     if(HIREDIS_INCLUDE_DIR AND HIREDIS_LIBRARIES)

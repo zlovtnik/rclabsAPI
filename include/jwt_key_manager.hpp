@@ -60,7 +60,9 @@ public:
           rotationInterval(std::chrono::hours(24 * 30)), // 30 days
           enableRotation(true),
           issuer("etl-backend") {}
-  };  /**
+  };
+
+  /**
    * @brief JWT token information
    */
   struct TokenInfo {
@@ -173,7 +175,8 @@ private:
   std::chrono::system_clock::time_point lastRotation_;
 
   // Helper methods that depend on jwt-cpp
-  std::string signToken(const auto& builder, const std::string& key, Algorithm alg);
+  template<typename Builder>
+  std::string signToken(const Builder& builder, const std::string& key, Algorithm alg);
   bool verifyToken(const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded, const std::string& key, Algorithm alg);
   std::string createJWKSKeyEntry(const std::string &keyId,
                                 const std::string &publicKey,

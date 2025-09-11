@@ -196,9 +196,13 @@ bool CacheManager::cacheData(const std::string& key, const nlohmann::json& data,
     std::string cacheKey = makeCacheKey(key);
     std::chrono::seconds actualTTL = ttl.has_value() ? ttl.value() : getTTLForTags(tags);
 
-    bool success = redisCache_->setJson(cacheKey, data, actualTTL);
-    if (success && !tags.empty()) {
-        redisCache_->setWithTags(cacheKey, data.dump(), tags, actualTTL);
+    bool success = false;
+    if (!tags.empty()) {
+        // Use setWithTags when tags are present
+        success = redisCache_->setWithTags(cacheKey, data.dump(), tags, actualTTL);
+    } else {
+        // Use setJson when no tags are needed
+        success = redisCache_->setJson(cacheKey, data, actualTTL);
     }
     
     if (success) {
@@ -283,11 +287,17 @@ void CacheManager::warmupCache(DatabaseManager* dbManager) {
     std::atomic<size_t> totalLoaded = 0;
     std::atomic<size_t> totalErrors = 0;
 
+    // Validate and clamp warmupMaxKeys to prevent overflow or negative values
+    size_t validatedMaxKeys = config_.warmupMaxKeys;
+    if (validatedMaxKeys == 0 || validatedMaxKeys > 10000) {  // Reasonable upper limit
+        validatedMaxKeys = 1000;  // Safe default
+    }
+
     try {
         // Query database for frequently accessed keys
         // This is a simplified query - in a real system, you'd have access logs or usage statistics
         std::string query = "SELECT DISTINCT key_name, data_type FROM cache_access_log "
-                           "ORDER BY access_count DESC LIMIT " + std::to_string(config_.warmupMaxKeys);
+                           "ORDER BY access_count DESC LIMIT " + std::to_string(validatedMaxKeys);
 
         auto results = dbManager->selectQuery(query);
 
@@ -400,11 +410,7 @@ std::string CacheManager::makeSessionKey(const std::string& sessionId) const {
 
 void CacheManager::updateStats(bool hit, bool error) {
     std::lock_guard<std::mutex> lock(statsMutex_);
-    if (hit) {
-        stats_.hits++;
-    } else {
-        stats_.misses++;
-    }
+    // Note: hits and misses are updated by calling methods, not here
     if (error) {
         stats_.errors++;
     }
@@ -464,7 +470,7 @@ bool CacheManager::processWarmupBatch(const std::vector<std::vector<std::string>
             }
 
             // Cache the data
-            if (cacheData(cacheKey, data, tags, ttl)) {
+            if (cacheData(keyName, data, tags, ttl)) {
                 totalLoaded++;
             } else {
                 WS_LOG_WARN("Failed to cache key: " + keyName);

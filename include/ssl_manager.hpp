@@ -75,10 +75,10 @@ public:
    */
   struct SSLResult {
     bool success = true;
-    std::string errorMessage;
+    std::string_view errorMessage;
     std::vector<std::string> warnings;
 
-    void setError(const std::string &message) {
+    void setError(std::string_view message) noexcept {
       success = false;
       errorMessage = message;
     }

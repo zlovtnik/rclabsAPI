@@ -7,6 +7,9 @@
 #include <random>
 #include <sstream>
 #include <stdexcept>
+#include <nlohmann/json.hpp>
+#include <iomanip>
+#include <openssl/rand.h>
 
 #ifdef ETL_ENABLE_JWT
 #include <jwt-cpp/jwt.h>
@@ -162,7 +165,8 @@ std::optional<JWTKeyManager::TokenInfo> JWTKeyManager::validateToken(const std::
       }
     }
   } catch (const std::exception& e) {
-    // Ignore claim extraction errors
+    // Log claim extraction errors but continue processing
+    std::cerr << "Warning: Failed to extract JWT claims: " << e.what() << std::endl;
   }
 
     return info;
@@ -290,20 +294,19 @@ std::optional<JWTKeyManager::JWKS> JWTKeyManager::getJWKS() {
       }
     }
 
-    // Build JSON
-    std::stringstream ss;
-    ss << "{\"keys\":[";
-    for (size_t i = 0; i < jwks.keys.size(); ++i) {
-      if (i > 0) ss << ",";
-      ss << "{";
-      for (const auto &[key, value] : jwks.keys[i]) {
-        ss << "\"" << key << "\":\"" << value << "\"";
-      }
-      ss << "}";
-    }
-    ss << "]}";
+    // Build JSON using nlohmann::json for proper escaping
+    nlohmann::json jwksJson;
+    jwksJson["keys"] = nlohmann::json::array();
 
-    jwks.jsonString = ss.str();
+    for (const auto& keyEntry : jwks.keys) {
+      nlohmann::json keyJson;
+      for (const auto& [key, value] : keyEntry) {
+        keyJson[key] = value;
+      }
+      jwksJson["keys"].push_back(keyJson);
+    }
+
+    jwks.jsonString = jwksJson.dump();
     return jwks;
 
   } catch (const std::exception &e) {
@@ -405,17 +408,37 @@ bool JWTKeyManager::generateKeyPair() {
     if (config_.algorithm == Algorithm::HS256 ||
         config_.algorithm == Algorithm::HS384 ||
         config_.algorithm == Algorithm::HS512) {
-      // Generate random secret key
-      std::random_device rd;
-      std::mt19937 gen(rd());
-      std::uniform_int_distribution<> dis(0, 255);
+      // Generate cryptographically secure secret key
+      unsigned char key_bytes[32]; // 256-bit key
+      std::string secretKey;
 
-      std::stringstream ss;
-      for (int i = 0; i < 32; ++i) { // 256-bit key
-        ss << std::hex << std::setw(2) << std::setfill('0') << dis(gen);
+#ifdef ETL_ENABLE_JWT
+      // Try OpenSSL RAND_bytes first for cryptographic security
+      if (RAND_bytes(key_bytes, sizeof(key_bytes)) == 1) {
+        std::stringstream ss;
+        ss << std::hex << std::setfill('0');
+        for (size_t i = 0; i < sizeof(key_bytes); ++i) {
+          ss << std::setw(2) << static_cast<int>(key_bytes[i]);
+        }
+        secretKey = ss.str();
+      } else {
+        std::cerr << "Warning: Failed to generate cryptographically secure secret key with OpenSSL, using fallback" << std::endl;
+#endif
+        // Fallback: use std::random_device (implementation-dependent security)
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<> dis(0, 255);
+
+        std::stringstream ss;
+        for (int i = 0; i < 32; ++i) { // 256-bit key
+          ss << std::hex << std::setw(2) << std::setfill('0') << dis(gen);
+        }
+        secretKey = ss.str();
+#ifdef ETL_ENABLE_JWT
       }
+#endif
 
-      currentSecretKey_ = ss.str();
+      currentSecretKey_ = secretKey;
       return true;
 
     } else {
@@ -451,16 +474,40 @@ bool JWTKeyManager::validateConfiguration() {
 
 // Utility functions that don't depend on jwt-cpp
 std::string JWTKeyManager::generateKeyId() {
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::uniform_int_distribution<> dis(0, 15);
+  // Use cryptographically secure random bytes (16 bytes = 128 bits)
+  unsigned char random_bytes[16];
+  std::string keyId;
 
-  std::stringstream ss;
-  ss << std::hex << std::setfill('0');
-  for (int i = 0; i < 8; ++i) {
-    ss << dis(gen);
+  // Try to use OpenSSL RAND_bytes for cryptographic security
+#ifdef ETL_ENABLE_JWT
+  if (RAND_bytes(random_bytes, sizeof(random_bytes)) == 1) {
+    // Successfully generated secure random bytes
+    std::stringstream ss;
+    ss << std::hex << std::setfill('0');
+    for (size_t i = 0; i < sizeof(random_bytes); ++i) {
+      ss << std::setw(2) << static_cast<int>(random_bytes[i]);
+    }
+    keyId = ss.str();
+  } else {
+    // Fallback to less secure method if OpenSSL fails
+    std::cerr << "Warning: Failed to generate cryptographically secure key ID, using fallback" << std::endl;
+#endif
+    // Fallback: use std::random_device if available (implementation-dependent security)
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, 255);
+
+    std::stringstream ss;
+    ss << std::hex << std::setfill('0');
+    for (int i = 0; i < 16; ++i) { // 128-bit key
+      ss << std::setw(2) << dis(gen);
+    }
+    keyId = ss.str();
+#ifdef ETL_ENABLE_JWT
   }
-  return ss.str();
+#endif
+
+  return keyId;
 }
 
 std::string JWTKeyManager::loadKeyFromFile(const std::string &filePath) {
@@ -502,7 +549,8 @@ std::string JWTKeyManager::getAlgorithmString(Algorithm alg) const {
 #ifdef ETL_ENABLE_JWT
 
 // Functions that depend on jwt-cpp
-std::string JWTKeyManager::signToken(const auto& builder, const std::string& key, Algorithm alg) {
+template<typename Builder>
+std::string JWTKeyManager::signToken(const Builder& builder, const std::string& key, Algorithm alg) {
   switch (alg) {
     case Algorithm::HS256: return builder.sign(jwt::algorithm::hs256(key));
     case Algorithm::HS384: return builder.sign(jwt::algorithm::hs384(key));

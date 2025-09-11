@@ -5,6 +5,7 @@
 #include <vector>
 #include <string>
 #include <chrono>
+#include <iterator>
 
 void testCacheWarmupConfiguration() {
     std::cout << "\n=== Testing Cache Warmup Configuration ===" << std::endl;
@@ -90,7 +91,10 @@ void testBatchProcessingLogic() {
     int batchCount = 0;
 
     while (batchStart != mockData.end()) {
-        auto batchEnd = std::min(batchStart + batchSize, mockData.end());
+        // Compute remaining distance and clamp step size
+        auto remaining = std::distance(batchStart, mockData.end());
+        auto step = std::min(batchSize, static_cast<size_t>(remaining));
+        auto batchEnd = std::next(batchStart, step);
         std::vector<std::vector<std::string>> batch(batchStart, batchEnd);
 
         batchCount++;

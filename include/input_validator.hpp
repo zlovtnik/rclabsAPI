@@ -110,8 +110,8 @@ public:
 
 private:
   // Regex patterns for validation
-  // static const std::regex emailPattern_;
-  // static const std::regex jobIdPattern_;
+  static const std::regex emailPattern_;
+  static const std::regex jobIdPattern_;
   static const std::regex userIdPattern_;
   static const std::regex tokenPattern_;
   static const std::regex pathPattern_;

@@ -6,10 +6,11 @@
 #include <cctype>
 #include <iomanip>
 #include <nlohmann/json.hpp>
+#include <unordered_set>
 
 // Static regex patterns initialization
-// const std::regex InputValidator::emailPattern_(R"([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})");
-// const std::regex InputValidator::jobIdPattern_(R"(^[a-zA-Z0-9_-]{1,64}$)");
+const std::regex InputValidator::emailPattern_(R"([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})");
+const std::regex InputValidator::jobIdPattern_(R"(^[a-zA-Z0-9_-]{1,64}$)");
 const std::regex InputValidator::userIdPattern_(R"(^[a-zA-Z0-9_-]{1,32}$)");
 const std::regex InputValidator::tokenPattern_(R"(^[a-zA-Z0-9._-]{10,512}$)");
 const std::regex InputValidator::pathPattern_(R"(^/api/[a-zA-Z0-9/_-]*$)");
@@ -106,8 +107,7 @@ bool InputValidator::isValidEmail(const std::string& email) {
         return false;
     }
     
-    // return std::regex_match(email, emailPattern_);
-    return true; // Temporarily disabled
+    return std::regex_match(email, emailPattern_);
 }
 
 bool InputValidator::isValidPassword(const std::string& password) {
@@ -127,8 +127,7 @@ bool InputValidator::isValidPassword(const std::string& password) {
 }
 
 bool InputValidator::isValidJobId(const std::string& jobId) {
-    // return std::regex_match(jobId, jobIdPattern_);
-    return !jobId.empty() && jobId.length() <= 64; // Temporarily simplified
+    return std::regex_match(jobId, jobIdPattern_);
 }
 
 bool InputValidator::isValidUserId(const std::string& userId) {
@@ -253,13 +252,16 @@ InputValidator::ValidationResult InputValidator::validateJobQueryParams(const st
     
     for (const auto& [key, value] : params) {
         if (key == "status") {
-            // Use the canonical stringToJobStatus function for validation
+            // Convert to lowercase for case-insensitive comparison
+            std::string lowerValue = value;
+            std::transform(lowerValue.begin(), lowerValue.end(), lowerValue.begin(), ::tolower);
+            
             JobStatus status;
             try {
-                status = stringToJobStatus(value);
-                // If stringToJobStatus doesn't throw and returns a valid status, it's valid
-                // Note: stringToJobStatus returns PENDING as default for unknown values
-                if (value != jobStatusToString(status)) {
+                status = stringToJobStatus(lowerValue);
+                // If stringToJobStatus returns PENDING for an unknown status, it's invalid
+                // (unless the input was actually "pending")
+                if (status == JobStatus::PENDING && lowerValue != "pending") {
                     result.addError("status", "Invalid status filter", "INVALID_STATUS_FILTER");
                 }
             } catch (const std::exception&) {
@@ -623,9 +625,11 @@ InputValidator::ValidationResult InputValidator::validateMonitoringParams(
     // Validate status parameter if present
     auto statusIt = params.find("status");
     if (statusIt != params.end()) {
-        const std::string& normalizedStatus = normalizeStatus(statusIt->second);
-        if (normalizedStatus != "PENDING" && normalizedStatus != "RUNNING" && normalizedStatus != "COMPLETED" && 
-            normalizedStatus != "FAILED" && normalizedStatus != "CANCELLED") {
+        std::string normalizedStatus = normalizeStatus(statusIt->second);
+        static const std::unordered_set<std::string> validStatuses = {
+            "PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"
+        };
+        if (validStatuses.find(normalizedStatus) == validStatuses.end()) {
             result.addError("status", "Invalid job status value", "INVALID_STATUS");
         }
     }
