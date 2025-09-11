@@ -53,6 +53,12 @@ public:
   RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
                  std::shared_ptr<AuthManager> authManager,
                  std::shared_ptr<ETLJobManager> etlManager,
+                 std::unique_ptr<RateLimiter> rateLimiter,
+                 std::shared_ptr<WebSocketManager> wsManager);
+
+  RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
+                 std::shared_ptr<AuthManager> authManager,
+                 std::shared_ptr<ETLJobManager> etlManager,
                  RequestHandlerOptions options);
 
   template <class Body, class Allocator>

@@ -1,3 +1,5 @@
+#ifdef ETL_ENABLE_REDIS
+
 #include "redis_cache.hpp"
 #include "logger.hpp"
 #include <cstdarg>
@@ -616,3 +618,5 @@ void RedisCache::updateMetrics(bool success, bool isRead) {
 std::string RedisCache::generateTagKey(const std::string& tag) {
     return "tag:" + tag;
 }
+
+#endif // ETL_ENABLE_REDIS

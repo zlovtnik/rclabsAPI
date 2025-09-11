@@ -14,6 +14,8 @@
 #include <optional>
 #include <nlohmann/json.hpp>
 
+#ifdef ETL_ENABLE_REDIS
+
 struct RedisConfig {
     std::string host = "localhost";
     int port = 6379;
@@ -125,5 +127,7 @@ private:
     void updateMetrics(bool success, bool isRead = true);
     std::string generateTagKey(const std::string& tag);
 };
+
+#endif // ETL_ENABLE_REDIS
 
 #endif // REDIS_CACHE_HPP

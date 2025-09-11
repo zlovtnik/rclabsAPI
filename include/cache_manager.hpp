@@ -2,7 +2,9 @@
 #define CACHE_MANAGER_HPP
 
 // Forward declarations to avoid circular includes
+#ifdef ETL_ENABLE_REDIS
 class RedisCache;
+#endif
 class DatabaseManager;
 
 #include <memory>
@@ -38,7 +40,9 @@ public:
     ~CacheManager();
 
     // Initialize with Redis cache
+#ifdef ETL_ENABLE_REDIS
     bool initialize(std::unique_ptr<RedisCache> redisCache);
+#endif
 
     // User data caching
     bool cacheUserData(const std::string& userId, const nlohmann::json& userData);
@@ -84,7 +88,9 @@ public:
 
 private:
     CacheConfig config_;
+#ifdef ETL_ENABLE_REDIS
     std::unique_ptr<RedisCache> redisCache_;
+#endif
     mutable CacheStats stats_;
     mutable std::mutex statsMutex_;
 

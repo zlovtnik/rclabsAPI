@@ -1,5 +1,7 @@
 #include "cache_manager.hpp"
+#ifdef ETL_ENABLE_REDIS
 #include "redis_cache.hpp"
+#endif
 #include "database_manager.hpp"
 #include "logger.hpp"
 #include <algorithm>
@@ -59,11 +61,14 @@ CacheManager::CacheManager(const CacheConfig& config)
 }
 
 CacheManager::~CacheManager() {
+#ifdef ETL_ENABLE_REDIS
     if (redisCache_) {
         redisCache_->disconnect();
     }
+#endif
 }
 
+#ifdef ETL_ENABLE_REDIS
 bool CacheManager::initialize(std::unique_ptr<RedisCache> redisCache) {
     redisCache_ = std::move(redisCache);
 
@@ -80,8 +85,10 @@ bool CacheManager::initialize(std::unique_ptr<RedisCache> redisCache) {
     WS_LOG_INFO("Cache manager initialized successfully");
     return true;
 }
+#endif
 
 bool CacheManager::cacheUserData(const std::string& userId, const nlohmann::json& userData) {
+#ifdef ETL_ENABLE_REDIS
     if (!isCacheEnabled() || !redisCache_) return false;
 
     std::string key = makeUserKey(userId);
@@ -96,9 +103,13 @@ bool CacheManager::cacheUserData(const std::string& userId, const nlohmann::json
     }
 
     return success;
+#else
+    return false;
+#endif
 }
 
 nlohmann::json CacheManager::getCachedUserData(const std::string& userId) {
+#ifdef ETL_ENABLE_REDIS
     if (!isCacheEnabled() || !redisCache_) return nlohmann::json();
 
     std::string key = makeUserKey(userId);
@@ -113,9 +124,13 @@ nlohmann::json CacheManager::getCachedUserData(const std::string& userId) {
     }
 
     return data;
+#else
+    return nlohmann::json();
+#endif
 }
 
 bool CacheManager::invalidateUserData(const std::string& userId) {
+#ifdef ETL_ENABLE_REDIS
     if (!isCacheEnabled() || !redisCache_) return false;
 
     std::string key = makeUserKey(userId);
@@ -127,9 +142,13 @@ bool CacheManager::invalidateUserData(const std::string& userId) {
     }
 
     return success;
+#else
+    return false;
+#endif
 }
 
 bool CacheManager::cacheJobData(const std::string& jobId, const nlohmann::json& jobData) {
+#ifdef ETL_ENABLE_REDIS
     if (!isCacheEnabled() || !redisCache_) return false;
 
     std::string key = makeJobKey(jobId);
@@ -144,9 +163,13 @@ bool CacheManager::cacheJobData(const std::string& jobId, const nlohmann::json& 
     }
 
     return success;
+#else
+    return false;
+#endif
 }
 
 nlohmann::json CacheManager::getCachedJobData(const std::string& jobId) {
+#ifdef ETL_ENABLE_REDIS
     if (!isCacheEnabled() || !redisCache_) return nlohmann::json();
 
     std::string key = makeJobKey(jobId);
@@ -161,9 +184,13 @@ nlohmann::json CacheManager::getCachedJobData(const std::string& jobId) {
     }
 
     return data;
+#else
+    return nlohmann::json();
+#endif
 }
 
 bool CacheManager::invalidateJobData(const std::string& jobId) {
+#ifdef ETL_ENABLE_REDIS
     if (!isCacheEnabled() || !redisCache_) return false;
 
     std::string key = makeJobKey(jobId);
@@ -175,15 +202,23 @@ bool CacheManager::invalidateJobData(const std::string& jobId) {
     }
 
     return success;
+#else
+    return false;
+#endif
 }
 
 bool CacheManager::invalidateAllJobData() {
+#ifdef ETL_ENABLE_REDIS
     if (!isCacheEnabled() || !redisCache_) return false;
 
     return redisCache_->invalidateByTag("job");
+#else
+    return false;
+#endif
 }
 
 bool CacheManager::cacheSessionData(const std::string& sessionId, const nlohmann::json& sessionData) {
+#ifdef ETL_ENABLE_REDIS
     if (!isCacheEnabled() || !redisCache_) return false;
 
     std::string key = makeSessionKey(sessionId);
@@ -198,9 +233,13 @@ bool CacheManager::cacheSessionData(const std::string& sessionId, const nlohmann
     }
 
     return success;
+#else
+    return false;
+#endif
 }
 
 nlohmann::json CacheManager::getCachedSessionData(const std::string& sessionId) {
+#ifdef ETL_ENABLE_REDIS
     if (!isCacheEnabled() || !redisCache_) return nlohmann::json();
 
     std::string key = makeSessionKey(sessionId);
@@ -215,9 +254,13 @@ nlohmann::json CacheManager::getCachedSessionData(const std::string& sessionId) 
     }
 
     return data;
+#else
+    return nlohmann::json();
+#endif
 }
 
 bool CacheManager::invalidateSessionData(const std::string& sessionId) {
+#ifdef ETL_ENABLE_REDIS
     if (!isCacheEnabled() || !redisCache_) return false;
 
     std::string key = makeSessionKey(sessionId);
@@ -229,11 +272,15 @@ bool CacheManager::invalidateSessionData(const std::string& sessionId) {
     }
 
     return success;
+#else
+    return false;
+#endif
 }
 
 bool CacheManager::cacheData(const std::string& key, const nlohmann::json& data,
                              const std::vector<std::string>& tags,
                              std::optional<std::chrono::seconds> ttl) {
+#ifdef ETL_ENABLE_REDIS
     if (!isCacheEnabled() || !redisCache_) return false;
 
     std::string cacheKey = makeCacheKey(key);
@@ -256,9 +303,13 @@ bool CacheManager::cacheData(const std::string& key, const nlohmann::json& data,
     }
 
     return success;
+#else
+    return false;
+#endif
 }
 
 nlohmann::json CacheManager::getCachedData(const std::string& key) {
+#ifdef ETL_ENABLE_REDIS
     if (!isCacheEnabled() || !redisCache_) return nlohmann::json();
 
     std::string cacheKey = makeCacheKey(key);
@@ -273,9 +324,13 @@ nlohmann::json CacheManager::getCachedData(const std::string& key) {
     }
 
     return data;
+#else
+    return nlohmann::json();
+#endif
 }
 
 bool CacheManager::invalidateData(const std::string& key) {
+#ifdef ETL_ENABLE_REDIS
     if (!isCacheEnabled() || !redisCache_) return false;
 
     std::string cacheKey = makeCacheKey(key);
@@ -285,17 +340,25 @@ bool CacheManager::invalidateData(const std::string& key) {
     }
 
     return success;
+#else
+    return false;
+#endif
 }
 
 bool CacheManager::invalidateByTags(const std::vector<std::string>& tags) {
+#ifdef ETL_ENABLE_REDIS
     if (!isCacheEnabled() || !redisCache_) return false;
 
     return redisCache_->invalidateByTags(tags);
+#else
+    return false;
+#endif
 }
 
 CacheManager::CacheStats CacheManager::getCacheStats() const {
     std::lock_guard<std::mutex> lock(statsMutex_);
     CacheStats stats = stats_;
+#ifdef ETL_ENABLE_REDIS
     if (redisCache_) {
         auto redisMetrics = redisCache_->getMetrics();
         stats.hits = redisMetrics.hits;
@@ -304,6 +367,7 @@ CacheManager::CacheStats CacheManager::getCacheStats() const {
         stats.deletes = redisMetrics.deletes;
         stats.errors = redisMetrics.errors;
     }
+#endif
 
     uint64_t totalRequests = stats.hits + stats.misses;
     stats.hitRate = (totalRequests > 0) ? (static_cast<double>(stats.hits) / totalRequests) * 100.0 : 0.0;
@@ -312,13 +376,16 @@ CacheManager::CacheStats CacheManager::getCacheStats() const {
 }
 
 void CacheManager::clearAllCache() {
+#ifdef ETL_ENABLE_REDIS
     if (!isCacheEnabled() || !redisCache_) return;
 
     redisCache_->flushAll();
     WS_LOG_INFO("All cache data cleared");
+#endif
 }
 
 void CacheManager::warmupCache(DatabaseManager* dbManager) {
+#ifdef ETL_ENABLE_REDIS
     if (!isCacheEnabled() || !redisCache_ || !dbManager || !config_.enableWarmup) {
         return;
     }
@@ -406,13 +473,19 @@ void CacheManager::warmupCache(DatabaseManager* dbManager) {
     } catch (const std::exception& e) {
         WS_LOG_ERROR("Cache warmup failed: " + std::string(e.what()));
     }
+#endif
 }
 
 bool CacheManager::isCacheEnabled() const {
+#ifdef ETL_ENABLE_REDIS
     return config_.enabled && redisCache_ != nullptr;
+#else
+    return false;
+#endif
 }
 
 bool CacheManager::isCacheHealthy() const {
+#ifdef ETL_ENABLE_REDIS
     // Quick preconditions - these are fast checks
     if (!isCacheEnabled() || !redisCache_->isConnected()) {
         return false;
@@ -444,6 +517,9 @@ bool CacheManager::isCacheHealthy() const {
     lastHealthStatus_.store(currentHealthStatus, std::memory_order_release);
 
     return currentHealthStatus;
+#else
+    return false;
+#endif
 }
 
 std::string CacheManager::makeCacheKey(const std::string& key) const {
