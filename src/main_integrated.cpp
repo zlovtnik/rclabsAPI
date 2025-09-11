@@ -4,6 +4,8 @@
 #include <thread>
 #include <chrono>
 #include <unistd.h>
+#include <cstdlib>
+#include <string>
 
 // Core system components
 #include "logger.hpp"
@@ -104,11 +106,22 @@ int main() {
         LOG_INFO("Main", "Initializing database manager...");
         auto dbManager = std::make_shared<DatabaseManager>();
         ConnectionConfig dbConfig;
-        dbConfig.host = config.getString("database.host", "localhost");
-        dbConfig.port = config.getInt("database.port", 5432);
-        dbConfig.database = config.getString("database.name", "etlplus");
-        dbConfig.username = config.getString("database.username", "postgres");
-        dbConfig.password = config.getString("database.password", "");
+        
+        // Check environment variables first, then fall back to config file
+        const char* dbHostEnv = std::getenv("DATABASE_HOST");
+        dbConfig.host = dbHostEnv ? std::string(dbHostEnv) : config.getString("database.host", "localhost");
+        
+        const char* dbPortEnv = std::getenv("DATABASE_PORT");
+        dbConfig.port = dbPortEnv ? std::stoi(dbPortEnv) : config.getInt("database.port", 5432);
+        
+        const char* dbNameEnv = std::getenv("DATABASE_NAME");
+        dbConfig.database = dbNameEnv ? std::string(dbNameEnv) : config.getString("database.name", "etlplus");
+        
+        const char* dbUserEnv = std::getenv("DATABASE_USER");
+        dbConfig.username = dbUserEnv ? std::string(dbUserEnv) : config.getString("database.username", "postgres");
+        
+        const char* dbPassEnv = std::getenv("DATABASE_PASSWORD");
+        dbConfig.password = dbPassEnv ? std::string(dbPassEnv) : config.getString("database.password", "");
         
         LOG_INFO("Main", "Connecting to database at " + dbConfig.host + ":" + std::to_string(dbConfig.port));
         if (!dbManager->connect(dbConfig)) {
@@ -180,7 +193,7 @@ int main() {
         
         // Create enhanced request handler with monitoring support
         LOG_INFO("Main", "Creating enhanced request handler...");
-        auto requestHandler = std::make_shared<RequestHandler>(dbManager, authManager, etlManager);
+        auto requestHandler = std::make_shared<RequestHandler>(dbManager, authManager, etlManager, wsManager);
         
         // Create and configure HTTP server with WebSocket support
         std::string address = config.getString("server.address", "0.0.0.0");
