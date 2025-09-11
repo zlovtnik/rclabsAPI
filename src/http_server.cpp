@@ -22,6 +22,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <atomic>
 
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -68,16 +69,27 @@ public:
         doAccept();
     }
 
+    void stop() {
+        stopped_ = true;
+        beast::error_code ec;
+        acceptor_.cancel(ec);
+        acceptor_.close(ec);
+    }
+
 private:
     net::io_context& ioc_;
     tcp::acceptor acceptor_;
     std::shared_ptr<ConnectionPoolManager> poolManager_;
+    std::atomic_bool stopped_{false};
 
     void fail(beast::error_code ec, char const* what) {
         std::cerr << what << ": " << ec.message() << "\n";
     }
 
     void doAccept() {
+        if (stopped_) {
+            return;
+        }
         acceptor_.async_accept(
             net::make_strand(ioc_),
             beast::bind_front_handler(&Listener::onAccept, shared_from_this()));
@@ -85,17 +97,18 @@ private:
 
     void onAccept(beast::error_code ec, tcp::socket socket) {
         if (ec) {
+            // Suppress expected errors during shutdown/stop
+            if (stopped_ ||
+                ec == net::error::operation_aborted ||
+                ec == net::error::bad_descriptor ||
+                ec == net::error::invalid_argument ||
+                !acceptor_.is_open()) {
+                HTTP_LOG_DEBUG("Listener::onAccept() - Accept aborted/closed during shutdown: " + ec.message());
+                return; // don't continue accepting if we're stopping
+            }
+
             HTTP_LOG_ERROR("Listener::onAccept() - Error: " + ec.message());
             fail(ec, "accept");
-            
-            // Check if this is a fatal error that should stop accepting
-            if (ec == boost::asio::error::operation_aborted ||
-                ec == boost::asio::error::bad_descriptor) {
-                HTTP_LOG_ERROR("Listener::onAccept() - Fatal error, stopping listener");
-                return;
-            }
-            
-            // For other errors (like EINVAL), continue accepting
             HTTP_LOG_WARN("Listener::onAccept() - Non-fatal error, continuing to accept connections");
         } else {
             HTTP_LOG_INFO("Listener::onAccept() - New connection accepted");
@@ -116,8 +129,7 @@ private:
             }
         }
 
-        // Continue accepting connections regardless of whether the previous accept succeeded or failed
-        // (unless it was a fatal error)
+        // Continue accepting only if not stopping
         doAccept();
     }
 };
@@ -133,6 +145,7 @@ struct HttpServer::Impl {
     std::shared_ptr<TimeoutManager> timeoutManager;
     std::unique_ptr<net::io_context> ioc;
     std::vector<std::thread> threadPool;
+    std::shared_ptr<Listener> listener; // keep handle to listener for proper shutdown
     bool running = false;
 };
 
@@ -222,7 +235,8 @@ void HttpServer::start() {
         HTTP_LOG_DEBUG("HttpServer::start() - Address parsed: " + address.to_string());
         
         HTTP_LOG_DEBUG("HttpServer::start() - Creating listener with connection pool");
-        std::make_shared<Listener>(*pImpl->ioc, tcp::endpoint{address, pImpl->port}, pImpl->poolManager)->run();
+        pImpl->listener = std::make_shared<Listener>(*pImpl->ioc, tcp::endpoint{address, pImpl->port}, pImpl->poolManager);
+        pImpl->listener->run();
 
         HTTP_LOG_DEBUG("HttpServer::start() - Starting thread pool");
         pImpl->threadPool.reserve(pImpl->threads);
@@ -263,6 +277,12 @@ void HttpServer::stop() {
         pImpl->poolManager->stopCleanupTimer();
     }
 
+    // Stop accepting new connections explicitly
+    if (pImpl->listener) {
+        HTTP_LOG_DEBUG("HttpServer::stop() - Stopping listener/acceptor");
+        pImpl->listener->stop();
+    }
+
     // Stop the IO context
     pImpl->ioc->stop();
 
@@ -287,6 +307,7 @@ void HttpServer::stop() {
         pImpl->timeoutManager->cancelAllTimers();
     }
 
+    pImpl->listener.reset();
     pImpl->running = false;
     HTTP_LOG_INFO("HttpServer::stop() - HTTP server stopped successfully");
 }

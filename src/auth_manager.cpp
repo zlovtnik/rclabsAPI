@@ -24,8 +24,11 @@ AuthManager::AuthManager(std::shared_ptr<DatabaseManager> dbManager)
     // Load JWT secret from environment variable
     const char* secret = std::getenv("JWT_SECRET_KEY");
     if (!secret) {
+        AUTH_LOG_ERROR("JWT_SECRET_KEY environment variable must be set");
         throw std::runtime_error("JWT_SECRET_KEY environment variable must be set");
     }
+    AUTH_LOG_INFO("JWT_SECRET_KEY environment variable is set.");
+
     std::string secretStr(secret);
     if (secretStr.empty()) {
         throw std::runtime_error("JWT_SECRET_KEY environment variable cannot be empty");

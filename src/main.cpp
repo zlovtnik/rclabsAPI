@@ -63,10 +63,22 @@ int main() {
         // Check environment variables first, then fall back to config file
         const char* dbHostEnv = std::getenv("DATABASE_HOST");
         dbConfig.host = dbHostEnv ? std::string(dbHostEnv) : config.getString("database.host", "localhost");
-        
+
         const char* dbPortEnv = std::getenv("DATABASE_PORT");
-        dbConfig.port = dbPortEnv ? std::stoi(dbPortEnv) : config.getInt("database.port", 5432);
-        
+        if (dbPortEnv) {
+            try {
+                dbConfig.port = std::stoi(dbPortEnv);
+            } catch (const std::invalid_argument& ia) {
+                LOG_WARN("Main", "Invalid DATABASE_PORT value. Falling back to config file.");
+                dbConfig.port = config.getInt("database.port", 5432);
+            } catch (const std::out_of_range& oor) {
+                LOG_WARN("Main", "DATABASE_PORT value out of range. Falling back to config file.");
+                dbConfig.port = config.getInt("database.port", 5432);
+            }
+        } else {
+            dbConfig.port = config.getInt("database.port", 5432);
+        }
+
         const char* dbNameEnv = std::getenv("DATABASE_NAME");
         dbConfig.database = dbNameEnv ? std::string(dbNameEnv) : config.getString("database.name", "etlplus");
         
