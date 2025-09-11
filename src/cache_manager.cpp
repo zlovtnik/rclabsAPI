@@ -12,6 +12,49 @@ CacheManager::CacheManager(const CacheConfig& config)
     : config_(config),
       lastHealthCheckTime_(std::chrono::steady_clock::time_point::min()),
       lastHealthStatus_(false) {
+
+    // Validate warmup configuration to prevent resource exhaustion and invalid states
+    if (config_.enableWarmup) {
+        if (config_.warmupBatchSize == 0) {
+            throw std::invalid_argument("CacheManager: warmupBatchSize must be greater than 0");
+        }
+
+        if (config_.warmupMaxKeys < config_.warmupBatchSize) {
+            throw std::invalid_argument("CacheManager: warmupMaxKeys (" +
+                                      std::to_string(config_.warmupMaxKeys) +
+                                      ") must be >= warmupBatchSize (" +
+                                      std::to_string(config_.warmupBatchSize) + ")");
+        }
+
+        if (config_.warmupBatchTimeout <= std::chrono::seconds(0)) {
+            throw std::invalid_argument("CacheManager: warmupBatchTimeout must be positive");
+        }
+
+        if (config_.warmupTotalTimeout <= std::chrono::seconds(0)) {
+            throw std::invalid_argument("CacheManager: warmupTotalTimeout must be positive");
+        }
+
+        if (config_.warmupTotalTimeout < config_.warmupBatchTimeout) {
+            throw std::invalid_argument("CacheManager: warmupTotalTimeout (" +
+                                      std::to_string(config_.warmupTotalTimeout.count()) + "s) " +
+                                      "must be >= warmupBatchTimeout (" +
+                                      std::to_string(config_.warmupBatchTimeout.count()) + "s)");
+        }
+
+        // Additional bounds checking for resource protection
+        if (config_.warmupBatchSize > 1000) {
+            throw std::invalid_argument("CacheManager: warmupBatchSize (" +
+                                      std::to_string(config_.warmupBatchSize) +
+                                      ") exceeds maximum allowed (1000)");
+        }
+
+        if (config_.warmupMaxKeys > 100000) {
+            throw std::invalid_argument("CacheManager: warmupMaxKeys (" +
+                                      std::to_string(config_.warmupMaxKeys) +
+                                      ") exceeds maximum allowed (100000)");
+        }
+    }
+
     WS_LOG_INFO("Cache manager initialized with TTL=" + std::to_string(config_.defaultTTL.count()) + "s, health check TTL=" + std::to_string(config_.healthCheckTTL.count()) + "s");
 }
 
@@ -287,17 +330,28 @@ void CacheManager::warmupCache(DatabaseManager* dbManager) {
     std::atomic<size_t> totalLoaded = 0;
     std::atomic<size_t> totalErrors = 0;
 
-    // Validate and clamp warmupMaxKeys to prevent overflow or negative values
-    size_t validatedMaxKeys = config_.warmupMaxKeys;
-    if (validatedMaxKeys == 0 || validatedMaxKeys > 10000) {  // Reasonable upper limit
-        validatedMaxKeys = 1000;  // Safe default
+    // Strictly validate and sanitize warmupMaxKeys to prevent SQL injection
+    // Clamp to safe range and ensure it's a valid positive integer
+    size_t safeMaxKeys = 1000; // Default safe value
+    if (config_.warmupMaxKeys > 0 && config_.warmupMaxKeys <= 50000) {
+        // Only accept values in reasonable range (1-50000)
+        safeMaxKeys = static_cast<size_t>(config_.warmupMaxKeys);
+    } else if (config_.warmupMaxKeys > 50000) {
+        WS_LOG_WARN("warmupMaxKeys value " + std::to_string(config_.warmupMaxKeys) +
+                   " exceeds maximum allowed (50000), clamping to 50000");
+        safeMaxKeys = 50000;
+    } else {
+        WS_LOG_WARN("Invalid warmupMaxKeys value " + std::to_string(config_.warmupMaxKeys) +
+                   ", using default of 1000");
     }
 
     try {
-        // Query database for frequently accessed keys
-        // This is a simplified query - in a real system, you'd have access logs or usage statistics
-        std::string query = "SELECT DISTINCT key_name, data_type FROM cache_access_log "
-                           "ORDER BY access_count DESC LIMIT " + std::to_string(validatedMaxKeys);
+        // Build SQL query using validated integer value
+        // Use stringstream for safe integer formatting
+        std::stringstream queryStream;
+        queryStream << "SELECT DISTINCT key_name, data_type FROM cache_access_log "
+                   << "ORDER BY access_count DESC LIMIT " << safeMaxKeys;
+        std::string query = queryStream.str();
 
         auto results = dbManager->selectQuery(query);
 

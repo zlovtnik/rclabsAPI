@@ -163,19 +163,35 @@ dump_logs() {
     local output_file="${1:-}"
     cd "$PROJECT_ROOT"
     if [ -n "$output_file" ]; then
-        docker-compose logs > "$output_file"
+        if ! docker_compose_cmd logs --timestamps --no-color > "$output_file" 2>&1; then
+            log_warn "Failed to dump all logs to $output_file"
+            return 1
+        fi
+        log_info "All logs dumped to: $output_file"
     else
-        docker-compose logs
+        docker_compose_cmd logs --timestamps --no-color 2>&1 || true
     fi
+}
+
+# Docker Compose wrapper for consistent usage
+docker_compose_cmd() {
+    docker-compose "$@"
 }
 
 dump_app_logs() {
     local output_file="${1:-}"
     cd "$PROJECT_ROOT"
+
     if [ -n "$output_file" ]; then
-        docker-compose logs etlplus-backend > "$output_file"
+        # Use docker-compose wrapper with timestamps and no-color, redirect to file
+        if ! docker_compose_cmd logs --timestamps --no-color etlplus-backend > "$output_file" 2>&1; then
+            log_warn "Failed to dump application logs to $output_file"
+            return 1
+        fi
+        log_info "Application logs dumped to: $output_file"
     else
-        docker-compose logs etlplus-backend
+        # Display logs to stdout with formatting
+        docker_compose_cmd logs --timestamps --no-color etlplus-backend 2>&1 || true
     fi
 }
 
@@ -183,9 +199,13 @@ dump_db_logs() {
     local output_file="${1:-}"
     cd "$PROJECT_ROOT"
     if [ -n "$output_file" ]; then
-        docker-compose logs postgres > "$output_file"
+        if ! docker_compose_cmd logs --timestamps --no-color postgres > "$output_file" 2>&1; then
+            log_warn "Failed to dump database logs to $output_file"
+            return 1
+        fi
+        log_info "Database logs dumped to: $output_file"
     else
-        docker-compose logs postgres
+        docker_compose_cmd logs --timestamps --no-color postgres 2>&1 || true
     fi
 }
 

@@ -10,6 +10,10 @@
 #include <nlohmann/json.hpp>
 #include <iomanip>
 #include <openssl/rand.h>
+#include <openssl/rsa.h>
+#include <openssl/pem.h>
+#include <openssl/bio.h>
+#include <openssl/evp.h>
 
 #ifdef ETL_ENABLE_JWT
 #include <jwt-cpp/jwt.h>
@@ -18,6 +22,34 @@
 namespace ETLPlus::Auth {
 
 JWTKeyManager::JWTKeyManager(const KeyConfig &config) : config_(config) {
+}
+
+JWTKeyManager::~JWTKeyManager() {
+  wipeAllKeys();
+}
+
+void JWTKeyManager::secureWipeKey(std::string& key) {
+  if (!key.empty()) {
+    // Overwrite the string's internal buffer with zeros
+    std::fill(key.begin(), key.end(), '\0');
+    // Clear the string to release memory
+    key.clear();
+    key.shrink_to_fit(); // Optional: reduce capacity
+  }
+}
+
+void JWTKeyManager::wipeAllKeys() {
+  secureWipeKey(currentSecretKey_);
+  secureWipeKey(currentPublicKey_);
+  secureWipeKey(currentPrivateKey_);
+  secureWipeKey(previousSecretKey_);
+  secureWipeKey(previousPublicKey_);
+  secureWipeKey(previousPrivateKey_);
+}
+
+void JWTKeyManager::cleanupKeys() {
+  std::lock_guard<std::mutex> lock(keyMutex_);
+  wipeAllKeys();
 }
 
 bool JWTKeyManager::initialize() {
@@ -324,11 +356,21 @@ bool JWTKeyManager::rotateKeys() {
   }
 
   try {
+    // Securely wipe previous keys before rotation
+    secureWipeKey(previousSecretKey_);
+    secureWipeKey(previousPublicKey_);
+    secureWipeKey(previousPrivateKey_);
+
     // Move current keys to previous
     previousSecretKey_ = currentSecretKey_;
     previousPublicKey_ = currentPublicKey_;
     previousPrivateKey_ = currentPrivateKey_;
     previousKeyId_ = currentKeyId_;
+
+    // Wipe current keys after moving (they're now in previous)
+    secureWipeKey(currentSecretKey_);
+    secureWipeKey(currentPublicKey_);
+    secureWipeKey(currentPrivateKey_);
 
     // Generate new keys
     if (!generateKeyPair()) {
@@ -444,8 +486,7 @@ bool JWTKeyManager::generateKeyPair() {
     } else {
       // For RSA/ECDSA, you would typically use OpenSSL commands or libraries
       // This is a simplified implementation
-      std::cerr << "RSA/ECDSA key generation not fully implemented" << std::endl;
-      return false;
+      throw std::runtime_error("RSA/ECDSA key generation not implemented");
     }
 
   } catch (const std::exception &e) {
@@ -589,14 +630,87 @@ bool JWTKeyManager::verifyToken(const jwt::decoded_jwt<jwt::traits::kazuho_picoj
   }
 }
 
+// Helper function for base64url encoding
+std::string base64urlEncode(const unsigned char* data, size_t length) {
+  BIO* b64 = BIO_new(BIO_f_base64());
+  BIO* bio = BIO_new(BIO_s_mem());
+  bio = BIO_push(b64, bio);
+  BIO_set_flags(bio, BIO_FLAGS_BASE64_NO_NL);
+  BIO_write(bio, data, length);
+  BIO_flush(bio);
+
+  BUF_MEM* bufferPtr;
+  BIO_get_mem_ptr(bio, &bufferPtr);
+  std::string encoded(bufferPtr->data, bufferPtr->length);
+
+  BIO_free_all(bio);
+
+  // Replace base64 chars with base64url
+  std::replace(encoded.begin(), encoded.end(), '+', '-');
+  std::replace(encoded.begin(), encoded.end(), '/', '_');
+
+  // Remove padding
+  size_t pos = encoded.find('=');
+  if (pos != std::string::npos) {
+    encoded = encoded.substr(0, pos);
+  }
+
+  return encoded;
+}
+
 std::string JWTKeyManager::createJWKSKeyEntry(const std::string &keyId,
                                             const std::string &publicKey,
                                             Algorithm alg) {
-  // Simplified JWKS key entry - in production you'd use proper JWKS format
-  std::stringstream ss;
-  ss << "{\"kid\":\"" << keyId << "\",\"kty\":\"RSA\",\"use\":\"sig\",\"n\":\""
-     << publicKey << "\"}";
-  return ss.str();
+  if (alg == Algorithm::RS256 || alg == Algorithm::RS384 || alg == Algorithm::RS512) {
+    // Parse PEM public key
+    BIO* bio = BIO_new_mem_buf(publicKey.c_str(), -1);
+    RSA* rsa = PEM_read_bio_RSAPublicKey(bio, nullptr, nullptr, nullptr);
+    BIO_free(bio);
+
+    if (!rsa) {
+      throw std::runtime_error("Failed to parse RSA public key");
+    }
+
+    // Get modulus and exponent
+    const BIGNUM* n = nullptr;
+    const BIGNUM* e = nullptr;
+    RSA_get0_key(rsa, &n, &e, nullptr);
+
+    if (!n || !e) {
+      RSA_free(rsa);
+      throw std::runtime_error("Failed to extract RSA key components");
+    }
+
+    // Convert modulus to big-endian bytes
+    int n_len = BN_num_bytes(n);
+    std::vector<unsigned char> n_bytes(n_len);
+    BN_bn2bin(n, n_bytes.data());
+
+    // Convert exponent to big-endian bytes
+    int e_len = BN_num_bytes(e);
+    std::vector<unsigned char> e_bytes(e_len);
+    BN_bn2bin(e, e_bytes.data());
+
+    // Base64url encode
+    std::string n_b64 = base64urlEncode(n_bytes.data(), n_bytes.size());
+    std::string e_b64 = base64urlEncode(e_bytes.data(), e_bytes.size());
+
+    RSA_free(rsa);
+
+    // Build JSON
+    nlohmann::json jwks_entry = {
+      {"kid", keyId},
+      {"kty", "RSA"},
+      {"use", "sig"},
+      {"n", n_b64},
+      {"e", e_b64}
+    };
+
+    return jwks_entry.dump();
+  } else {
+    // For other algorithms, return empty or handle accordingly
+    return "";
+  }
 }
 
 bool JWTKeyManager::isValidKeyFormat(const std::string &key, Algorithm alg) {

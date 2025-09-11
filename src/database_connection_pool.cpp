@@ -111,7 +111,7 @@ std::shared_ptr<pqxx::connection> DatabaseConnectionPool::acquireConnection() {
 
     if (pooledConn) {
         pooledConn->lastUsedTime = std::chrono::steady_clock::now();
-        activeConnections_.push_back(pooledConn);
+        // Note: pooledConn is already in activeConnections_ (replaced nullptr placeholder)
 
         // Record wait time using circular buffer
         auto waitTime = std::chrono::steady_clock::now() - startTime;

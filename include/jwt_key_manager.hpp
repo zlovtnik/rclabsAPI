@@ -87,7 +87,7 @@ public:
   };
 
   JWTKeyManager(const KeyConfig &config = KeyConfig());
-  ~JWTKeyManager() = default;
+  ~JWTKeyManager();
 
   /**
    * @brief Initialize key management system
@@ -146,6 +146,12 @@ public:
    */
   bool validateConfiguration();
 
+  /**
+   * @brief Explicitly cleanup and wipe all stored keys
+   * Useful for production environments with HSM/KMS integration
+   */
+  void cleanupKeys();
+
 private:
   KeyConfig config_;
   std::mutex keyMutex_;
@@ -182,6 +188,21 @@ private:
                                 const std::string &publicKey,
                                 Algorithm alg);
   bool isValidKeyFormat(const std::string &key, Algorithm alg);
+
+private:
+  /**
+   * @brief Securely wipe sensitive key data from memory
+   */
+  void secureWipeKey(std::string& key);
+
+  /**
+   * @brief Wipe all stored keys
+   */
+  void wipeAllKeys();
+
+  // TODO: Consider replacing std::string with secure_string type
+  // that automatically wipes memory on destruction
+  // For HSM/KMS integration, provide abstraction layer here
 #endif
 };
 

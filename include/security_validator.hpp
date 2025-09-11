@@ -82,7 +82,8 @@ public:
               "image/png", "image/gif"
           }),
           allowedFileExtensions({".txt", ".csv", ".json", ".xml", ".jpg", ".jpeg", ".png", ".gif"}),
-          cspHeader("default-src 'self'; script-src 'self' 'nonce-<CSP_NONCE>'; "
+          // Dynamic nonces must be generated at runtime using generateCSPNonce() and createCSPHeaderWithNonce(nonce) for per-response nonces.
+          cspHeader("default-src 'self'; script-src 'self'; "
                    "style-src 'self' 'unsafe-inline'; "
                    "img-src 'self' data: https:; "
                    "font-src 'self'; connect-src 'self'") {}
@@ -93,16 +94,16 @@ public:
    */
   struct RateLimitOptions {
     size_t allowedRequests = 1000;
-    std::chrono::minutes windowDuration = std::chrono::minutes(1);
+    std::chrono::seconds windowDuration = std::chrono::seconds(60); // 1 minute in seconds
     std::string timeUnit = "minute"; // "second", "minute", "hour"
     std::string context = ""; // endpoint or context identifier
 
     RateLimitOptions()
         : allowedRequests(1000),
-          windowDuration(std::chrono::minutes(1)),
+          windowDuration(std::chrono::seconds(60)), // 1 minute = 60 seconds
           timeUnit("minute"),
           context("") {}
-    RateLimitOptions(size_t requests, std::chrono::minutes duration, const std::string& unit = "minute")
+    RateLimitOptions(size_t requests, std::chrono::seconds duration, const std::string& unit = "minute")
         : allowedRequests(requests), windowDuration(duration), timeUnit(unit) {}
   };
 

@@ -52,7 +52,7 @@ int main(int argc, char* argv[]) {
 
     // Test rate limiting
     std::string clientId = "test_client";
-    ETLPlus::Security::SecurityValidator::RateLimitOptions rateLimitOpts(10, std::chrono::minutes(1), "minute");
+    ETLPlus::Security::SecurityValidator::RateLimitOptions rateLimitOpts(10, std::chrono::seconds(60), "minute");
     bool rateLimited = validator.isRateLimitExceeded(clientId, rateLimitOpts);
     std::cout << "   Rate limited: " << (rateLimited ? "YES" : "NO") << "\n";
 

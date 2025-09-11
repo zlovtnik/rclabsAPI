@@ -11,6 +11,7 @@
 #include <openssl/err.h>
 #include <openssl/rsa.h>
 #include <openssl/evp.h>
+#include <openssl/ssl.h>
 #include <sstream>
 #include <limits>
 #include <logger.hpp>
@@ -141,8 +142,20 @@ SSLManager::SSLResult SSLManager::validateConfiguration() {
     result.setError("Private key path is required when SSL is enabled");
   }
 
-  // Validate TLS version
-  std::vector<std::string> validVersions = {"TLSv1.0", "TLSv1.1", "TLSv1.2", "TLSv1.3"};
+  // Validate TLS version - reject insecure versions
+  std::vector<std::string> validVersions = {"TLSv1.2", "TLSv1.3"};
+  std::vector<std::string> insecureVersions = {"TLSv1.0", "TLSv1.1"};
+
+  // Check if the configured version is insecure
+  for (const auto &version : insecureVersions) {
+    if (config_.minimumTLSVersion == version) {
+      result.setError("Insecure TLS version not allowed: " + version +
+                     " - use TLSv1.2 or TLSv1.3 for security");
+      return result;
+    }
+  }
+
+  // Check if the configured version is valid
   bool validVersion = false;
   for (const auto &version : validVersions) {
     if (config_.minimumTLSVersion == version) {
@@ -152,7 +165,8 @@ SSLManager::SSLResult SSLManager::validateConfiguration() {
   }
 
   if (!validVersion) {
-    result.setError("Invalid TLS version: " + config_.minimumTLSVersion);
+    result.setError("Invalid TLS version: " + config_.minimumTLSVersion +
+                   " - supported versions are TLSv1.2 and TLSv1.3");
   }
 
   return result;
@@ -446,9 +460,27 @@ SSLManager::SSLResult SSLManager::configureTLSVersion() {
   SSLResult result;
 
   try {
+    // Get the TLS method (for mapping to OpenSSL constants)
     auto method = getTLSMethod(config_.minimumTLSVersion);
-    // Note: In newer Boost versions, you might need to recreate the context
-    // sslContext_ = boost::asio::ssl::context(method);
+
+    // Map TLS version to OpenSSL protocol constants and set minimum version
+    int minVersion = TLS1_2_VERSION; // Default to TLS 1.2
+    if (config_.minimumTLSVersion == "TLSv1.2") {
+      minVersion = TLS1_2_VERSION;
+    } else if (config_.minimumTLSVersion == "TLSv1.3") {
+      minVersion = TLS1_3_VERSION;
+    }
+
+    // Set minimum TLS version on existing context (preserves all other configuration)
+    int ret = SSL_CTX_set_min_proto_version(sslContext_.native_handle(), minVersion);
+    if (ret != 1) {
+      unsigned long err = ERR_get_error();
+      char errBuf[256];
+      ERR_error_string_n(err, errBuf, sizeof(errBuf));
+      result.setError("Failed to set minimum TLS version '" + config_.minimumTLSVersion +
+                     "': " + errBuf);
+      return result;
+    }
 
     return result;
 
@@ -463,7 +495,21 @@ SSLManager::SSLResult SSLManager::configureCipherSuites() {
 
   try {
     // Configure cipher suites
-    SSL_CTX_set_cipher_list(sslContext_.native_handle(), config_.cipherSuites.c_str());
+    int ret = SSL_CTX_set_cipher_list(sslContext_.native_handle(), config_.cipherSuites.c_str());
+
+    if (ret == 0) {
+      // Get OpenSSL error details
+      unsigned long err = ERR_get_error();
+      char errBuf[256];
+      ERR_error_string_n(err, errBuf, sizeof(errBuf));
+
+      std::string errorMsg = "Failed to set cipher suites '" + config_.cipherSuites +
+                           "': " + errBuf;
+      std::cerr << "SSL Error: " << errorMsg << std::endl;
+
+      result.setError(errorMsg);
+      return result;
+    }
 
     return result;
 
@@ -518,13 +564,11 @@ SSLManager::SSLResult SSLManager::configureSessionCaching() {
 }
 
 boost::asio::ssl::context::method SSLManager::getTLSMethod(const std::string &version) {
-  if (version == "TLSv1.0") return boost::asio::ssl::context::tlsv1;
-  if (version == "TLSv1.1") return boost::asio::ssl::context::tlsv11;
   if (version == "TLSv1.2") return boost::asio::ssl::context::tlsv12;
   if (version == "TLSv1.3") return boost::asio::ssl::context::tlsv13;
 
-  // Default to TLS 1.2
-  return boost::asio::ssl::context::tlsv12;
+  // Default to TLS 1.3 for maximum security
+  return boost::asio::ssl::context::tlsv13;
 }
 
 std::string SSLManager::getCertificateFingerprint(const std::string &certPath) {
