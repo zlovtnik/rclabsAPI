@@ -9,6 +9,10 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y \
     curl \
     git \
     libboost-all-dev \
+    libcurl4-openssl-dev \
+    libgtest-dev \
+    libhiredis-dev \
+    libjsoncpp-dev \
     libpqxx-dev \
     libspdlog-dev \
     libssl-dev \
@@ -33,7 +37,12 @@ RUN mkdir -p build && chown -R builder:builder /app
 
 # Build the application as non-root user
 USER builder
-RUN cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -GNinja && cmake --build build --parallel $(nproc)
+RUN cmake -B build \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DENABLE_TESTS=OFF \
+    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+    -GNinja && \
+    cmake --build build --parallel $(nproc)
 
 # Runtime stage with minimal image
 FROM ubuntu:22.04 AS runtime
@@ -45,6 +54,9 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y \
     libboost-filesystem1.74.0 \
     libboost-system1.74.0 \
     libboost-thread1.74.0 \
+    libcurl4 \
+    libhiredis0.14 \
+    libjsoncpp25 \
     libpqxx-6.4 \
     libssl3 \
     && apt-get clean \
