@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "database_connection_pool.hpp"
 
 struct ConnectionConfig {
   std::string host;
@@ -36,6 +37,8 @@ public:
 
   // Connection pooling
   void setMaxConnections(int maxConn);
+  DatabaseConnectionPool::PoolMetrics getPoolMetrics() const;
+  bool isPoolHealthy() const;
 
 private:
   struct Impl;

@@ -8,9 +8,8 @@
 
 struct DatabaseManager::Impl {
     bool connected = false;
-    ConnectionConfig config;
-    int maxConnections = 10;
-    std::unique_ptr<pqxx::connection> conn;
+    DatabaseConnectionConfig poolConfig;
+    std::unique_ptr<DatabaseConnectionPool> connectionPool;
 };
 
 DatabaseManager::DatabaseManager() : pImpl(std::make_unique<Impl>()) {}
@@ -20,31 +19,34 @@ DatabaseManager::~DatabaseManager() {
 }
 
 bool DatabaseManager::connect(const ConnectionConfig& config) {
-    pImpl->config = config;
-    
+    pImpl->poolConfig.host = config.host;
+    pImpl->poolConfig.port = config.port;
+    pImpl->poolConfig.database = config.database;
+    pImpl->poolConfig.username = config.username;
+    pImpl->poolConfig.password = config.password;
+
     DB_LOG_INFO("Attempting to connect to PostgreSQL database: " + config.host + ":" + std::to_string(config.port) + "/" + config.database);
     DB_LOG_DEBUG("Using username: " + config.username);
-    
+
     try {
-        // Create connection string
-        std::string conn_str = "host=" + config.host + 
-                              " port=" + std::to_string(config.port) + 
-                              " dbname=" + config.database + 
-                              " user=" + config.username + 
-                              " password=" + config.password;
-        
-        pImpl->conn = std::make_unique<pqxx::connection>(conn_str);
-        
-        if (pImpl->conn->is_open()) {
+        // Create connection pool
+        pImpl->connectionPool = std::make_unique<DatabaseConnectionPool>(pImpl->poolConfig);
+
+        // Test the connection pool by acquiring and releasing a connection
+        auto testConn = pImpl->connectionPool->acquireConnection();
+        if (testConn && testConn->is_open()) {
+            pImpl->connectionPool->releaseConnection(testConn);
             pImpl->connected = true;
-            DB_LOG_INFO("PostgreSQL database connection established successfully");
+            DB_LOG_INFO("PostgreSQL database connection pool established successfully");
             return true;
         } else {
-            DB_LOG_ERROR("Failed to open PostgreSQL database connection");
+            DB_LOG_ERROR("Failed to establish database connection pool");
+            pImpl->connectionPool.reset();
             return false;
         }
     } catch (const std::exception& e) {
-        DB_LOG_ERROR("PostgreSQL connection failed: " + std::string(e.what()));
+        DB_LOG_ERROR("PostgreSQL connection pool failed: " + std::string(e.what()));
+        pImpl->connectionPool.reset();
         return false;
     }
 }
@@ -94,16 +96,17 @@ bool DatabaseManager::initializeSchema() {
 }
 
 void DatabaseManager::disconnect() {
-    if (pImpl->connected && pImpl->conn) {
-        DB_LOG_INFO("Disconnecting from PostgreSQL database");
-        pImpl->conn.reset(); // Let the connection close automatically
+    if (pImpl->connected && pImpl->connectionPool) {
+        DB_LOG_INFO("Disconnecting PostgreSQL database connection pool");
+        pImpl->connectionPool->closeAll();
+        pImpl->connectionPool.reset();
         pImpl->connected = false;
-        DB_LOG_DEBUG("PostgreSQL database disconnection completed");
+        DB_LOG_DEBUG("PostgreSQL database connection pool disconnection completed");
     }
 }
 
 bool DatabaseManager::isConnected() const {
-    return pImpl->connected && pImpl->conn && pImpl->conn->is_open();
+    return pImpl->connected && pImpl->connectionPool && pImpl->connectionPool->isHealthy();
 }
 
 bool DatabaseManager::executeQuery(const std::string& query) {
@@ -111,13 +114,15 @@ bool DatabaseManager::executeQuery(const std::string& query) {
         DB_LOG_ERROR("Cannot execute query: database not connected");
         return false;
     }
-    
+
     DB_LOG_DEBUG("Executing query: " + query.substr(0, 100) + (query.length() > 100 ? "..." : ""));
-    
+
     try {
-        pqxx::work txn(*pImpl->conn);
+        auto conn = pImpl->connectionPool->acquireConnection();
+        pqxx::work txn(*conn);
         txn.exec(query);
         txn.commit();
+        pImpl->connectionPool->releaseConnection(conn);
         DB_LOG_DEBUG("Query executed successfully");
         return true;
     } catch (const std::exception& e) {
@@ -131,16 +136,18 @@ std::vector<std::vector<std::string>> DatabaseManager::selectQuery(const std::st
         DB_LOG_ERROR("Cannot execute select query: database not connected");
         return {};
     }
-    
+
     DB_LOG_DEBUG("Executing select query: " + query.substr(0, 100) + (query.length() > 100 ? "..." : ""));
-    
+
     try {
-        pqxx::work txn(*pImpl->conn);
+        auto conn = pImpl->connectionPool->acquireConnection();
+        pqxx::work txn(*conn);
         pqxx::result result = txn.exec(query);
         txn.commit();
-        
+        pImpl->connectionPool->releaseConnection(conn);
+
         std::vector<std::vector<std::string>> rows;
-        
+
         // Add column headers
         if (!result.empty()) {
             std::vector<std::string> headers;
@@ -149,7 +156,7 @@ std::vector<std::vector<std::string>> DatabaseManager::selectQuery(const std::st
             }
             rows.push_back(headers);
         }
-        
+
         // Add data rows
         for (const auto& row : result) {
             std::vector<std::string> dataRow;
@@ -158,7 +165,7 @@ std::vector<std::vector<std::string>> DatabaseManager::selectQuery(const std::st
             }
             rows.push_back(dataRow);
         }
-        
+
         DB_LOG_DEBUG("Select query completed, returning " + std::to_string(rows.size()) + " rows");
         return rows;
     } catch (const std::exception& e) {
@@ -201,6 +208,20 @@ bool DatabaseManager::rollbackTransaction() {
 }
 
 void DatabaseManager::setMaxConnections(int maxConn) {
-    pImpl->maxConnections = maxConn;
+    pImpl->poolConfig.maxConnections = maxConn;
+    if (pImpl->connectionPool) {
+        pImpl->connectionPool->updateConfig(pImpl->poolConfig);
+    }
     DB_LOG_INFO("Set maximum PostgreSQL database connections to " + std::to_string(maxConn));
+}
+
+DatabaseConnectionPool::PoolMetrics DatabaseManager::getPoolMetrics() const {
+    if (pImpl->connectionPool) {
+        return pImpl->connectionPool->getMetrics();
+    }
+    return DatabaseConnectionPool::PoolMetrics{};
+}
+
+bool DatabaseManager::isPoolHealthy() const {
+    return pImpl->connected && pImpl->connectionPool && pImpl->connectionPool->isHealthy();
 }

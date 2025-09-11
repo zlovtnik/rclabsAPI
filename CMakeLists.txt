@@ -216,6 +216,48 @@ endif()
 # Expose JWT feature flag
 add_compile_definitions(ETL_ENABLE_JWT=$<BOOL:${JWT_CPP_FOUND}>)
 
+# Try to find hiredis (Redis C client library)
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(HIREDIS QUIET hiredis)
+endif()
+
+if(NOT HIREDIS_FOUND)
+    message(STATUS "hiredis not found via pkg-config, trying manual search")
+    
+    # Try to find hiredis installed via Homebrew or manually
+    find_path(HIREDIS_INCLUDE_DIR hiredis/hiredis.h
+        PATHS
+            /opt/homebrew/include
+            /usr/local/include
+            /usr/include
+        NO_DEFAULT_PATH
+    )
+    find_library(HIREDIS_LIBRARIES
+        NAMES hiredis
+        PATHS
+            /opt/homebrew/lib
+            /usr/local/lib
+            /usr/lib
+        NO_DEFAULT_PATH
+    )
+    
+    if(HIREDIS_INCLUDE_DIR AND HIREDIS_LIBRARIES)
+        set(HIREDIS_FOUND TRUE)
+        message(STATUS "Found hiredis manually: ${HIREDIS_LIBRARIES}")
+        message(STATUS "hiredis include dir: ${HIREDIS_INCLUDE_DIR}")
+    else()
+        message(STATUS "hiredis not found, Redis caching will be disabled")
+        set(HIREDIS_LIBRARIES "")
+        set(HIREDIS_INCLUDE_DIRS "")
+    endif()
+else()
+    message(STATUS "Found hiredis via pkg-config: ${HIREDIS_LIBRARIES}")
+    # Force the use of full paths for reliable linking
+    set(HIREDIS_LIBRARIES "/opt/homebrew/lib/libhiredis.dylib")
+    message(STATUS "Using explicit hiredis library path: ${HIREDIS_LIBRARIES}")
+endif()
+
 # Create a shared library for common sources to avoid recompilation
 set(COMMON_SOURCES
     src/logger.cpp
@@ -223,6 +265,9 @@ set(COMMON_SOURCES
     src/log_file_manager.cpp
     src/config_manager.cpp
     src/database_manager.cpp
+    src/database_connection_pool.cpp
+    src/redis_cache.cpp
+    src/cache_manager.cpp
     src/database_schema.cpp
     src/user_repository.cpp
     src/session_repository.cpp
@@ -284,6 +329,12 @@ endif()
 if(JWT_CPP_INCLUDE_DIRS)
     target_include_directories(etl_common PUBLIC ${JWT_CPP_INCLUDE_DIRS})
 endif()
+if(HIREDIS_INCLUDE_DIR)
+    target_include_directories(etl_common PUBLIC ${HIREDIS_INCLUDE_DIR})
+endif()
+if(HIREDIS_INCLUDE_DIRS)
+    target_include_directories(etl_common PUBLIC ${HIREDIS_INCLUDE_DIRS})
+endif()
 
 # Link libraries to the common library
 target_link_libraries(etl_common PUBLIC
@@ -292,6 +343,7 @@ target_link_libraries(etl_common PUBLIC
     ${CURL_LIBRARIES}
     ${JSONCPP_LIBRARIES}
     ${LIBPQXX_LIBRARIES}
+    ${HIREDIS_LIBRARIES}
     OpenSSL::SSL
     OpenSSL::Crypto
 )
@@ -373,6 +425,7 @@ create_test_executable(demo_response_builder_simple scripts/demo_response_builde
 create_test_executable(demo_exception_mapper_integration scripts/demo_exception_mapper_integration.cpp)
 create_test_executable(test_exception_mapper scripts/test_exception_mapper.cpp)
 create_test_executable(test_request_handler_refactored scripts/test_request_handler_refactored.cpp)
+create_test_executable(load_test_advanced scripts/load_test_advanced.cpp)
 if(ENABLE_TESTS AND JWT_CPP_FOUND)
   create_test_executable(test_jwt_auth scripts/test_jwt_auth.cpp)
 endif()
