@@ -10,6 +10,7 @@
 #include <string_view>
 #include <ranges>
 #include <chrono>
+#include <cstdlib>
 #if ETL_ENABLE_JWT
 #include <jwt-cpp/jwt.h>
 #endif
@@ -27,7 +28,7 @@ AuthManager::AuthManager(std::shared_ptr<DatabaseManager> dbManager)
         AUTH_LOG_ERROR("JWT_SECRET_KEY environment variable must be set");
         throw std::runtime_error("JWT_SECRET_KEY environment variable must be set");
     }
-    AUTH_LOG_INFO("JWT_SECRET_KEY environment variable is set.");
+    AUTH_LOG_DEBUG("JWT_SECRET_KEY environment variable is set.");
 
     std::string secretStr(secret);
     if (secretStr.empty()) {

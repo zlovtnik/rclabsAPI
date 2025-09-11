@@ -71,9 +71,11 @@ public:
 
     void stop() {
         stopped_ = true;
-        beast::error_code ec;
-        acceptor_.cancel(ec);
-        acceptor_.close(ec);
+        net::post(acceptor_.get_executor(), [this]() {
+            beast::error_code ec;
+            acceptor_.cancel(ec);
+            acceptor_.close(ec);
+        });
     }
 
 private:
@@ -130,7 +132,9 @@ private:
         }
 
         // Continue accepting only if not stopping
-        doAccept();
+        if (!stopped_) {
+            doAccept();
+        }
     }
 };
 
