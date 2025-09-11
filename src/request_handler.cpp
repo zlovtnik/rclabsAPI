@@ -4,6 +4,8 @@
 #include "etl_job_manager.hpp"
 #include "rate_limiter.hpp"
 #include "websocket_filter_manager.hpp"
+#include "websocket_manager.hpp"
+#include "system_metrics.hpp"
 #include "exception_handler.hpp"
 #include "exception_mapper.hpp"
 #include "etl_exceptions.hpp"
@@ -17,6 +19,7 @@
 #include <algorithm>
 #include <stdexcept>
 #include <unistd.h> // for getpid()
+#include <thread>
 #include <nlohmann/json.hpp>
 
 RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
@@ -94,6 +97,83 @@ RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
 
   // Note: HanaExceptionRegistry provides better type safety than the old ExceptionMapper
   // The old ExceptionMapper registration is removed in favor of Hana-based handling
+
+  REQ_LOG_INFO("Hana-based exception handlers registered for improved error handling");
+}
+
+RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
+                               std::shared_ptr<AuthManager> authManager,
+                               std::shared_ptr<ETLJobManager> etlManager,
+                               std::shared_ptr<WebSocketManager> wsManager)
+    : dbManager_(dbManager), authManager_(authManager),
+      etlManager_(etlManager), wsManager_(wsManager), rateLimiter_(std::make_unique<RateLimiter>()), exceptionMapper_()
+{
+  REQ_LOG_INFO("RequestHandler created with WebSocket support - DB: " +
+               std::string(dbManager ? "valid" : "null") +
+               ", Auth: " + std::string(authManager ? "valid" : "null") +
+               ", ETL: " + std::string(etlManager ? "valid" : "null") +
+               ", WebSocket: " + std::string(wsManager ? "valid" : "null"));
+
+  // Initialize rate limiter
+  rateLimiter_->initializeDefaultRules();
+
+  // Configure the exception mapper for RequestHandler
+  ETLPlus::ExceptionHandling::ExceptionMappingConfig config;
+  config.serverHeader = "ETL Plus Backend";
+  config.corsOrigin = "*";
+  config.keepAlive = false;
+  config.includeInternalDetails = false; // Don't expose internal details in production
+  exceptionMapper_.updateConfig(config);
+
+  // Initialize Hana-based exception handlers for better type safety and performance
+  hanaExceptionRegistry_.registerHandler<etl::ValidationException>(
+      ETLPlus::ExceptionHandling::makeValidationErrorHandler());
+  hanaExceptionRegistry_.registerHandler<etl::SystemException>(
+      ETLPlus::ExceptionHandling::makeSystemErrorHandler());
+  hanaExceptionRegistry_.registerHandler<etl::BusinessException>(
+      ETLPlus::ExceptionHandling::makeBusinessErrorHandler());
+
+  REQ_LOG_INFO("Hana-based exception handlers registered for improved error handling");
+}
+
+RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
+                               std::shared_ptr<AuthManager> authManager,
+                               std::shared_ptr<ETLJobManager> etlManager,
+                               std::unique_ptr<RateLimiter> rateLimiter,
+                               std::shared_ptr<WebSocketManager> wsManager)
+    : dbManager_(dbManager), authManager_(authManager),
+      etlManager_(etlManager), wsManager_(wsManager), rateLimiter_(std::move(rateLimiter)), exceptionMapper_()
+{
+  REQ_LOG_INFO("RequestHandler created with injected components and WebSocket support - DB: " +
+               std::string(dbManager ? "valid" : "null") +
+               ", Auth: " + std::string(authManager ? "valid" : "null") +
+               ", ETL: " + std::string(etlManager ? "valid" : "null") +
+               ", RateLimiter: " + std::string(rateLimiter_ ? "valid" : "null") +
+               ", WebSocket: " + std::string(wsManager ? "valid" : "null"));
+
+  // Validate rate limiter pointer
+  if (!rateLimiter_) {
+    throw std::invalid_argument("RateLimiter pointer cannot be null");
+  }
+
+  // Initialize rate limiter
+  rateLimiter_->initializeDefaultRules();
+
+  // Configure the exception mapper for RequestHandler
+  ETLPlus::ExceptionHandling::ExceptionMappingConfig config;
+  config.serverHeader = "ETL Plus Backend";
+  config.corsOrigin = "*";
+  config.keepAlive = false;
+  config.includeInternalDetails = false; // Don't expose internal details in production
+  exceptionMapper_.updateConfig(config);
+
+  // Initialize Hana-based exception handlers for better type safety and performance
+  hanaExceptionRegistry_.registerHandler<etl::ValidationException>(
+      ETLPlus::ExceptionHandling::makeValidationErrorHandler());
+  hanaExceptionRegistry_.registerHandler<etl::SystemException>(
+      ETLPlus::ExceptionHandling::makeSystemErrorHandler());
+  hanaExceptionRegistry_.registerHandler<etl::BusinessException>(
+      ETLPlus::ExceptionHandling::makeBusinessErrorHandler());
 
   REQ_LOG_INFO("Hana-based exception handlers registered for improved error handling");
 }
@@ -1507,10 +1587,47 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
 
   REQ_LOG_DEBUG("RequestHandler::handleHealth() - Processing health endpoint: " + std::string(target));
 
+  // Get real system metrics
+  ETLPlus::Metrics::SystemMetrics sysMetrics;
+  sysMetrics.startMonitoring();
+  std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Brief monitoring period
+  double cpuUsage = sysMetrics.getProcessCpuUsage();
+  size_t memoryUsage = sysMetrics.getProcessMemoryUsage();
+  sysMetrics.stopMonitoring();
+
+  // Get database health
+  bool dbConnected = dbManager_ && dbManager_->isConnected();
+  bool dbPoolHealthy = dbManager_ && dbManager_->isPoolHealthy();
+  auto dbMetrics = dbManager_ ? dbManager_->getPoolMetrics() : DatabaseConnectionPool::PoolMetrics{};
+
+  // Get WebSocket health
+  bool wsRunning = wsManager_ && wsManager_->isRunning();
+  size_t wsConnections = wsManager_ ? wsManager_->getConnectionCount() : 0;
+  auto wsPoolStats = wsManager_ ? wsManager_->getConnectionPoolStats() : ConnectionPoolStats{};
+  auto wsBroadcasterStats = wsManager_ ? wsManager_->getMessageBroadcasterStats() : MessageBroadcasterStats{};
+
+  // Get ETL job statistics
+  size_t totalJobs = 0;
+  size_t runningJobs = 0;
+  size_t completedJobs = 0;
+  size_t failedJobs = 0;
+  if (etlManager_) {
+    // These would need to be implemented in ETLJobManager
+    // For now, use placeholder values
+    totalJobs = 0;
+    runningJobs = 0;
+    completedJobs = 0;
+    failedJobs = 0;
+  }
+
   // Basic health check
   if (target == "/api/health" || target == "/api/status")
   {
-    return createSuccessResponse("{\"status\":\"healthy\",\"timestamp\":\"" + std::to_string(timestamp) + "\"}", req.version());
+    std::string status = "healthy";
+    if (!dbConnected || !wsRunning) {
+      status = "degraded";
+    }
+    return createSuccessResponse("{\"status\":\"" + status + "\",\"timestamp\":\"" + std::to_string(timestamp) + "\"}", req.version());
   }
 
   // Detailed health endpoints
@@ -1523,7 +1640,25 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
        << timestamp << R"(",
       "version": "1.0.0",
       "uptime": )"
-       << (timestamp - 1754851364) << R"(
+       << (timestamp - 1754851364) << R"(,
+      "components": {
+        "database": {)"
+       << "\"connected\": " << (dbConnected ? "true" : "false") << R"(,
+          "pool_healthy": )"
+       << (dbPoolHealthy ? "true" : "false") << R"(
+        },
+        "websocket": {)"
+       << "\"running\": " << (wsRunning ? "true" : "false") << R"(,
+          "connections": )"
+       << wsConnections << R"(
+        },
+        "system": {
+          "cpu_usage": )"
+       << cpuUsage << R"(,
+          "memory_usage": )"
+       << memoryUsage << R"(
+        }
+      }
     })";
     std::string healthData = ss.str();
     return createSuccessResponse(healthData, req.version());
@@ -1531,13 +1666,24 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
 
   if (target == "/api/health/ready")
   {
+    std::string readinessStatus = (dbConnected && dbPoolHealthy && wsRunning) ? "ready" : "not_ready";
     std::stringstream ss;
     ss << R"({
-      "status": "ready",
+      "status": ")" << readinessStatus << R"(",
       "timestamp": ")"
        << timestamp << R"(",
-      "database": "connected",
-      "websocket": "running"
+      "database": {
+        "connected": )"
+       << (dbConnected ? "true" : "false") << R"(,
+        "pool_healthy": )"
+       << (dbPoolHealthy ? "true" : "false") << R"(
+      },
+      "websocket": {
+        "running": )"
+       << (wsRunning ? "true" : "false") << R"(,
+        "connections": )"
+       << wsConnections << R"(
+      }
     })";
     std::string readinessData = ss.str();
     return createSuccessResponse(readinessData, req.version());
@@ -1552,7 +1698,12 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
        << timestamp << R"(",
       "pid": )"
        << getpid() << R"(,
-      "memory": "OK"
+      "memory": {
+        "used_bytes": )"
+       << memoryUsage << R"(,
+        "cpu_percent": )"
+       << cpuUsage << R"(
+      }
     })";
     std::string livenessData = ss.str();
     return createSuccessResponse(livenessData, req.version());
@@ -1566,11 +1717,36 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
       "timestamp": ")"
        << timestamp << R"(",
       "metrics": {
-        "cpu_usage": "12.5%",
-        "memory_usage": "45.2%",
-        "disk_usage": "23.1%",
-        "active_connections": 1,
-        "requests_per_minute": 15
+        "cpu_usage": )"
+       << cpuUsage << R"(,
+        "memory_usage": )"
+       << memoryUsage << R"(,
+        "database": {
+          "connections_active": )"
+       << dbMetrics.activeConnections << R"(,
+          "connections_idle": )"
+       << dbMetrics.idleConnections << R"(,
+          "connection_timeouts": )"
+       << dbMetrics.connectionTimeouts << R"(
+        },
+        "websocket": {
+          "connections": )"
+       << wsConnections << R"(,
+          "messages_sent": )"
+       << wsBroadcasterStats.totalMessagesSent << R"(,
+          "messages_received": )"
+       << wsBroadcasterStats.totalMessagesQueued << R"(
+        },
+        "jobs": {
+          "total": )"
+       << totalJobs << R"(,
+          "running": )"
+       << runningJobs << R"(,
+          "completed": )"
+       << completedJobs << R"(,
+          "failed": )"
+       << failedJobs << R"(
+        }
       }
     })";
     std::string metricsData = ss.str();
@@ -1581,14 +1757,24 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
   {
     std::stringstream ss;
     ss << R"({
-      "status": "healthy",
+      "status": ")" << (dbConnected ? "healthy" : "unhealthy") << R"(",
       "timestamp": ")"
        << timestamp << R"(",
       "database": {
-        "connection": "active",
-        "response_time": "5ms",
-        "pool_size": 10,
-        "active_connections": 3
+        "connected": )"
+       << (dbConnected ? "true" : "false") << R"(,
+        "pool_healthy": )"
+       << (dbPoolHealthy ? "true" : "false") << R"(,
+        "active_connections": )"
+       << dbMetrics.activeConnections << R"(,
+        "idle_connections": )"
+       << dbMetrics.idleConnections << R"(,
+        "total_connections": )"
+       << dbMetrics.totalConnections << R"(,
+        "connection_timeouts": )"
+       << dbMetrics.connectionTimeouts << R"(,
+        "average_wait_time_ms": )"
+       << dbMetrics.averageWaitTimeMs << R"(
       }
     })";
     std::string dbHealthData = ss.str();
@@ -1599,13 +1785,24 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
   {
     std::stringstream ss;
     ss << R"({
-      "status": "healthy",
+      "status": ")" << (wsRunning ? "healthy" : "unhealthy") << R"(",
       "timestamp": ")"
        << timestamp << R"(",
       "websocket": {
-        "server": "running",
-        "connections": 0,
-        "message_queue": "empty"
+        "running": )"
+       << (wsRunning ? "true" : "false") << R"(,
+        "connections": )"
+       << wsConnections << R"(,
+        "pool_size": )"
+       << wsPoolStats.totalConnections << R"(,
+        "active_sessions": )"
+       << wsPoolStats.activeConnections << R"(,
+        "messages_sent": )"
+       << wsBroadcasterStats.totalMessagesSent << R"(,
+        "messages_received": )"
+       << wsBroadcasterStats.totalMessagesQueued << R"(,
+        "broadcast_errors": )"
+       << wsBroadcasterStats.totalMessagesDropped << R"(
       }
     })";
     std::string wsHealthData = ss.str();
@@ -1614,15 +1811,24 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
 
   if (target == "/api/health/memory")
   {
+    // Get system memory info
+    size_t systemMemory = sysMetrics.getCurrentMemoryUsage();
+    double systemMemoryPercent = sysMetrics.getCurrentCpuUsage(); // Note: This is actually CPU, but we'll use it as placeholder
+    
     std::stringstream ss;
     ss << R"({
       "status": "healthy",
       "timestamp": ")"
        << timestamp << R"(",
       "memory": {
-        "used": "45.2MB",
-        "available": "512MB",
-        "percentage": "8.8%"
+        "process_used_bytes": )"
+       << memoryUsage << R"(,
+        "system_used_bytes": )"
+       << systemMemory << R"(,
+        "system_cpu_percent": )"
+       << systemMemoryPercent << R"(,
+        "process_cpu_percent": )"
+       << cpuUsage << R"(
       }
     })";
     std::string memoryData = ss.str();
@@ -1631,15 +1837,26 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
 
   if (target == "/api/health/system")
   {
+    // Get system information
+    double systemCpu = sysMetrics.getCurrentCpuUsage();
+    size_t systemMemory = sysMetrics.getCurrentMemoryUsage();
+    
     std::stringstream ss;
     ss << R"({
       "status": "healthy",
       "timestamp": ")"
        << timestamp << R"(",
       "system": {
-        "cpu_cores": 8,
-        "load_average": "0.75",
-        "disk_space": "2.1TB available"
+        "cpu_usage_percent": )"
+       << systemCpu << R"(,
+        "memory_used_bytes": )"
+       << systemMemory << R"(,
+        "process_memory_bytes": )"
+       << memoryUsage << R"(,
+        "uptime_seconds": )"
+       << (timestamp - 1754851364) << R"(,
+        "process_id": )"
+       << getpid() << R"(
       }
     })";
     std::string systemData = ss.str();
@@ -1648,17 +1865,22 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
 
   if (target == "/api/health/jobs")
   {
-    // Get job stats from ETL manager if available
     std::stringstream ss;
     ss << R"({
       "status": "healthy",
       "timestamp": ")"
        << timestamp << R"(",
       "jobs": {
-        "total": 0,
-        "running": 0,
-        "completed": 0,
-        "failed": 0
+        "total": )"
+       << totalJobs << R"(,
+        "running": )"
+       << runningJobs << R"(,
+        "completed": )"
+       << completedJobs << R"(,
+        "failed": )"
+       << failedJobs << R"(,
+        "etl_manager_available": )"
+       << (etlManager_ ? "true" : "false") << R"(
       }
     })";
     std::string jobsData = ss.str();
@@ -1697,24 +1919,49 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
     {
       std::stringstream ss;
       ss << R"({
-        "status": "healthy",
+        "status": ")" << ((dbConnected && wsRunning) ? "healthy" : "degraded") << R"(",
         "timestamp": ")"
          << timestamp << R"(",
         "detailed": {
           "version": "1.0.0",
           "uptime": )"
          << (timestamp - 1754851364) << R"(,
-          "database": "connected",
-          "websocket": "running",
-          "memory_usage": "45.2%",
-          "cpu_usage": "12.5%"
+          "database": {
+            "connected": )"
+         << (dbConnected ? "true" : "false") << R"(,
+            "pool_healthy": )"
+         << (dbPoolHealthy ? "true" : "false") << R"(,
+            "active_connections": )"
+         << dbMetrics.activeConnections << R"(
+          },
+          "websocket": {
+            "running": )"
+         << (wsRunning ? "true" : "false") << R"(,
+            "connections": )"
+         << wsConnections << R"(
+          },
+          "system": {
+            "cpu_usage": )"
+         << cpuUsage << R"(,
+            "memory_usage": )"
+         << memoryUsage << R"(,
+            "process_id": )"
+         << getpid() << R"(
+          },
+          "jobs": {
+            "total": )"
+         << totalJobs << R"(,
+            "running": )"
+         << runningJobs << R"(
+          }
         }
       })";
       healthData = ss.str();
     }
     else
     {
-      healthData = "{\"status\":\"healthy\",\"timestamp\":\"" + std::to_string(timestamp) + "\"}";
+      std::string status = (dbConnected && wsRunning) ? "healthy" : "degraded";
+      healthData = "{\"status\":\"" + status + "\",\"timestamp\":\"" + std::to_string(timestamp) + "\"}";
     }
 
     return createSuccessResponse(healthData, req.version());
