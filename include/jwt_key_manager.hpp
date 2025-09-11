@@ -2,11 +2,11 @@
 
 #include <chrono>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <mutex>
 
 #ifdef ETL_ENABLE_JWT
 #include <jwt-cpp/jwt.h>
@@ -30,15 +30,15 @@ public:
    * @brief JWT algorithm types
    */
   enum class Algorithm {
-    HS256,  // HMAC SHA-256
-    HS384,  // HMAC SHA-384
-    HS512,  // HMAC SHA-512
-    RS256,  // RSA SHA-256
-    RS384,  // RSA SHA-384
-    RS512,  // RSA SHA-512
-    ES256,  // ECDSA SHA-256
-    ES384,  // ECDSA SHA-384
-    ES512   // ECDSA SHA-512
+    HS256, // HMAC SHA-256
+    HS384, // HMAC SHA-384
+    HS512, // HMAC SHA-512
+    RS256, // RSA SHA-256
+    RS384, // RSA SHA-384
+    RS512, // RSA SHA-512
+    ES256, // ECDSA SHA-256
+    ES384, // ECDSA SHA-384
+    ES512  // ECDSA SHA-512
   };
 
   /**
@@ -55,11 +55,9 @@ public:
     std::string issuer;
 
     KeyConfig()
-        : algorithm(Algorithm::HS256),
-          keyId("default"),
+        : algorithm(Algorithm::HS256), keyId("default"),
           rotationInterval(std::chrono::hours(24 * 30)), // 30 days
-          enableRotation(true),
-          issuer("etl-backend") {}
+          enableRotation(true), issuer("etl-backend") {}
   };
 
   /**
@@ -97,9 +95,9 @@ public:
   /**
    * @brief Generate JWT token
    */
-  std::optional<TokenInfo> generateToken(
-      const std::unordered_map<std::string, std::string> &claims,
-      std::chrono::hours expiryHours = std::chrono::hours(1));
+  std::optional<TokenInfo>
+  generateToken(const std::unordered_map<std::string, std::string> &claims,
+                std::chrono::hours expiryHours = std::chrono::hours(1));
 
   /**
    * @brief Validate JWT token
@@ -181,19 +179,21 @@ private:
   std::chrono::system_clock::time_point lastRotation_;
 
   // Helper methods that depend on jwt-cpp
-  template<typename Builder>
-  std::string signToken(const Builder& builder, const std::string& key, Algorithm alg);
-  bool verifyToken(const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded, const std::string& key, Algorithm alg);
+  template <typename Builder>
+  std::string signToken(const Builder &builder, const std::string &key,
+                        Algorithm alg);
+  bool
+  verifyToken(const jwt::decoded_jwt<jwt::traits::kazuho_picojson> &decoded,
+              const std::string &key, Algorithm alg);
   std::string createJWKSKeyEntry(const std::string &keyId,
-                                const std::string &publicKey,
-                                Algorithm alg);
+                                 const std::string &publicKey, Algorithm alg);
   bool isValidKeyFormat(const std::string &key, Algorithm alg);
 
 private:
   /**
    * @brief Securely wipe sensitive key data from memory
    */
-  void secureWipeKey(std::string& key);
+  void secureWipeKey(std::string &key);
 
   /**
    * @brief Wipe all stored keys

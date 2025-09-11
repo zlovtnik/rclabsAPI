@@ -3,17 +3,17 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
+#include <nlohmann/json.hpp>
+#include <openssl/bio.h>
+#include <openssl/evp.h>
+#include <openssl/pem.h>
+#include <openssl/rand.h>
+#include <openssl/rsa.h>
 #include <random>
 #include <sstream>
 #include <stdexcept>
-#include <nlohmann/json.hpp>
-#include <iomanip>
-#include <openssl/rand.h>
-#include <openssl/rsa.h>
-#include <openssl/pem.h>
-#include <openssl/bio.h>
-#include <openssl/evp.h>
 
 #ifdef ETL_ENABLE_JWT
 #include <jwt-cpp/jwt.h>
@@ -21,14 +21,11 @@
 
 namespace ETLPlus::Auth {
 
-JWTKeyManager::JWTKeyManager(const KeyConfig &config) : config_(config) {
-}
+JWTKeyManager::JWTKeyManager(const KeyConfig &config) : config_(config) {}
 
-JWTKeyManager::~JWTKeyManager() {
-  wipeAllKeys();
-}
+JWTKeyManager::~JWTKeyManager() { wipeAllKeys(); }
 
-void JWTKeyManager::secureWipeKey(std::string& key) {
+void JWTKeyManager::secureWipeKey(std::string &key) {
   if (!key.empty()) {
     // Overwrite the string's internal buffer with zeros
     std::fill(key.begin(), key.end(), '\0');
@@ -88,7 +85,8 @@ bool JWTKeyManager::initialize() {
     return true;
 
   } catch (const std::exception &e) {
-    std::cerr << "JWT Key Manager initialization failed: " << e.what() << std::endl;
+    std::cerr << "JWT Key Manager initialization failed: " << e.what()
+              << std::endl;
     return false;
   }
 }
@@ -113,10 +111,10 @@ std::optional<JWTKeyManager::TokenInfo> JWTKeyManager::generateToken(
 
     // Create JWT builder
     auto builder = jwt::create()
-                      .set_issuer(config_.issuer)
-                      .set_issued_at(now)
-                      .set_expires_at(expiresAt)
-                      .set_key_id(currentKeyId_);
+                       .set_issuer(config_.issuer)
+                       .set_issued_at(now)
+                       .set_expires_at(expiresAt)
+                       .set_key_id(currentKeyId_);
 
     // Add custom claims
     for (const auto &[key, value] : claims) {
@@ -150,7 +148,8 @@ std::optional<JWTKeyManager::TokenInfo> JWTKeyManager::generateToken(
 #endif
 }
 
-std::optional<JWTKeyManager::TokenInfo> JWTKeyManager::validateToken(const std::string &token) {
+std::optional<JWTKeyManager::TokenInfo>
+JWTKeyManager::validateToken(const std::string &token) {
 #ifndef ETL_ENABLE_JWT
   return std::nullopt;
 #else
@@ -187,19 +186,20 @@ std::optional<JWTKeyManager::TokenInfo> JWTKeyManager::validateToken(const std::
     info.issuedAt = decoded.get_issued_at();
     info.expiresAt = decoded.get_expires_at();
 
-  // Extract custom claims
-  try {
-    // Get payload as JSON and extract string claims
-    auto payload = decoded.get_payload_json();
-    for (const auto& [key, value] : payload) {
-      if (value.is<std::string>()) {
-        info.claims[key] = value.get<std::string>();
+    // Extract custom claims
+    try {
+      // Get payload as JSON and extract string claims
+      auto payload = decoded.get_payload_json();
+      for (const auto &[key, value] : payload) {
+        if (value.is<std::string>()) {
+          info.claims[key] = value.get<std::string>();
+        }
       }
+    } catch (const std::exception &e) {
+      // Log claim extraction errors but continue processing
+      std::cerr << "Warning: Failed to extract JWT claims: " << e.what()
+                << std::endl;
     }
-  } catch (const std::exception& e) {
-    // Log claim extraction errors but continue processing
-    std::cerr << "Warning: Failed to extract JWT claims: " << e.what() << std::endl;
-  }
 
     return info;
 
@@ -232,7 +232,7 @@ std::optional<JWTKeyManager::TokenInfo> JWTKeyManager::validateToken(const std::
 
         // Extract claims
         auto payload = decoded.get_payload_json();
-        for (const auto& [key, value] : payload) {
+        for (const auto &[key, value] : payload) {
           if (value.is<std::string>()) {
             info.claims[key] = value.get<std::string>();
           }
@@ -252,7 +252,8 @@ std::optional<JWTKeyManager::TokenInfo> JWTKeyManager::validateToken(const std::
 #endif
 }
 
-std::optional<JWTKeyManager::TokenInfo> JWTKeyManager::refreshToken(const std::string &token) {
+std::optional<JWTKeyManager::TokenInfo>
+JWTKeyManager::refreshToken(const std::string &token) {
 #ifndef ETL_ENABLE_JWT
   return std::nullopt;
 #else
@@ -298,30 +299,30 @@ std::optional<JWTKeyManager::JWKS> JWTKeyManager::getJWKS() {
     }
 
     // Add current key
-    std::string currentKeyEntry = createJWKSKeyEntry(currentKeyId_,
-                                                   currentPublicKey_,
-                                                   config_.algorithm);
+    std::string currentKeyEntry =
+        createJWKSKeyEntry(currentKeyId_, currentPublicKey_, config_.algorithm);
     if (!currentKeyEntry.empty()) {
       jwks.keys.push_back({{"kid", currentKeyId_},
-                          {"kty", keyType}, // Detect key type from algorithm
-                          {"use", "sig"},
-                          {"n", currentPublicKey_}}); // Simplified
+                           {"kty", keyType}, // Detect key type from algorithm
+                           {"use", "sig"},
+                           {"n", currentPublicKey_}}); // Simplified
     }
 
-    // Add previous key if rotation is enabled and previous key exists (grace period)
-    if (config_.enableRotation && !previousPublicKey_.empty() && !previousKeyId_.empty()) {
+    // Add previous key if rotation is enabled and previous key exists (grace
+    // period)
+    if (config_.enableRotation && !previousPublicKey_.empty() &&
+        !previousKeyId_.empty()) {
       // Check if previous key is still within grace period
       auto now = std::chrono::system_clock::now();
       auto graceWindow = std::chrono::hours(24); // 24 hour grace period
       if ((now - lastRotation_) < graceWindow) {
-        std::string previousKeyEntry = createJWKSKeyEntry(previousKeyId_,
-                                                         previousPublicKey_,
-                                                         config_.algorithm);
+        std::string previousKeyEntry = createJWKSKeyEntry(
+            previousKeyId_, previousPublicKey_, config_.algorithm);
         if (!previousKeyEntry.empty()) {
           jwks.keys.push_back({{"kid", previousKeyId_},
-                              {"kty", keyType},
-                              {"use", "sig"},
-                              {"n", previousPublicKey_}});
+                               {"kty", keyType},
+                               {"use", "sig"},
+                               {"n", previousPublicKey_}});
         }
       }
     }
@@ -330,9 +331,9 @@ std::optional<JWTKeyManager::JWKS> JWTKeyManager::getJWKS() {
     nlohmann::json jwksJson;
     jwksJson["keys"] = nlohmann::json::array();
 
-    for (const auto& keyEntry : jwks.keys) {
+    for (const auto &keyEntry : jwks.keys) {
       nlohmann::json keyJson;
-      for (const auto& [key, value] : keyEntry) {
+      for (const auto &[key, value] : keyEntry) {
         keyJson[key] = value;
       }
       jwksJson["keys"].push_back(keyJson);
@@ -417,11 +418,14 @@ std::unordered_map<std::string, std::string> JWTKeyManager::getKeyInfo() {
   if (config_.enableRotation) {
     auto now = std::chrono::system_clock::now();
     auto timeSinceRotation = now - lastRotation_;
-    auto hoursSinceRotation = std::chrono::duration_cast<std::chrono::hours>(timeSinceRotation);
+    auto hoursSinceRotation =
+        std::chrono::duration_cast<std::chrono::hours>(timeSinceRotation);
     info["hours_since_rotation"] = std::to_string(hoursSinceRotation.count());
 
-    auto rotationIntervalHours = std::chrono::duration_cast<std::chrono::hours>(config_.rotationInterval);
-    info["rotation_interval_hours"] = std::to_string(rotationIntervalHours.count());
+    auto rotationIntervalHours = std::chrono::duration_cast<std::chrono::hours>(
+        config_.rotationInterval);
+    info["rotation_interval_hours"] =
+        std::to_string(rotationIntervalHours.count());
   }
 
   return info;
@@ -429,11 +433,13 @@ std::unordered_map<std::string, std::string> JWTKeyManager::getKeyInfo() {
 
 bool JWTKeyManager::loadKeysFromFiles() {
   try {
-    if (!config_.publicKeyPath.empty() && std::filesystem::exists(config_.publicKeyPath)) {
+    if (!config_.publicKeyPath.empty() &&
+        std::filesystem::exists(config_.publicKeyPath)) {
       currentPublicKey_ = loadKeyFromFile(config_.publicKeyPath);
     }
 
-    if (!config_.privateKeyPath.empty() && std::filesystem::exists(config_.privateKeyPath)) {
+    if (!config_.privateKeyPath.empty() &&
+        std::filesystem::exists(config_.privateKeyPath)) {
       currentPrivateKey_ = loadKeyFromFile(config_.privateKeyPath);
     }
 
@@ -464,7 +470,9 @@ bool JWTKeyManager::generateKeyPair() {
         }
         secretKey = ss.str();
       } else {
-        std::cerr << "Warning: Failed to generate cryptographically secure secret key with OpenSSL, using fallback" << std::endl;
+        std::cerr << "Warning: Failed to generate cryptographically secure "
+                     "secret key with OpenSSL, using fallback"
+                  << std::endl;
 #endif
         // Fallback: use std::random_device (implementation-dependent security)
         std::random_device rd;
@@ -500,12 +508,14 @@ bool JWTKeyManager::validateConfiguration() {
       config_.algorithm == Algorithm::HS384 ||
       config_.algorithm == Algorithm::HS512) {
     if (config_.secretKey.empty() && config_.privateKeyPath.empty()) {
-      std::cerr << "HMAC algorithm requires secret key or key file" << std::endl;
+      std::cerr << "HMAC algorithm requires secret key or key file"
+                << std::endl;
       return false;
     }
   } else {
     if (config_.publicKeyPath.empty() || config_.privateKeyPath.empty()) {
-      std::cerr << "RSA/ECDSA algorithms require public and private key files" << std::endl;
+      std::cerr << "RSA/ECDSA algorithms require public and private key files"
+                << std::endl;
       return false;
     }
   }
@@ -531,9 +541,12 @@ std::string JWTKeyManager::generateKeyId() {
     keyId = ss.str();
   } else {
     // Fallback to less secure method if OpenSSL fails
-    std::cerr << "Warning: Failed to generate cryptographically secure key ID, using fallback" << std::endl;
+    std::cerr << "Warning: Failed to generate cryptographically secure key ID, "
+                 "using fallback"
+              << std::endl;
 #endif
-    // Fallback: use std::random_device if available (implementation-dependent security)
+    // Fallback: use std::random_device if available (implementation-dependent
+    // security)
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> dis(0, 255);
@@ -562,7 +575,8 @@ std::string JWTKeyManager::loadKeyFromFile(const std::string &filePath) {
   return buffer.str();
 }
 
-bool JWTKeyManager::saveKeyToFile(const std::string &key, const std::string &filePath) {
+bool JWTKeyManager::saveKeyToFile(const std::string &key,
+                                  const std::string &filePath) {
   std::ofstream file(filePath);
   if (!file.is_open()) {
     return false;
@@ -574,72 +588,114 @@ bool JWTKeyManager::saveKeyToFile(const std::string &key, const std::string &fil
 
 std::string JWTKeyManager::getAlgorithmString(Algorithm alg) const {
   switch (alg) {
-    case Algorithm::HS256: return "HS256";
-    case Algorithm::HS384: return "HS384";
-    case Algorithm::HS512: return "HS512";
-    case Algorithm::RS256: return "RS256";
-    case Algorithm::RS384: return "RS384";
-    case Algorithm::RS512: return "RS512";
-    case Algorithm::ES256: return "ES256";
-    case Algorithm::ES384: return "ES384";
-    case Algorithm::ES512: return "ES512";
-    default: return "UNKNOWN";
+  case Algorithm::HS256:
+    return "HS256";
+  case Algorithm::HS384:
+    return "HS384";
+  case Algorithm::HS512:
+    return "HS512";
+  case Algorithm::RS256:
+    return "RS256";
+  case Algorithm::RS384:
+    return "RS384";
+  case Algorithm::RS512:
+    return "RS512";
+  case Algorithm::ES256:
+    return "ES256";
+  case Algorithm::ES384:
+    return "ES384";
+  case Algorithm::ES512:
+    return "ES512";
+  default:
+    return "UNKNOWN";
   }
 }
 
 #ifdef ETL_ENABLE_JWT
 
 // Functions that depend on jwt-cpp
-template<typename Builder>
-std::string JWTKeyManager::signToken(const Builder& builder, const std::string& key, Algorithm alg) {
+template <typename Builder>
+std::string JWTKeyManager::signToken(const Builder &builder,
+                                     const std::string &key, Algorithm alg) {
   switch (alg) {
-    case Algorithm::HS256: return builder.sign(jwt::algorithm::hs256(key));
-    case Algorithm::HS384: return builder.sign(jwt::algorithm::hs384(key));
-    case Algorithm::HS512: return builder.sign(jwt::algorithm::hs512(key));
-    case Algorithm::RS256: return builder.sign(jwt::algorithm::rs256("", key));
-    case Algorithm::RS384: return builder.sign(jwt::algorithm::rs384("", key));
-    case Algorithm::RS512: return builder.sign(jwt::algorithm::rs512("", key));
-    case Algorithm::ES256: return builder.sign(jwt::algorithm::es256("", key));
-    case Algorithm::ES384: return builder.sign(jwt::algorithm::es384("", key));
-    case Algorithm::ES512: return builder.sign(jwt::algorithm::es512("", key));
-    default: throw std::runtime_error("Unsupported algorithm");
+  case Algorithm::HS256:
+    return builder.sign(jwt::algorithm::hs256(key));
+  case Algorithm::HS384:
+    return builder.sign(jwt::algorithm::hs384(key));
+  case Algorithm::HS512:
+    return builder.sign(jwt::algorithm::hs512(key));
+  case Algorithm::RS256:
+    return builder.sign(jwt::algorithm::rs256("", key));
+  case Algorithm::RS384:
+    return builder.sign(jwt::algorithm::rs384("", key));
+  case Algorithm::RS512:
+    return builder.sign(jwt::algorithm::rs512("", key));
+  case Algorithm::ES256:
+    return builder.sign(jwt::algorithm::es256("", key));
+  case Algorithm::ES384:
+    return builder.sign(jwt::algorithm::es384("", key));
+  case Algorithm::ES512:
+    return builder.sign(jwt::algorithm::es512("", key));
+  default:
+    throw std::runtime_error("Unsupported algorithm");
   }
 }
 
-bool JWTKeyManager::verifyToken(const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded, const std::string& key, Algorithm alg) {
+bool JWTKeyManager::verifyToken(
+    const jwt::decoded_jwt<jwt::traits::kazuho_picojson> &decoded,
+    const std::string &key, Algorithm alg) {
   try {
     auto verifier = jwt::verify().with_issuer(config_.issuer);
 
     switch (alg) {
-      case Algorithm::HS256: verifier.allow_algorithm(jwt::algorithm::hs256(key)); break;
-      case Algorithm::HS384: verifier.allow_algorithm(jwt::algorithm::hs384(key)); break;
-      case Algorithm::HS512: verifier.allow_algorithm(jwt::algorithm::hs512(key)); break;
-      case Algorithm::RS256: verifier.allow_algorithm(jwt::algorithm::rs256(key, "")); break;
-      case Algorithm::RS384: verifier.allow_algorithm(jwt::algorithm::rs384(key, "")); break;
-      case Algorithm::RS512: verifier.allow_algorithm(jwt::algorithm::rs512(key, "")); break;
-      case Algorithm::ES256: verifier.allow_algorithm(jwt::algorithm::es256(key, "")); break;
-      case Algorithm::ES384: verifier.allow_algorithm(jwt::algorithm::es384(key, "")); break;
-      case Algorithm::ES512: verifier.allow_algorithm(jwt::algorithm::es512(key, "")); break;
-      default: return false;
+    case Algorithm::HS256:
+      verifier.allow_algorithm(jwt::algorithm::hs256(key));
+      break;
+    case Algorithm::HS384:
+      verifier.allow_algorithm(jwt::algorithm::hs384(key));
+      break;
+    case Algorithm::HS512:
+      verifier.allow_algorithm(jwt::algorithm::hs512(key));
+      break;
+    case Algorithm::RS256:
+      verifier.allow_algorithm(jwt::algorithm::rs256(key, ""));
+      break;
+    case Algorithm::RS384:
+      verifier.allow_algorithm(jwt::algorithm::rs384(key, ""));
+      break;
+    case Algorithm::RS512:
+      verifier.allow_algorithm(jwt::algorithm::rs512(key, ""));
+      break;
+    case Algorithm::ES256:
+      verifier.allow_algorithm(jwt::algorithm::es256(key, ""));
+      break;
+    case Algorithm::ES384:
+      verifier.allow_algorithm(jwt::algorithm::es384(key, ""));
+      break;
+    case Algorithm::ES512:
+      verifier.allow_algorithm(jwt::algorithm::es512(key, ""));
+      break;
+    default:
+      return false;
     }
 
     verifier.verify(decoded);
     return true;
-  } catch (const std::exception&) {
+  } catch (const std::exception &) {
     return false;
   }
 }
 
 // Helper function for base64url encoding
-std::string base64urlEncode(const unsigned char* data, size_t length) {
-  BIO* b64 = BIO_new(BIO_f_base64());
-  BIO* bio = BIO_new(BIO_s_mem());
+std::string base64urlEncode(const unsigned char *data, size_t length) {
+  BIO *b64 = BIO_new(BIO_f_base64());
+  BIO *bio = BIO_new(BIO_s_mem());
   bio = BIO_push(b64, bio);
   BIO_set_flags(bio, BIO_FLAGS_BASE64_NO_NL);
   BIO_write(bio, data, length);
   BIO_flush(bio);
 
-  BUF_MEM* bufferPtr;
+  BUF_MEM *bufferPtr;
   BIO_get_mem_ptr(bio, &bufferPtr);
   std::string encoded(bufferPtr->data, bufferPtr->length);
 
@@ -659,12 +715,13 @@ std::string base64urlEncode(const unsigned char* data, size_t length) {
 }
 
 std::string JWTKeyManager::createJWKSKeyEntry(const std::string &keyId,
-                                            const std::string &publicKey,
-                                            Algorithm alg) {
-  if (alg == Algorithm::RS256 || alg == Algorithm::RS384 || alg == Algorithm::RS512) {
+                                              const std::string &publicKey,
+                                              Algorithm alg) {
+  if (alg == Algorithm::RS256 || alg == Algorithm::RS384 ||
+      alg == Algorithm::RS512) {
     // Parse PEM public key
-    BIO* bio = BIO_new_mem_buf(publicKey.c_str(), -1);
-    RSA* rsa = PEM_read_bio_RSAPublicKey(bio, nullptr, nullptr, nullptr);
+    BIO *bio = BIO_new_mem_buf(publicKey.c_str(), -1);
+    RSA *rsa = PEM_read_bio_RSAPublicKey(bio, nullptr, nullptr, nullptr);
     BIO_free(bio);
 
     if (!rsa) {
@@ -672,8 +729,8 @@ std::string JWTKeyManager::createJWKSKeyEntry(const std::string &keyId,
     }
 
     // Get modulus and exponent
-    const BIGNUM* n = nullptr;
-    const BIGNUM* e = nullptr;
+    const BIGNUM *n = nullptr;
+    const BIGNUM *e = nullptr;
     RSA_get0_key(rsa, &n, &e, nullptr);
 
     if (!n || !e) {
@@ -698,13 +755,11 @@ std::string JWTKeyManager::createJWKSKeyEntry(const std::string &keyId,
     RSA_free(rsa);
 
     // Build JSON
-    nlohmann::json jwks_entry = {
-      {"kid", keyId},
-      {"kty", "RSA"},
-      {"use", "sig"},
-      {"n", n_b64},
-      {"e", e_b64}
-    };
+    nlohmann::json jwks_entry = {{"kid", keyId},
+                                 {"kty", "RSA"},
+                                 {"use", "sig"},
+                                 {"n", n_b64},
+                                 {"e", e_b64}};
 
     return jwks_entry.dump();
   } else {

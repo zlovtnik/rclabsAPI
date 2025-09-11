@@ -1,17 +1,17 @@
 #include "security_validator.hpp"
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cctype>
+#include <chrono>
+#include <iomanip>
+#include <openssl/bio.h>
+#include <openssl/evp.h>
+#include <openssl/rand.h>
+#include <openssl/sha.h>
+#include <random>
 #include <regex>
 #include <sstream>
 #include <string_view>
-#include <random>
-#include <iomanip>
-#include <openssl/rand.h>
-#include <openssl/sha.h>
-#include <openssl/bio.h>
-#include <openssl/evp.h>
 
 namespace ETLPlus::Security {
 
@@ -22,10 +22,14 @@ SecurityValidator::SecurityValidator(const SecurityConfig &config)
 
 void SecurityValidator::compileSecurityPatterns() {
   // SQL injection patterns - very simple
-  sqlInjectionPattern_ = std::regex("select|insert|update|delete|drop|create|alter|exec|union|script|javascript", std::regex_constants::icase);
+  sqlInjectionPattern_ = std::regex("select|insert|update|delete|drop|create|"
+                                    "alter|exec|union|script|javascript",
+                                    std::regex_constants::icase);
 
   // XSS patterns - very simple
-  xssPattern_ = std::regex("<script|javascript|onload|onerror|onclick|<iframe|<object|<embed", std::regex_constants::icase);
+  xssPattern_ = std::regex(
+      "<script|javascript|onload|onerror|onclick|<iframe|<object|<embed",
+      std::regex_constants::icase);
 
   // Path traversal patterns
   pathTraversalPattern_ = std::regex("\\.\\./|\\.\\.\\\\");
@@ -36,7 +40,7 @@ void SecurityValidator::compileSecurityPatterns() {
 
 SecurityValidator::SecurityResult
 SecurityValidator::validateInput(const std::string &input,
-                                const std::string &context) {
+                                 const std::string &context) {
   SecurityResult result;
 
   // Check for null bytes
@@ -54,8 +58,8 @@ SecurityValidator::validateInput(const std::string &input,
     auto sqlResult = validateSqlInjection(input);
     if (!sqlResult.isSecure) {
       result.violations.insert(result.violations.end(),
-                              sqlResult.violations.begin(),
-                              sqlResult.violations.end());
+                               sqlResult.violations.begin(),
+                               sqlResult.violations.end());
       result.isSecure = false;
     }
   }
@@ -65,8 +69,8 @@ SecurityValidator::validateInput(const std::string &input,
     auto xssResult = validateXss(input);
     if (!xssResult.isSecure) {
       result.violations.insert(result.violations.end(),
-                              xssResult.violations.begin(),
-                              xssResult.violations.end());
+                               xssResult.violations.begin(),
+                               xssResult.violations.end());
       result.isSecure = false;
     }
   }
@@ -115,7 +119,7 @@ SecurityValidator::validateXss(const std::string &input) {
 
 SecurityValidator::SecurityResult
 SecurityValidator::validateCsrfToken(const std::string &token,
-                                    const std::string &expectedToken) {
+                                     const std::string &expectedToken) {
   SecurityResult result;
 
   if (token.empty()) {
@@ -140,8 +144,8 @@ SecurityValidator::validateRequestSize(size_t contentLength) {
 
   if (contentLength > config_.maxRequestSize) {
     result.addViolation("Request size exceeds maximum allowed size: " +
-                       std::to_string(contentLength) + " > " +
-                       std::to_string(config_.maxRequestSize));
+                        std::to_string(contentLength) + " > " +
+                        std::to_string(config_.maxRequestSize));
   }
 
   return result;
@@ -154,7 +158,7 @@ SecurityValidator::SecurityResult SecurityValidator::validateRequestHeaders(
   // Check header count
   if (headers.size() > config_.maxHeaderCount) {
     result.addViolation("Too many headers: " + std::to_string(headers.size()) +
-                       " > " + std::to_string(config_.maxHeaderCount));
+                        " > " + std::to_string(config_.maxHeaderCount));
   }
 
   // Check individual header sizes
@@ -177,7 +181,7 @@ SecurityValidator::SecurityResult SecurityValidator::validateRequestHeaders(
 }
 
 std::string SecurityValidator::sanitizeInput(const std::string &input,
-                                           const std::string &context) {
+                                             const std::string &context) {
   if (!config_.enableInputSanitization) {
     return input;
   }
@@ -194,10 +198,11 @@ std::string SecurityValidator::sanitizeInput(const std::string &input,
 
   // Remove control characters except newlines and tabs
   sanitized.erase(std::remove_if(sanitized.begin(), sanitized.end(),
-                                [](char c) {
-                                  return std::iscntrl(c) && c != '\n' && c != '\t';
-                                }),
-                 sanitized.end());
+                                 [](char c) {
+                                   return std::iscntrl(c) && c != '\n' &&
+                                          c != '\t';
+                                 }),
+                  sanitized.end());
 
   return sanitized;
 }
@@ -229,8 +234,8 @@ SecurityValidator::generateSecurityHeaders() {
 
 SecurityValidator::SecurityResult
 SecurityValidator::validateFileUpload(const std::string &filename,
-                                     const std::string &contentType,
-                                     size_t fileSize) {
+                                      const std::string &contentType,
+                                      size_t fileSize) {
   SecurityResult result;
 
   // Check file size
@@ -249,7 +254,7 @@ SecurityValidator::validateFileUpload(const std::string &filename,
   }
 
   // Check content type
-  const auto& allowedTypes = config_.allowedContentTypes;
+  const auto &allowedTypes = config_.allowedContentTypes;
 
   bool validType = false;
   for (const auto &allowed : allowedTypes) {
@@ -267,7 +272,7 @@ SecurityValidator::validateFileUpload(const std::string &filename,
 }
 
 bool SecurityValidator::isRateLimitExceeded(const std::string &clientId,
-                                           const RateLimitOptions& options) {
+                                            const RateLimitOptions &options) {
   std::lock_guard<std::mutex> lock(rateLimitMutex_);
 
   cleanupExpiredRateLimitEntries();
@@ -306,7 +311,8 @@ bool SecurityValidator::containsBlockedPattern(
 
 std::string SecurityValidator::escapeHtml(const std::string &input) {
   std::string escaped;
-  escaped.reserve(input.size() * 1.2); // Reserve ~20% extra for escape sequences
+  escaped.reserve(input.size() *
+                  1.2); // Reserve ~20% extra for escape sequences
 
   // Fast lookup table for HTML entities (single character keys)
   static const std::array<std::string_view, 256> htmlEntities = []() {
@@ -340,12 +346,11 @@ std::string SecurityValidator::removeNullBytes(const std::string &input) {
 
 bool SecurityValidator::isValidFileExtension(const std::string &filename) {
   std::vector<std::string> allowedExtensions = {
-      ".txt", ".csv", ".json", ".xml", ".jpg", ".jpeg", ".png", ".gif"
-  };
+      ".txt", ".csv", ".json", ".xml", ".jpg", ".jpeg", ".png", ".gif"};
 
   std::string lowerFilename = filename;
   std::transform(lowerFilename.begin(), lowerFilename.end(),
-                lowerFilename.begin(), ::tolower);
+                 lowerFilename.begin(), ::tolower);
 
   for (const auto &ext : allowedExtensions) {
     if (lowerFilename.length() >= ext.length() &&
@@ -363,12 +368,11 @@ void SecurityValidator::cleanupExpiredRateLimitEntries() {
 
   for (auto it = rateLimitStore_.begin(); it != rateLimitStore_.end();) {
     auto &timestamps = it->second;
-    timestamps.erase(
-        std::remove_if(timestamps.begin(), timestamps.end(),
-                      [cutoff](const auto &timestamp) {
-                        return timestamp < cutoff;
-                      }),
-        timestamps.end());
+    timestamps.erase(std::remove_if(timestamps.begin(), timestamps.end(),
+                                    [cutoff](const auto &timestamp) {
+                                      return timestamp < cutoff;
+                                    }),
+                     timestamps.end());
 
     if (timestamps.empty()) {
       it = rateLimitStore_.erase(it);
@@ -380,69 +384,72 @@ void SecurityValidator::cleanupExpiredRateLimitEntries() {
 
 std::string SecurityValidator::generateCSPNonce() {
   unsigned char random_bytes[16]; // 128 bits for security
-  
+
   if (RAND_bytes(random_bytes, sizeof(random_bytes)) != 1) {
     // Fallback to less secure random if OpenSSL fails
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> dis(0, 255);
-    
+
     for (size_t i = 0; i < sizeof(random_bytes); ++i) {
       random_bytes[i] = static_cast<unsigned char>(dis(gen));
     }
   }
-  
+
   // Base64 encode the random bytes
-  BIO* bio = BIO_new(BIO_s_mem());
-  BIO* b64 = BIO_new(BIO_f_base64());
+  BIO *bio = BIO_new(BIO_s_mem());
+  BIO *b64 = BIO_new(BIO_f_base64());
   BIO_push(b64, bio);
-  
+
   BIO_write(b64, random_bytes, sizeof(random_bytes));
   BIO_flush(b64);
-  
-  char* encoded_data = nullptr;
+
+  char *encoded_data = nullptr;
   long encoded_length = BIO_get_mem_data(bio, &encoded_data);
-  
+
   std::string nonce(encoded_data, encoded_length);
-  
+
   // Remove any trailing newlines
   nonce.erase(std::remove(nonce.begin(), nonce.end(), '\n'), nonce.end());
-  
+
   BIO_free_all(b64);
-  
+
   return nonce;
 }
 
-std::string SecurityValidator::generateScriptHash(const std::string& scriptContent) {
+std::string
+SecurityValidator::generateScriptHash(const std::string &scriptContent) {
   unsigned char hash[SHA256_DIGEST_LENGTH];
-  
+
   SHA256_CTX sha256;
   SHA256_Init(&sha256);
   SHA256_Update(&sha256, scriptContent.c_str(), scriptContent.length());
   SHA256_Final(hash, &sha256);
-  
+
   // Base64 encode the hash
-  BIO* bio = BIO_new(BIO_s_mem());
-  BIO* b64 = BIO_new(BIO_f_base64());
+  BIO *bio = BIO_new(BIO_s_mem());
+  BIO *b64 = BIO_new(BIO_f_base64());
   BIO_push(b64, bio);
-  
+
   BIO_write(b64, hash, SHA256_DIGEST_LENGTH);
   BIO_flush(b64);
-  
-  char* encoded_data = nullptr;
+
+  char *encoded_data = nullptr;
   long encoded_length = BIO_get_mem_data(bio, &encoded_data);
-  
+
   std::string hash_b64(encoded_data, encoded_length);
-  
+
   // Remove any trailing newlines and construct CSP hash
-  hash_b64.erase(std::remove(hash_b64.begin(), hash_b64.end(), '\n'), hash_b64.end());
-  
+  hash_b64.erase(std::remove(hash_b64.begin(), hash_b64.end(), '\n'),
+                 hash_b64.end());
+
   BIO_free_all(b64);
-  
+
   return "sha256-" + hash_b64;
 }
 
-std::string SecurityValidator::createCSPHeaderWithNonce(const std::string& nonce) {
+std::string
+SecurityValidator::createCSPHeaderWithNonce(const std::string &nonce) {
   std::ostringstream csp;
   csp << "default-src 'self'; "
       << "script-src 'self' 'nonce-" << nonce << "'; "
@@ -453,7 +460,8 @@ std::string SecurityValidator::createCSPHeaderWithNonce(const std::string& nonce
   return csp.str();
 }
 
-std::string SecurityValidator::createCSPHeaderWithScriptHash(const std::string& scriptHash) {
+std::string SecurityValidator::createCSPHeaderWithScriptHash(
+    const std::string &scriptHash) {
   std::ostringstream csp;
   csp << "default-src 'self'; "
       << "script-src 'self' '" << scriptHash << "'; "
@@ -464,8 +472,10 @@ std::string SecurityValidator::createCSPHeaderWithScriptHash(const std::string& 
   return csp.str();
 }
 
-bool SecurityValidator::validateCSPNonce(const std::string& nonce, const std::string& expectedNonce) {
-  // Simple string comparison - in production, you might want to use constant-time comparison
+bool SecurityValidator::validateCSPNonce(const std::string &nonce,
+                                         const std::string &expectedNonce) {
+  // Simple string comparison - in production, you might want to use
+  // constant-time comparison
   return nonce == expectedNonce;
 }
 

@@ -1,10 +1,10 @@
 #pragma once
 
+#include "database_connection_pool.hpp"
 #include <future>
 #include <memory>
 #include <string>
 #include <vector>
-#include "database_connection_pool.hpp"
 
 struct ConnectionConfig {
   std::string host;

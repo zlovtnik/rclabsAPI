@@ -4,8 +4,8 @@
 #include <regex>
 #include <string>
 #include <unordered_map>
-#include <vector>
 #include <unordered_set>
+#include <vector>
 
 namespace ETLPlus::Security {
 
@@ -75,13 +75,11 @@ public:
     std::string severityThreshold = "medium"; // critical, high, medium, low
 
     AuditConfig()
-      : enableStaticAnalysis(true),
-        enableDependencyScanning(true),
-        enableConfigAudit(true),
-        enableCodeReview(true),
-        sourceDirectories({"src", "include"}),
-        excludePatterns({".git", "build", "cmake*"}),
-        severityThreshold("medium") {}
+        : enableStaticAnalysis(true), enableDependencyScanning(true),
+          enableConfigAudit(true), enableCodeReview(true),
+          sourceDirectories({"src", "include"}),
+          excludePatterns({".git", "build", "cmake*"}),
+          severityThreshold("medium") {}
   };
 
   SecurityAuditor(const AuditConfig &config = AuditConfig());
@@ -122,36 +120,42 @@ private:
 
   // Security patterns and rules
   std::vector<std::string> dangerousFunctions_ = {
-      "system", "popen", "exec", "fork", "strcpy", "strcat",
-      "sprintf", "gets", "scanf", "atoi", "atol", "atof"
-  };
+      "system",  "popen", "exec",  "fork", "strcpy", "strcat",
+      "sprintf", "gets",  "scanf", "atoi", "atol",   "atof"};
 
-  std::vector<std::string> insecureHeaders_ = {
-      "X-Powered-By", "Server", "X-AspNet-Version"
-  };
+  std::vector<std::string> insecureHeaders_ = {"X-Powered-By", "Server",
+                                               "X-AspNet-Version"};
 
   std::unordered_set<std::string> sensitiveKeywords_ = {
-      "password", "secret", "key", "token", "api_key", "private_key"
-  };
+      "password", "secret", "key", "token", "api_key", "private_key"};
 
   // Precompiled regex patterns for dangerous functions
   std::vector<std::regex> dangerousFunctionPatterns_;
 
   // Helper methods
   AuditResult analyzeFile(const std::string &filePath);
-  AuditResult analyzeSourceCode(const std::string &content, const std::string &filePath);
-  AuditResult checkForDangerousFunctions(const std::string &content, const std::string &filePath);
-  AuditResult checkForHardcodedSecrets(const std::string &content, const std::string &filePath);
-  AuditResult checkForSQLInjection(const std::string &content, const std::string &filePath);
-  AuditResult checkForXSSVulnerabilities(const std::string &content, const std::string &filePath);
-  AuditResult checkForInsecureHeaders(const std::string &content, const std::string &filePath);
-  AuditResult checkForWeakCryptography(const std::string &content, const std::string &filePath);
-  AuditResult checkForPathTraversal(const std::string &content, const std::string &filePath);
+  AuditResult analyzeSourceCode(const std::string &content,
+                                const std::string &filePath);
+  AuditResult checkForDangerousFunctions(const std::string &content,
+                                         const std::string &filePath);
+  AuditResult checkForHardcodedSecrets(const std::string &content,
+                                       const std::string &filePath);
+  AuditResult checkForSQLInjection(const std::string &content,
+                                   const std::string &filePath);
+  AuditResult checkForXSSVulnerabilities(const std::string &content,
+                                         const std::string &filePath);
+  AuditResult checkForInsecureHeaders(const std::string &content,
+                                      const std::string &filePath);
+  AuditResult checkForWeakCryptography(const std::string &content,
+                                       const std::string &filePath);
+  AuditResult checkForPathTraversal(const std::string &content,
+                                    const std::string &filePath);
 
   std::vector<std::string> findFilesToAnalyze();
   bool shouldAnalyzeFile(const std::string &filePath);
   std::string readFileContent(const std::string &filePath);
-  std::vector<std::string> findMatches(const std::string &content, const std::regex &pattern);
+  std::vector<std::string> findMatches(const std::string &content,
+                                       const std::regex &pattern);
   bool containsRegex(const std::string &content, const std::string &pattern);
 };
 

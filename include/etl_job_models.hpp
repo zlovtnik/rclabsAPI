@@ -23,7 +23,8 @@ struct ETLJob {
   JobStatus status = JobStatus::PENDING;
   std::string sourceConfig;
   std::string targetConfig;
-  std::chrono::system_clock::time_point createdAt = std::chrono::system_clock::now();
+  std::chrono::system_clock::time_point createdAt =
+      std::chrono::system_clock::now();
   std::chrono::system_clock::time_point startedAt{};
   std::chrono::system_clock::time_point completedAt{};
   std::string errorMessage;

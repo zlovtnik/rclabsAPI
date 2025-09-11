@@ -13,10 +13,11 @@ SecurityAuditor::SecurityAuditor(const AuditConfig &config) : config_(config) {
   try {
     for (const auto &func : dangerousFunctions_) {
       dangerousFunctionPatterns_.emplace_back("\\b" + func + "\\s*\\(",
-                                             std::regex_constants::icase);
+                                              std::regex_constants::icase);
     }
   } catch (const std::regex_error &e) {
-    std::cerr << "Failed to compile dangerous function regex patterns: " << e.what() << std::endl;
+    std::cerr << "Failed to compile dangerous function regex patterns: "
+              << e.what() << std::endl;
     // Continue with empty patterns - will result in no matches
   }
 }
@@ -30,64 +31,70 @@ SecurityAuditor::AuditResult SecurityAuditor::performAudit() {
     std::cout << "Performing static code analysis..." << std::endl;
     auto codeResult = analyzeCodeSecurity();
     result.criticalIssues.insert(result.criticalIssues.end(),
-                                codeResult.criticalIssues.begin(),
-                                codeResult.criticalIssues.end());
+                                 codeResult.criticalIssues.begin(),
+                                 codeResult.criticalIssues.end());
     result.highIssues.insert(result.highIssues.end(),
-                            codeResult.highIssues.begin(),
-                            codeResult.highIssues.end());
+                             codeResult.highIssues.begin(),
+                             codeResult.highIssues.end());
     result.mediumIssues.insert(result.mediumIssues.end(),
-                              codeResult.mediumIssues.begin(),
-                              codeResult.mediumIssues.end());
+                               codeResult.mediumIssues.begin(),
+                               codeResult.mediumIssues.end());
     result.lowIssues.insert(result.lowIssues.end(),
-                           codeResult.lowIssues.begin(),
-                           codeResult.lowIssues.end());
+                            codeResult.lowIssues.begin(),
+                            codeResult.lowIssues.end());
     result.informational.insert(result.informational.end(),
-                               codeResult.informational.begin(),
-                               codeResult.informational.end());
+                                codeResult.informational.begin(),
+                                codeResult.informational.end());
   }
 
   if (config_.enableDependencyScanning) {
     std::cout << "Scanning dependencies for vulnerabilities..." << std::endl;
     auto depResult = scanDependencies();
     result.criticalIssues.insert(result.criticalIssues.end(),
-                                depResult.criticalIssues.begin(),
-                                depResult.criticalIssues.end());
+                                 depResult.criticalIssues.begin(),
+                                 depResult.criticalIssues.end());
     result.highIssues.insert(result.highIssues.end(),
-                            depResult.highIssues.begin(),
-                            depResult.highIssues.end());
+                             depResult.highIssues.begin(),
+                             depResult.highIssues.end());
   }
 
   if (config_.enableConfigAudit) {
     std::cout << "Auditing configuration files..." << std::endl;
     auto configResult = auditConfiguration();
     result.mediumIssues.insert(result.mediumIssues.end(),
-                              configResult.mediumIssues.begin(),
-                              configResult.mediumIssues.end());
+                               configResult.mediumIssues.begin(),
+                               configResult.mediumIssues.end());
     result.lowIssues.insert(result.lowIssues.end(),
-                           configResult.lowIssues.begin(),
-                           configResult.lowIssues.end());
+                            configResult.lowIssues.begin(),
+                            configResult.lowIssues.end());
   }
 
   if (config_.enableCodeReview) {
     std::cout << "Performing automated code review..." << std::endl;
     auto reviewResult = performCodeReview();
     result.mediumIssues.insert(result.mediumIssues.end(),
-                              reviewResult.mediumIssues.begin(),
-                              reviewResult.mediumIssues.end());
+                               reviewResult.mediumIssues.begin(),
+                               reviewResult.mediumIssues.end());
     result.lowIssues.insert(result.lowIssues.end(),
-                           reviewResult.lowIssues.begin(),
-                           reviewResult.lowIssues.end());
+                            reviewResult.lowIssues.begin(),
+                            reviewResult.lowIssues.end());
   }
 
   // Update issue counts
-  for (const auto &issue : result.criticalIssues) result.issueCounts["critical"]++;
-  for (const auto &issue : result.highIssues) result.issueCounts["high"]++;
-  for (const auto &issue : result.mediumIssues) result.issueCounts["medium"]++;
-  for (const auto &issue : result.lowIssues) result.issueCounts["low"]++;
-  for (const auto &issue : result.informational) result.issueCounts["info"]++;
+  for (const auto &issue : result.criticalIssues)
+    result.issueCounts["critical"]++;
+  for (const auto &issue : result.highIssues)
+    result.issueCounts["high"]++;
+  for (const auto &issue : result.mediumIssues)
+    result.issueCounts["medium"]++;
+  for (const auto &issue : result.lowIssues)
+    result.issueCounts["low"]++;
+  for (const auto &issue : result.informational)
+    result.issueCounts["info"]++;
 
   // Determine if audit passed based on severity threshold
-  if (config_.severityThreshold == "critical" && !result.criticalIssues.empty()) {
+  if (config_.severityThreshold == "critical" &&
+      !result.criticalIssues.empty()) {
     result.passed = false;
   } else if (config_.severityThreshold == "high" &&
              (!result.criticalIssues.empty() || !result.highIssues.empty())) {
@@ -111,26 +118,27 @@ SecurityAuditor::AuditResult SecurityAuditor::analyzeCodeSecurity() {
     auto fileResult = analyzeFile(filePath);
 
     result.criticalIssues.insert(result.criticalIssues.end(),
-                                fileResult.criticalIssues.begin(),
-                                fileResult.criticalIssues.end());
+                                 fileResult.criticalIssues.begin(),
+                                 fileResult.criticalIssues.end());
     result.highIssues.insert(result.highIssues.end(),
-                            fileResult.highIssues.begin(),
-                            fileResult.highIssues.end());
+                             fileResult.highIssues.begin(),
+                             fileResult.highIssues.end());
     result.mediumIssues.insert(result.mediumIssues.end(),
-                              fileResult.mediumIssues.begin(),
-                              fileResult.mediumIssues.end());
+                               fileResult.mediumIssues.begin(),
+                               fileResult.mediumIssues.end());
     result.lowIssues.insert(result.lowIssues.end(),
-                           fileResult.lowIssues.begin(),
-                           fileResult.lowIssues.end());
+                            fileResult.lowIssues.begin(),
+                            fileResult.lowIssues.end());
     result.informational.insert(result.informational.end(),
-                               fileResult.informational.begin(),
-                               fileResult.informational.end());
+                                fileResult.informational.begin(),
+                                fileResult.informational.end());
   }
 
   return result;
 }
 
-SecurityAuditor::AuditResult SecurityAuditor::analyzeFile(const std::string &filePath) {
+SecurityAuditor::AuditResult
+SecurityAuditor::analyzeFile(const std::string &filePath) {
   AuditResult result;
 
   std::string content = readFileContent(filePath);
@@ -141,75 +149,81 @@ SecurityAuditor::AuditResult SecurityAuditor::analyzeFile(const std::string &fil
   return analyzeSourceCode(content, filePath);
 }
 
-SecurityAuditor::AuditResult SecurityAuditor::analyzeSourceCode(const std::string &content,
-                                                              const std::string &filePath) {
+SecurityAuditor::AuditResult
+SecurityAuditor::analyzeSourceCode(const std::string &content,
+                                   const std::string &filePath) {
   AuditResult result;
 
   // Check for dangerous functions
   auto dangerousResult = checkForDangerousFunctions(content, filePath);
   result.criticalIssues.insert(result.criticalIssues.end(),
-                              dangerousResult.criticalIssues.begin(),
-                              dangerousResult.criticalIssues.end());
+                               dangerousResult.criticalIssues.begin(),
+                               dangerousResult.criticalIssues.end());
   result.highIssues.insert(result.highIssues.end(),
-                          dangerousResult.highIssues.begin(),
-                          dangerousResult.highIssues.end());
+                           dangerousResult.highIssues.begin(),
+                           dangerousResult.highIssues.end());
 
   // Check for hardcoded secrets
   auto secretsResult = checkForHardcodedSecrets(content, filePath);
   result.criticalIssues.insert(result.criticalIssues.end(),
-                              secretsResult.criticalIssues.begin(),
-                              secretsResult.criticalIssues.end());
+                               secretsResult.criticalIssues.begin(),
+                               secretsResult.criticalIssues.end());
 
   // Check for SQL injection vulnerabilities
   auto sqlResult = checkForSQLInjection(content, filePath);
   result.highIssues.insert(result.highIssues.end(),
-                          sqlResult.highIssues.begin(),
-                          sqlResult.highIssues.end());
+                           sqlResult.highIssues.begin(),
+                           sqlResult.highIssues.end());
 
   // Check for XSS vulnerabilities
   auto xssResult = checkForXSSVulnerabilities(content, filePath);
   result.mediumIssues.insert(result.mediumIssues.end(),
-                            xssResult.mediumIssues.begin(),
-                            xssResult.mediumIssues.end());
+                             xssResult.mediumIssues.begin(),
+                             xssResult.mediumIssues.end());
 
   // Check for insecure headers
   auto headerResult = checkForInsecureHeaders(content, filePath);
   result.mediumIssues.insert(result.mediumIssues.end(),
-                            headerResult.mediumIssues.begin(),
-                            headerResult.mediumIssues.end());
+                             headerResult.mediumIssues.begin(),
+                             headerResult.mediumIssues.end());
 
   // Check for weak cryptography
   auto cryptoResult = checkForWeakCryptography(content, filePath);
   result.mediumIssues.insert(result.mediumIssues.end(),
-                            cryptoResult.mediumIssues.begin(),
-                            cryptoResult.mediumIssues.end());
+                             cryptoResult.mediumIssues.begin(),
+                             cryptoResult.mediumIssues.end());
 
   // Check for path traversal
   auto pathResult = checkForPathTraversal(content, filePath);
   result.highIssues.insert(result.highIssues.end(),
-                          pathResult.highIssues.begin(),
-                          pathResult.highIssues.end());
+                           pathResult.highIssues.begin(),
+                           pathResult.highIssues.end());
 
   return result;
 }
 
-SecurityAuditor::AuditResult SecurityAuditor::checkForDangerousFunctions(const std::string &content,
-                                                                       const std::string &filePath) {
+SecurityAuditor::AuditResult
+SecurityAuditor::checkForDangerousFunctions(const std::string &content,
+                                            const std::string &filePath) {
   AuditResult result;
 
   // Use precompiled regex patterns for better performance
-  for (size_t i = 0; i < dangerousFunctions_.size() && i < dangerousFunctionPatterns_.size(); ++i) {
+  for (size_t i = 0;
+       i < dangerousFunctions_.size() && i < dangerousFunctionPatterns_.size();
+       ++i) {
     if (std::regex_search(content, dangerousFunctionPatterns_[i])) {
-      result.addCritical("Dangerous function '" + dangerousFunctions_[i] + "' found in " + filePath +
-                        " - consider using safer alternatives");
+      result.addCritical("Dangerous function '" + dangerousFunctions_[i] +
+                         "' found in " + filePath +
+                         " - consider using safer alternatives");
     }
   }
 
   return result;
 }
 
-SecurityAuditor::AuditResult SecurityAuditor::checkForHardcodedSecrets(const std::string &content,
-                                                                     const std::string &filePath) {
+SecurityAuditor::AuditResult
+SecurityAuditor::checkForHardcodedSecrets(const std::string &content,
+                                          const std::string &filePath) {
   AuditResult result;
 
   for (const auto &keyword : sensitiveKeywords_) {
@@ -227,91 +241,99 @@ SecurityAuditor::AuditResult SecurityAuditor::checkForHardcodedSecrets(const std
     }
 
     std::regex pattern(escapedKeyword + R"(\s*[=:]?\s*["'][^"']+["'])",
-                      std::regex_constants::icase);
+                       std::regex_constants::icase);
     if (std::regex_search(content, pattern)) {
-      result.addCritical("Potential hardcoded " + keyword + " found in " + filePath +
-                        " - move to environment variables or secure storage");
+      result.addCritical("Potential hardcoded " + keyword + " found in " +
+                         filePath +
+                         " - move to environment variables or secure storage");
     }
   }
 
   return result;
 }
 
-SecurityAuditor::AuditResult SecurityAuditor::checkForSQLInjection(const std::string &content,
-                                                                 const std::string &filePath) {
+SecurityAuditor::AuditResult
+SecurityAuditor::checkForSQLInjection(const std::string &content,
+                                      const std::string &filePath) {
   AuditResult result;
 
   // Check for string concatenation in SQL queries
-  if (containsRegex(content, "SELECT.*\\+.*FROM|INSERT.*\\+.*INTO|UPDATE.*\\+.*SET")) {
+  if (containsRegex(content,
+                    "SELECT.*\\+.*FROM|INSERT.*\\+.*INTO|UPDATE.*\\+.*SET")) {
     result.addHigh("Potential SQL injection vulnerability in " + filePath +
-                  " - avoid string concatenation in SQL queries");
+                   " - avoid string concatenation in SQL queries");
   }
 
   // Check for missing parameterized queries
-  if (containsRegex(content, "execute.*SELECT|execute.*INSERT|execute.*UPDATE") &&
+  if (containsRegex(content,
+                    "execute.*SELECT|execute.*INSERT|execute.*UPDATE") &&
       !containsRegex(content, "parameter|bind")) {
     result.addHigh("SQL query without parameters detected in " + filePath +
-                  " - use parameterized queries");
+                   " - use parameterized queries");
   }
 
   return result;
 }
 
-SecurityAuditor::AuditResult SecurityAuditor::checkForXSSVulnerabilities(const std::string &content,
-                                                                      const std::string &filePath) {
+SecurityAuditor::AuditResult
+SecurityAuditor::checkForXSSVulnerabilities(const std::string &content,
+                                            const std::string &filePath) {
   AuditResult result;
 
   // Check for direct HTML output without escaping
   if (containsRegex(content, "response.*<<.*\\$") &&
       !containsRegex(content, "escape|encode")) {
     result.addMedium("Potential XSS vulnerability in " + filePath +
-                    " - HTML output should be escaped");
+                     " - HTML output should be escaped");
   }
 
   return result;
 }
 
-SecurityAuditor::AuditResult SecurityAuditor::checkForInsecureHeaders(const std::string &content,
-                                                                    const std::string &filePath) {
+SecurityAuditor::AuditResult
+SecurityAuditor::checkForInsecureHeaders(const std::string &content,
+                                         const std::string &filePath) {
   AuditResult result;
 
   for (const auto &header : insecureHeaders_) {
     if (containsRegex(content, header)) {
       result.addMedium("Insecure header '" + header + "' found in " + filePath +
-                      " - consider removing or securing this header");
+                       " - consider removing or securing this header");
     }
   }
 
   return result;
 }
 
-SecurityAuditor::AuditResult SecurityAuditor::checkForWeakCryptography(const std::string &content,
-                                                                     const std::string &filePath) {
+SecurityAuditor::AuditResult
+SecurityAuditor::checkForWeakCryptography(const std::string &content,
+                                          const std::string &filePath) {
   AuditResult result;
 
   // Check for weak hash functions
   if (containsRegex(content, "MD5|SHA1")) {
-    result.addMedium("Weak cryptographic hash function detected in " + filePath +
-                    " - use SHA-256 or stronger");
+    result.addMedium("Weak cryptographic hash function detected in " +
+                     filePath + " - use SHA-256 or stronger");
   }
 
   // Check for ECB mode
   if (containsRegex(content, "ECB")) {
     result.addMedium("ECB cipher mode detected in " + filePath +
-                    " - use CBC or GCM mode instead");
+                     " - use CBC or GCM mode instead");
   }
 
   return result;
 }
 
-SecurityAuditor::AuditResult SecurityAuditor::checkForPathTraversal(const std::string &content,
-                                                                  const std::string &filePath) {
+SecurityAuditor::AuditResult
+SecurityAuditor::checkForPathTraversal(const std::string &content,
+                                       const std::string &filePath) {
   AuditResult result;
 
   // Check for path traversal patterns (Unix and Windows)
   if (containsRegex(content, R"(\.\.(/|\\))")) {
     result.addHigh("Potential path traversal vulnerability in " + filePath +
-                  " - validate and sanitize file paths");
+                   " - validate and sanitize file paths");
   }
 
   return result;
@@ -325,12 +347,14 @@ SecurityAuditor::AuditResult SecurityAuditor::scanDependencies() {
   if (!cmakeContent.empty()) {
     // Check for old OpenSSL versions
     if (containsRegex(cmakeContent, R"(OpenSSL\s*1\.(?:0|1)\.[0-9]+)")) {
-      result.addHigh("Potentially vulnerable OpenSSL version detected - upgrade to 1.1.1 or later");
+      result.addHigh("Potentially vulnerable OpenSSL version detected - "
+                     "upgrade to 1.1.1 or later");
     }
 
     // Check for old Boost versions
     if (containsRegex(cmakeContent, "Boost.*1\\.[0-6][0-9]")) {
-      result.addMedium("Older Boost version detected - consider upgrading for security fixes");
+      result.addMedium("Older Boost version detected - consider upgrading for "
+                       "security fixes");
     }
   }
 
@@ -345,19 +369,20 @@ SecurityAuditor::AuditResult SecurityAuditor::auditConfiguration() {
 
   for (const auto &configFile : configFiles) {
     std::string content = readFileContent(configFile);
-    if (content.empty()) continue;
+    if (content.empty())
+      continue;
 
     // Check for debug mode in production
     if (containsRegex(content, "\"debug\"\\s*:\\s*true") ||
         containsRegex(content, "\"development\"\\s*:\\s*true")) {
       result.addMedium("Debug mode enabled in " + configFile +
-                      " - disable for production deployment");
+                       " - disable for production deployment");
     }
 
     // Check for default passwords
     if (containsRegex(content, "password.*123|admin.*admin|root.*root")) {
       result.addLow("Default or weak password detected in " + configFile +
-                   " - use strong passwords");
+                    " - use strong passwords");
     }
   }
 
@@ -371,7 +396,8 @@ SecurityAuditor::AuditResult SecurityAuditor::performCodeReview() {
 
   for (const auto &filePath : filesToAnalyze) {
     std::string content = readFileContent(filePath);
-    if (content.empty()) continue;
+    if (content.empty())
+      continue;
 
     // Check for TODO comments that might indicate security debt
     if (containsRegex(content, "TODO.*secur|FIXME.*secur|XXX.*secur")) {
@@ -381,24 +407,27 @@ SecurityAuditor::AuditResult SecurityAuditor::performCodeReview() {
     // Check for commented-out security code
     if (containsRegex(content, "//.*password|//.*encrypt|//.*auth")) {
       result.addLow("Commented-out security code found in " + filePath +
-                   " - review and remove if not needed");
+                    " - review and remove if not needed");
     }
 
     // Check for large functions that might be hard to secure
-    std::regex functionPattern(R"((void|bool|int|string|auto)\s+\w+\s*\([^)]*\)\s*\{)");
+    std::regex functionPattern(
+        R"((void|bool|int|string|auto)\s+\w+\s*\([^)]*\)\s*\{)");
     auto functions = findMatches(content, functionPattern);
     if (functions.size() > 0) {
       // Count lines in functions (simplified check)
       size_t braceCount = 0;
       size_t lineCount = 0;
       for (char c : content) {
-        if (c == '{') braceCount++;
-        if (c == '\n') lineCount++;
+        if (c == '{')
+          braceCount++;
+        if (c == '\n')
+          lineCount++;
       }
 
       if (lineCount > 1000 && braceCount > 10) {
         result.addLow("Large file with many functions in " + filePath +
-                     " - consider breaking down for better security review");
+                      " - consider breaking down for better security review");
       }
     }
   }
@@ -413,7 +442,7 @@ std::string SecurityAuditor::generateReport(const AuditResult &result) {
   ss << "Audit Status: " << (result.passed ? "PASSED" : "FAILED") << "\n\n";
 
   ss << "Issue Summary:\n";
-  auto getCount = [&](const std::string& key) -> size_t {
+  auto getCount = [&](const std::string &key) -> size_t {
     auto it = result.issueCounts.find(key);
     return it != result.issueCounts.end() ? it->second : 0;
   };
@@ -470,9 +499,11 @@ std::vector<std::string> SecurityAuditor::findFilesToAnalyze() {
   std::vector<std::string> files;
 
   for (const auto &dir : config_.sourceDirectories) {
-    if (!std::filesystem::exists(dir)) continue;
+    if (!std::filesystem::exists(dir))
+      continue;
 
-    for (const auto &entry : std::filesystem::recursive_directory_iterator(dir)) {
+    for (const auto &entry :
+         std::filesystem::recursive_directory_iterator(dir)) {
       if (entry.is_regular_file()) {
         std::string path = entry.path().string();
         if (shouldAnalyzeFile(path)) {
@@ -516,8 +547,9 @@ std::string SecurityAuditor::readFileContent(const std::string &filePath) {
   return buffer.str();
 }
 
-std::vector<std::string> SecurityAuditor::findMatches(const std::string &content,
-                                                    const std::regex &pattern) {
+std::vector<std::string>
+SecurityAuditor::findMatches(const std::string &content,
+                             const std::regex &pattern) {
   std::vector<std::string> matches;
   std::sregex_iterator iter(content.begin(), content.end(), pattern);
   std::sregex_iterator end;
@@ -529,7 +561,8 @@ std::vector<std::string> SecurityAuditor::findMatches(const std::string &content
   return matches;
 }
 
-bool SecurityAuditor::containsRegex(const std::string &content, const std::string &pattern) {
+bool SecurityAuditor::containsRegex(const std::string &content,
+                                    const std::string &pattern) {
   std::regex regexPattern(pattern, std::regex_constants::icase);
   return std::regex_search(content, regexPattern);
 }

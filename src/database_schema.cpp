@@ -1,9 +1,8 @@
 #include "database_schema.hpp"
 
 std::vector<std::string> DatabaseSchema::getCreateTableStatements() {
-    return {
-        // Users table
-        R"(
+  return {// Users table
+          R"(
         CREATE TABLE IF NOT EXISTS users (
             id VARCHAR(255) PRIMARY KEY,
             username VARCHAR(255) UNIQUE NOT NULL,
@@ -15,8 +14,8 @@ std::vector<std::string> DatabaseSchema::getCreateTableStatements() {
         );
         )",
 
-        // Sessions table
-        R"(
+          // Sessions table
+          R"(
         CREATE TABLE IF NOT EXISTS sessions (
             session_id VARCHAR(255) PRIMARY KEY,
             user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -26,8 +25,8 @@ std::vector<std::string> DatabaseSchema::getCreateTableStatements() {
         );
         )",
 
-        // ETL Jobs table
-        R"(
+          // ETL Jobs table
+          R"(
         CREATE TABLE IF NOT EXISTS etl_jobs (
             job_id VARCHAR(255) PRIMARY KEY,
             job_type VARCHAR(50) NOT NULL CHECK (job_type IN ('EXTRACT', 'TRANSFORM', 'LOAD', 'FULL_ETL')),
@@ -64,8 +63,8 @@ std::vector<std::string> DatabaseSchema::getCreateTableStatements() {
         );
         )",
 
-        // Job monitoring data table
-        R"(
+          // Job monitoring data table
+          R"(
         CREATE TABLE IF NOT EXISTS job_monitoring (
             id SERIAL PRIMARY KEY,
             job_id VARCHAR(255) NOT NULL REFERENCES etl_jobs(job_id) ON DELETE CASCADE,
@@ -79,8 +78,8 @@ std::vector<std::string> DatabaseSchema::getCreateTableStatements() {
         );
         )",
 
-        // Job logs table
-        R"(
+          // Job logs table
+          R"(
         CREATE TABLE IF NOT EXISTS job_logs (
             id SERIAL PRIMARY KEY,
             job_id VARCHAR(255) NOT NULL REFERENCES etl_jobs(job_id) ON DELETE CASCADE,
@@ -92,8 +91,8 @@ std::vector<std::string> DatabaseSchema::getCreateTableStatements() {
         );
         )",
 
-        // Configuration table (for dynamic configuration storage)
-        R"(
+          // Configuration table (for dynamic configuration storage)
+          R"(
         CREATE TABLE IF NOT EXISTS configuration (
             key VARCHAR(255) PRIMARY KEY,
             value TEXT NOT NULL,
@@ -101,32 +100,33 @@ std::vector<std::string> DatabaseSchema::getCreateTableStatements() {
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         );
-        )"
-    };
+        )"};
 }
 
 std::vector<std::string> DatabaseSchema::getIndexStatements() {
-    return {
-        "CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);",
-        "CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);",
-        "CREATE INDEX IF NOT EXISTS idx_etl_jobs_status ON etl_jobs(status);",
-        "CREATE INDEX IF NOT EXISTS idx_etl_jobs_created_at ON etl_jobs(created_at);",
-        "CREATE INDEX IF NOT EXISTS idx_etl_jobs_job_type ON etl_jobs(job_type);",
-        "CREATE INDEX IF NOT EXISTS idx_job_monitoring_job_id ON job_monitoring(job_id);",
-        "CREATE INDEX IF NOT EXISTS idx_job_logs_job_id ON job_logs(job_id);",
-        "CREATE INDEX IF NOT EXISTS idx_job_logs_timestamp ON job_logs(timestamp);",
-        "CREATE INDEX IF NOT EXISTS idx_job_logs_level ON job_logs(level);",
-        "CREATE INDEX IF NOT EXISTS idx_configuration_category ON configuration(category);"
-    };
+  return {
+      "CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);",
+      "CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON "
+      "sessions(expires_at);",
+      "CREATE INDEX IF NOT EXISTS idx_etl_jobs_status ON etl_jobs(status);",
+      "CREATE INDEX IF NOT EXISTS idx_etl_jobs_created_at ON "
+      "etl_jobs(created_at);",
+      "CREATE INDEX IF NOT EXISTS idx_etl_jobs_job_type ON etl_jobs(job_type);",
+      "CREATE INDEX IF NOT EXISTS idx_job_monitoring_job_id ON "
+      "job_monitoring(job_id);",
+      "CREATE INDEX IF NOT EXISTS idx_job_logs_job_id ON job_logs(job_id);",
+      "CREATE INDEX IF NOT EXISTS idx_job_logs_timestamp ON "
+      "job_logs(timestamp);",
+      "CREATE INDEX IF NOT EXISTS idx_job_logs_level ON job_logs(level);",
+      "CREATE INDEX IF NOT EXISTS idx_configuration_category ON "
+      "configuration(category);"};
 }
 
 std::vector<std::string> DatabaseSchema::getInitialDataStatements() {
-    return {
-        // Create default admin user
-        R"(
+  return {// Create default admin user
+          R"(
         INSERT INTO users (id, username, email, password_hash, roles, is_active)
         VALUES ('admin-001', 'admin', 'admin@etlplus.com', '$2b$10$dummy.hash.for.admin', '{"admin", "user"}', true)
         ON CONFLICT (username) DO NOTHING;
-        )"
-    };
+        )"};
 }

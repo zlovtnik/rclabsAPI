@@ -1,759 +1,834 @@
 #include "logger.hpp"
 #include "job_monitoring_models.hpp"
 #include "websocket_manager.hpp"
-#include <iostream>
-#include <iomanip>
-#include <filesystem>
 #include <algorithm>
-#include <sstream>
-#include <fstream>
 #include <ctime>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <sstream>
 
-Logger& Logger::getInstance() {
-    static Logger instance;
-    return instance;
+Logger &Logger::getInstance() {
+  static Logger instance;
+  return instance;
 }
 
-Logger::~Logger() {
-    shutdown();
-}
+Logger::~Logger() { shutdown(); }
 
-void Logger::configure(const LogConfig& config) {
-    std::scoped_lock lock(configMutex_);
-    config_ = config;
-    
-    // Apply configuration directly without additional locks (we already have configMutex_)
-    // Set log level directly
-    config_.level = config.level;
-    
-    // Set log format directly  
-    config_.format = config.format;
-    
-    // Set log file with file operations
-    {
-        std::lock_guard<std::mutex> fileLock(fileMutex_);
-        
-        if (fileStream_.is_open()) {
-            fileStream_.close();
-        }
-        
-        config_.logFile = config.logFile;
-        currentLogFile_ = config.logFile;
-        
-        if (config_.fileOutput) {
-            // Create directory if it doesn't exist
-            std::filesystem::path logPath(config.logFile);
-            std::filesystem::create_directories(logPath.parent_path());
-            
-            // Create archive directory if historical access OR indexing is enabled
-            if (config_.enableHistoricalAccess || config_.enableLogIndexing) {
-                std::filesystem::create_directories(config_.archiveDirectory);
-            }
+void Logger::configure(const LogConfig &config) {
+  std::scoped_lock lock(configMutex_);
+  config_ = config;
 
-            fileStream_.open(currentLogFile_, std::ios::app);
-            
-            if (!fileStream_.is_open()) {
-                std::cerr << "Failed to open log file: " << config.logFile << std::endl;
-                config_.fileOutput = false;
-            } else {
-                // Get current file size
-                if (std::filesystem::exists(currentLogFile_)) {
-                    currentFileSize_ = std::filesystem::file_size(currentLogFile_);
-                } else {
-                    currentFileSize_ = 0;
-                }
-                
-                // Write conditional startup message based on enabled features
-                std::string features;
-                if (config_.enableHistoricalAccess && config_.enableLogIndexing) {
-                    features = "historical access and indexing";
-                } else if (config_.enableHistoricalAccess) {
-                    features = "historical access";
-                } else if (config_.enableLogIndexing) {
-                    features = "indexing";
-                } else {
-                    features = "standard logging";
-                }
+  // Apply configuration directly without additional locks (we already have
+  // configMutex_) Set log level directly
+  config_.level = config.level;
 
-                std::string startupMsg = "[" + formatTimestamp() + "] [INFO ] [Logger] Enhanced logger initialized with " + features;
-                fileStream_ << startupMsg << std::endl;
-                fileStream_.flush();
-                currentFileSize_ += startupMsg.length() + 1;
+  // Set log format directly
+  config_.format = config.format;
 
-                // Index current log file if indexing is enabled - INLINE to avoid deadlock
-                if (config_.enableLogIndexing) {
-                    // Create or open the index file (we already hold fileMutex_)
-                    std::ofstream indexFile(config_.archiveDirectory + "/log_index.txt", std::ios::app);
-                    if (indexFile.is_open()) {
-                        indexFile << currentLogFile_ << " " << formatTimestamp() << std::endl;
-                    }
-                }
-            }
-        }
-    }
-    
-    // Set other options directly
-    config_.consoleOutput = config.consoleOutput;
-    config_.fileOutput = config.fileOutput;
-    config_.enableRotation = config.enableRotation;
-    config_.maxFileSize = config.maxFileSize;
-    config_.maxBackupFiles = config.maxBackupFiles;
-    config_.componentFilter = config.componentFilter;
-    config_.includeMetrics = config.includeMetrics;
-    config_.flushInterval = config.flushInterval;
-    
-    // Handle async logging initialization
-    if (config.asyncLogging && !config_.asyncLogging && !asyncStarted_) {
-        config_.asyncLogging = true;
-        stopAsync_ = false;
-        asyncStarted_ = true;
-        asyncThread_ = std::thread(&Logger::asyncWorker, this);
-    }
-    
-    // Handle real-time streaming initialization - INLINE to avoid deadlock
-    config_.enableRealTimeStreaming = config.enableRealTimeStreaming;
-    config_.streamingQueueSize = config.streamingQueueSize;
-    config_.streamAllLevels = config.streamAllLevels;
-    config_.streamingJobFilter = config.streamingJobFilter;
-    
-    // Initialize streaming directly without calling enableRealTimeStreaming to avoid deadlock
-    if (config.enableRealTimeStreaming && !streamingStarted_) {
-        stopStreaming_ = false;
-        streamingStarted_ = true;
-        streamingThread_ = std::thread(&Logger::streamingWorker, this);
-    }
-}
+  // Set log file with file operations
+  {
+    std::lock_guard<std::mutex> fileLock(fileMutex_);
 
-void Logger::setLogLevel(LogLevel level) {
-    std::lock_guard<std::mutex> lock(configMutex_);
-    config_.level = level;
-}
-
-void Logger::setLogFormat(LogFormat format) {
-    std::lock_guard<std::mutex> lock(configMutex_);
-    config_.format = format;
-}
-
-void Logger::setLogFile(const std::string& filename) {
-    std::lock_guard<std::mutex> lock(fileMutex_);
-    
     if (fileStream_.is_open()) {
-        fileStream_.close();
+      fileStream_.close();
     }
-    
-    config_.logFile = filename;
-    currentLogFile_ = filename;
-    
-    // Create directory if it doesn't exist
-    std::filesystem::path logPath(filename);
-    std::filesystem::create_directories(logPath.parent_path());
-    
-    fileStream_.open(currentLogFile_, std::ios::app);
-    
-    if (!fileStream_.is_open()) {
-        std::cerr << "Failed to open log file: " << filename << std::endl;
+
+    config_.logFile = config.logFile;
+    currentLogFile_ = config.logFile;
+
+    if (config_.fileOutput) {
+      // Create directory if it doesn't exist
+      std::filesystem::path logPath(config.logFile);
+      std::filesystem::create_directories(logPath.parent_path());
+
+      // Create archive directory if historical access OR indexing is enabled
+      if (config_.enableHistoricalAccess || config_.enableLogIndexing) {
+        std::filesystem::create_directories(config_.archiveDirectory);
+      }
+
+      fileStream_.open(currentLogFile_, std::ios::app);
+
+      if (!fileStream_.is_open()) {
+        std::cerr << "Failed to open log file: " << config.logFile << std::endl;
         config_.fileOutput = false;
-    } else {
-        config_.fileOutput = true;
+      } else {
         // Get current file size
         if (std::filesystem::exists(currentLogFile_)) {
-            currentFileSize_ = std::filesystem::file_size(currentLogFile_);
+          currentFileSize_ = std::filesystem::file_size(currentLogFile_);
         } else {
-            currentFileSize_ = 0;
+          currentFileSize_ = 0;
         }
-        
-        // Write simple startup message to avoid recursion during initialization
-        std::string startupMsg = "[" + formatTimestamp() + "] [INFO ] [Logger] Enhanced logger initialized";
+
+        // Write conditional startup message based on enabled features
+        std::string features;
+        if (config_.enableHistoricalAccess && config_.enableLogIndexing) {
+          features = "historical access and indexing";
+        } else if (config_.enableHistoricalAccess) {
+          features = "historical access";
+        } else if (config_.enableLogIndexing) {
+          features = "indexing";
+        } else {
+          features = "standard logging";
+        }
+
+        std::string startupMsg =
+            "[" + formatTimestamp() +
+            "] [INFO ] [Logger] Enhanced logger initialized with " + features;
         fileStream_ << startupMsg << std::endl;
         fileStream_.flush();
         currentFileSize_ += startupMsg.length() + 1;
+
+        // Index current log file if indexing is enabled - INLINE to avoid
+        // deadlock
+        if (config_.enableLogIndexing) {
+          // Create or open the index file (we already hold fileMutex_)
+          std::ofstream indexFile(config_.archiveDirectory + "/log_index.txt",
+                                  std::ios::app);
+          if (indexFile.is_open()) {
+            indexFile << currentLogFile_ << " " << formatTimestamp()
+                      << std::endl;
+          }
+        }
+      }
     }
+  }
+
+  // Set other options directly
+  config_.consoleOutput = config.consoleOutput;
+  config_.fileOutput = config.fileOutput;
+  config_.enableRotation = config.enableRotation;
+  config_.maxFileSize = config.maxFileSize;
+  config_.maxBackupFiles = config.maxBackupFiles;
+  config_.componentFilter = config.componentFilter;
+  config_.includeMetrics = config.includeMetrics;
+  config_.flushInterval = config.flushInterval;
+
+  // Handle async logging initialization
+  if (config.asyncLogging && !config_.asyncLogging && !asyncStarted_) {
+    config_.asyncLogging = true;
+    stopAsync_ = false;
+    asyncStarted_ = true;
+    asyncThread_ = std::thread(&Logger::asyncWorker, this);
+  }
+
+  // Handle real-time streaming initialization - INLINE to avoid deadlock
+  config_.enableRealTimeStreaming = config.enableRealTimeStreaming;
+  config_.streamingQueueSize = config.streamingQueueSize;
+  config_.streamAllLevels = config.streamAllLevels;
+  config_.streamingJobFilter = config.streamingJobFilter;
+
+  // Initialize streaming directly without calling enableRealTimeStreaming to
+  // avoid deadlock
+  if (config.enableRealTimeStreaming && !streamingStarted_) {
+    stopStreaming_ = false;
+    streamingStarted_ = true;
+    streamingThread_ = std::thread(&Logger::streamingWorker, this);
+  }
+}
+
+void Logger::setLogLevel(LogLevel level) {
+  std::lock_guard<std::mutex> lock(configMutex_);
+  config_.level = level;
+}
+
+void Logger::setLogFormat(LogFormat format) {
+  std::lock_guard<std::mutex> lock(configMutex_);
+  config_.format = format;
+}
+
+void Logger::setLogFile(const std::string &filename) {
+  std::lock_guard<std::mutex> lock(fileMutex_);
+
+  if (fileStream_.is_open()) {
+    fileStream_.close();
+  }
+
+  config_.logFile = filename;
+  currentLogFile_ = filename;
+
+  // Create directory if it doesn't exist
+  std::filesystem::path logPath(filename);
+  std::filesystem::create_directories(logPath.parent_path());
+
+  fileStream_.open(currentLogFile_, std::ios::app);
+
+  if (!fileStream_.is_open()) {
+    std::cerr << "Failed to open log file: " << filename << std::endl;
+    config_.fileOutput = false;
+  } else {
+    config_.fileOutput = true;
+    // Get current file size
+    if (std::filesystem::exists(currentLogFile_)) {
+      currentFileSize_ = std::filesystem::file_size(currentLogFile_);
+    } else {
+      currentFileSize_ = 0;
+    }
+
+    // Write simple startup message to avoid recursion during initialization
+    std::string startupMsg = "[" + formatTimestamp() +
+                             "] [INFO ] [Logger] Enhanced logger initialized";
+    fileStream_ << startupMsg << std::endl;
+    fileStream_.flush();
+    currentFileSize_ += startupMsg.length() + 1;
+  }
 }
 
 void Logger::enableConsoleOutput(bool enable) {
-    std::lock_guard<std::mutex> lock(configMutex_);
-    config_.consoleOutput = enable;
+  std::lock_guard<std::mutex> lock(configMutex_);
+  config_.consoleOutput = enable;
 }
 
 void Logger::enableFileOutput(bool enable) {
-    std::lock_guard<std::mutex> lock(configMutex_);
-    config_.fileOutput = enable;
+  std::lock_guard<std::mutex> lock(configMutex_);
+  config_.fileOutput = enable;
 }
 
 void Logger::enableAsyncLogging(bool enable) {
-    std::lock_guard<std::mutex> lock(configMutex_);
-    
-    if (enable && !config_.asyncLogging && !asyncStarted_) {
-        config_.asyncLogging = true;
-        stopAsync_ = false;
-        asyncStarted_ = true;
-        asyncThread_ = std::thread(&Logger::asyncWorker, this);
-    } else if (!enable && config_.asyncLogging && asyncStarted_) {
-        config_.asyncLogging = false;
-        stopAsync_ = true;
-        asyncCondition_.notify_all();
-        if (asyncThread_.joinable()) {
-            asyncThread_.join();
-        }
-        asyncStarted_ = false;
+  std::lock_guard<std::mutex> lock(configMutex_);
+
+  if (enable && !config_.asyncLogging && !asyncStarted_) {
+    config_.asyncLogging = true;
+    stopAsync_ = false;
+    asyncStarted_ = true;
+    asyncThread_ = std::thread(&Logger::asyncWorker, this);
+  } else if (!enable && config_.asyncLogging && asyncStarted_) {
+    config_.asyncLogging = false;
+    stopAsync_ = true;
+    asyncCondition_.notify_all();
+    if (asyncThread_.joinable()) {
+      asyncThread_.join();
     }
+    asyncStarted_ = false;
+  }
 }
 
-void Logger::setComponentFilter(const std::unordered_set<std::string, TransparentStringHash, std::equal_to<>>& components) {
-    std::lock_guard<std::mutex> lock(configMutex_);
-    config_.componentFilter = components;
+void Logger::setComponentFilter(
+    const std::unordered_set<std::string, TransparentStringHash,
+                             std::equal_to<>> &components) {
+  std::lock_guard<std::mutex> lock(configMutex_);
+  config_.componentFilter = components;
 }
 
-void Logger::enableRotation(bool enable, size_t maxFileSize, int maxBackupFiles) {
-    std::lock_guard<std::mutex> lock(configMutex_);
-    config_.enableRotation = enable;
-    config_.maxFileSize = maxFileSize;
-    config_.maxBackupFiles = maxBackupFiles;
+void Logger::enableRotation(bool enable, size_t maxFileSize,
+                            int maxBackupFiles) {
+  std::lock_guard<std::mutex> lock(configMutex_);
+  config_.enableRotation = enable;
+  config_.maxFileSize = maxFileSize;
+  config_.maxBackupFiles = maxBackupFiles;
 }
 
-void Logger::log(LogLevel level, const std::string& component, const std::string& message, 
-                 const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
-    if (!shouldLog(level, component)) {
-        return;
-    }
-    
-    // Update metrics
-    metrics_.totalMessages++;
-    if (level == LogLevel::ERROR || level == LogLevel::FATAL) {
-        metrics_.errorCount++;
-    } else if (level == LogLevel::WARN) {
-        metrics_.warningCount++;
-    }
-    
-    std::string formattedMessage = formatMessage(level, component, message, context);
-    writeLog(formattedMessage);
+void Logger::log(
+    LogLevel level, const std::string &component, const std::string &message,
+    const std::unordered_map<std::string, std::string, TransparentStringHash,
+                             std::equal_to<>> &context) {
+  if (!shouldLog(level, component)) {
+    return;
+  }
+
+  // Update metrics
+  metrics_.totalMessages++;
+  if (level == LogLevel::ERROR || level == LogLevel::FATAL) {
+    metrics_.errorCount++;
+  } else if (level == LogLevel::WARN) {
+    metrics_.warningCount++;
+  }
+
+  std::string formattedMessage =
+      formatMessage(level, component, message, context);
+  writeLog(formattedMessage);
 }
 
-void Logger::debug(const std::string& component, const std::string& message, 
-                   const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
-    log(LogLevel::DEBUG, component, message, context);
+void Logger::debug(
+    const std::string &component, const std::string &message,
+    const std::unordered_map<std::string, std::string, TransparentStringHash,
+                             std::equal_to<>> &context) {
+  log(LogLevel::DEBUG, component, message, context);
 }
 
-void Logger::info(const std::string& component, const std::string& message, 
-                  const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
-    log(LogLevel::INFO, component, message, context);
+void Logger::info(
+    const std::string &component, const std::string &message,
+    const std::unordered_map<std::string, std::string, TransparentStringHash,
+                             std::equal_to<>> &context) {
+  log(LogLevel::INFO, component, message, context);
 }
 
-void Logger::warn(const std::string& component, const std::string& message, 
-                  const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
-    log(LogLevel::WARN, component, message, context);
+void Logger::warn(
+    const std::string &component, const std::string &message,
+    const std::unordered_map<std::string, std::string, TransparentStringHash,
+                             std::equal_to<>> &context) {
+  log(LogLevel::WARN, component, message, context);
 }
 
-void Logger::error(const std::string& component, const std::string& message, 
-                   const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
-    log(LogLevel::ERROR, component, message, context);
+void Logger::error(
+    const std::string &component, const std::string &message,
+    const std::unordered_map<std::string, std::string, TransparentStringHash,
+                             std::equal_to<>> &context) {
+  log(LogLevel::ERROR, component, message, context);
 }
 
-void Logger::fatal(const std::string& component, const std::string& message, 
-                   const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
-    log(LogLevel::FATAL, component, message, context);
+void Logger::fatal(
+    const std::string &component, const std::string &message,
+    const std::unordered_map<std::string, std::string, TransparentStringHash,
+                             std::equal_to<>> &context) {
+  log(LogLevel::FATAL, component, message, context);
 }
 
-void Logger::logMetric(const std::string& name, double value, const std::string& unit) {
-    if (!config_.includeMetrics) return;
-    
-    std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> context = {
-        {"metric_name", name},
-        {"metric_value", std::to_string(value)},
-        {"metric_unit", unit},
-        {"metric_type", "gauge"}
-    };
-    
-    log(LogLevel::INFO, "Metrics", "Metric recorded: " + name, context);
+void Logger::logMetric(const std::string &name, double value,
+                       const std::string &unit) {
+  if (!config_.includeMetrics)
+    return;
+
+  std::unordered_map<std::string, std::string, TransparentStringHash,
+                     std::equal_to<>>
+      context = {{"metric_name", name},
+                 {"metric_value", std::to_string(value)},
+                 {"metric_unit", unit},
+                 {"metric_type", "gauge"}};
+
+  log(LogLevel::INFO, "Metrics", "Metric recorded: " + name, context);
 }
 
-void Logger::logPerformance(const std::string& operation, double durationMs, 
-                           const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
-    auto perfContext = context;
-    perfContext["operation"] = operation;
-    perfContext["duration_ms"] = std::to_string(durationMs);
-    perfContext["performance_log"] = "true";
-    
-    log(LogLevel::INFO, "Performance", "Operation completed: " + operation, perfContext);
+void Logger::logPerformance(
+    const std::string &operation, double durationMs,
+    const std::unordered_map<std::string, std::string, TransparentStringHash,
+                             std::equal_to<>> &context) {
+  auto perfContext = context;
+  perfContext["operation"] = operation;
+  perfContext["duration_ms"] = std::to_string(durationMs);
+  perfContext["performance_log"] = "true";
+
+  log(LogLevel::INFO, "Performance", "Operation completed: " + operation,
+      perfContext);
 }
 
-LogMetrics Logger::getMetrics() const {
-    return metrics_;
-}
+LogMetrics Logger::getMetrics() const { return metrics_; }
 
 void Logger::flush() {
-    if (config_.asyncLogging) {
-        // For async logging, notify worker to flush
-        std::unique_lock<std::mutex> lock(asyncMutex_);
-        asyncCondition_.notify_all();
-    }
-    
-    std::lock_guard<std::mutex> lock(fileMutex_);
-    if (fileStream_.is_open()) {
-        fileStream_.flush();
-    }
+  if (config_.asyncLogging) {
+    // For async logging, notify worker to flush
+    std::unique_lock<std::mutex> lock(asyncMutex_);
+    asyncCondition_.notify_all();
+  }
+
+  std::lock_guard<std::mutex> lock(fileMutex_);
+  if (fileStream_.is_open()) {
+    fileStream_.flush();
+  }
 }
 
 void Logger::shutdown() {
-    if (asyncStarted_) {
-        enableAsyncLogging(false);
-    }
-    
-    if (streamingStarted_) {
-        enableRealTimeStreaming(false);
-    }
-    
-    std::lock_guard<std::mutex> lock(fileMutex_);
-    if (fileStream_.is_open()) {
-        fileStream_.close();
-    }
+  if (asyncStarted_) {
+    enableAsyncLogging(false);
+  }
+
+  if (streamingStarted_) {
+    enableRealTimeStreaming(false);
+  }
+
+  std::lock_guard<std::mutex> lock(fileMutex_);
+  if (fileStream_.is_open()) {
+    fileStream_.close();
+  }
 }
 
 std::string Logger::formatTimestamp() {
-    auto now = std::chrono::system_clock::now();
-    auto time_t = std::chrono::system_clock::to_time_t(now);
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        now.time_since_epoch()) % 1000;
-    
-    // Use thread-safe localtime alternative
-    std::tm tm_buf{};
+  auto now = std::chrono::system_clock::now();
+  auto time_t = std::chrono::system_clock::to_time_t(now);
+  auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now.time_since_epoch()) %
+            1000;
+
+  // Use thread-safe localtime alternative
+  std::tm tm_buf{};
 #ifdef _WIN32
-    localtime_s(&tm_buf, &time_t);
+  localtime_s(&tm_buf, &time_t);
 #else
-    localtime_r(&time_t, &tm_buf);
+  localtime_r(&time_t, &tm_buf);
 #endif
 
-    std::ostringstream oss;
-    oss << std::put_time(&tm_buf, "%Y-%m-%d %H:%M:%S");
-    oss << "." << std::setfill('0') << std::setw(3) << ms.count();
-    return oss.str();
+  std::ostringstream oss;
+  oss << std::put_time(&tm_buf, "%Y-%m-%d %H:%M:%S");
+  oss << "." << std::setfill('0') << std::setw(3) << ms.count();
+  return oss.str();
 }
 
 std::string Logger::levelToString(LogLevel level) {
-    switch (level) {
-        case LogLevel::DEBUG: return "DEBUG";
-        case LogLevel::INFO:  return "INFO ";
-        case LogLevel::WARN:  return "WARN ";
-        case LogLevel::ERROR: return "ERROR";
-        case LogLevel::FATAL: return "FATAL";
-        default: return "UNKNOWN";
-    }
+  switch (level) {
+  case LogLevel::DEBUG:
+    return "DEBUG";
+  case LogLevel::INFO:
+    return "INFO ";
+  case LogLevel::WARN:
+    return "WARN ";
+  case LogLevel::ERROR:
+    return "ERROR";
+  case LogLevel::FATAL:
+    return "FATAL";
+  default:
+    return "UNKNOWN";
+  }
 }
 
-std::string Logger::formatMessage(LogLevel level, const std::string& component,
-                                 const std::string& message,
-                                 const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
-    return config_.format == LogFormat::JSON
-        ? formatJsonMessage(level, component, message, context)
-        : formatTextMessage(level, component, message, context);
+std::string Logger::formatMessage(
+    LogLevel level, const std::string &component, const std::string &message,
+    const std::unordered_map<std::string, std::string, TransparentStringHash,
+                             std::equal_to<>> &context) {
+  return config_.format == LogFormat::JSON
+             ? formatJsonMessage(level, component, message, context)
+             : formatTextMessage(level, component, message, context);
 }
 
-std::string Logger::formatTextMessage(LogLevel level, const std::string& component,
-                                     const std::string& message,
-                                     const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
-    std::ostringstream oss;
-    oss << "[" << formatTimestamp() << "] "
-        << "[" << levelToString(level) << "] "
-        << "[" << component << "] "
-        << message;
-    
-    if (!context.empty()) {
-        oss << " |";
-        for (const auto& [key, value] : context) {
-            oss << " " << key << "=" << value;
-        }
+std::string Logger::formatTextMessage(
+    LogLevel level, const std::string &component, const std::string &message,
+    const std::unordered_map<std::string, std::string, TransparentStringHash,
+                             std::equal_to<>> &context) {
+  std::ostringstream oss;
+  oss << "[" << formatTimestamp() << "] "
+      << "[" << levelToString(level) << "] "
+      << "[" << component << "] " << message;
+
+  if (!context.empty()) {
+    oss << " |";
+    for (const auto &[key, value] : context) {
+      oss << " " << key << "=" << value;
     }
-    
-    return oss.str();
+  }
+
+  return oss.str();
 }
 
-std::string Logger::formatJsonMessage(LogLevel level, const std::string& component, 
-                                     const std::string& message, 
-                                     const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
-    std::ostringstream oss;
-    oss << "{"
-        << "\"timestamp\":\"" << formatTimestamp() << "\","
-        << "\"level\":\"" << levelToString(level) << "\","
-        << "\"component\":\"" << escapeJson(component) << "\","
-        << "\"message\":\"" << escapeJson(message) << "\"";
-    
-    if (!context.empty()) {
-        oss << ",\"context\":{";
-        bool first = true;
-        for (const auto& [key, value] : context) {
-            if (!first) oss << ",";
-            oss << "\"" << escapeJson(key) << "\":\"" << escapeJson(value) << "\"";
-            first = false;
-        }
-        oss << "}";
+std::string Logger::formatJsonMessage(
+    LogLevel level, const std::string &component, const std::string &message,
+    const std::unordered_map<std::string, std::string, TransparentStringHash,
+                             std::equal_to<>> &context) {
+  std::ostringstream oss;
+  oss << "{"
+      << "\"timestamp\":\"" << formatTimestamp() << "\","
+      << "\"level\":\"" << levelToString(level) << "\","
+      << "\"component\":\"" << escapeJson(component) << "\","
+      << "\"message\":\"" << escapeJson(message) << "\"";
+
+  if (!context.empty()) {
+    oss << ",\"context\":{";
+    bool first = true;
+    for (const auto &[key, value] : context) {
+      if (!first)
+        oss << ",";
+      oss << "\"" << escapeJson(key) << "\":\"" << escapeJson(value) << "\"";
+      first = false;
     }
-    
     oss << "}";
-    return oss.str();
+  }
+
+  oss << "}";
+  return oss.str();
 }
 
-std::string Logger::escapeJson(const std::string& str) {
-    std::string result;
-    result.reserve(str.length() + 20); // Reserve some extra space for escapes
-    
-    for (char c : str) {
-        switch (c) {
-            case '"':  result += "\\\""; break;
-            case '\\': result += "\\\\"; break;
-            case '\b': result += "\\b"; break;
-            case '\f': result += "\\f"; break;
-            case '\n': result += "\\n"; break;
-            case '\r': result += "\\r"; break;
-            case '\t': result += "\\t"; break;
-            default:
-                if (c < 0x20) {
-                    std::ostringstream oss;
-                    oss << "\\u" << std::setfill('0') << std::setw(4) << std::hex << static_cast<int>(c);
-                    result += oss.str();
-                } else {
-                    result += c;
-                }
-                break;
-        }
+std::string Logger::escapeJson(const std::string &str) {
+  std::string result;
+  result.reserve(str.length() + 20); // Reserve some extra space for escapes
+
+  for (char c : str) {
+    switch (c) {
+    case '"':
+      result += "\\\"";
+      break;
+    case '\\':
+      result += "\\\\";
+      break;
+    case '\b':
+      result += "\\b";
+      break;
+    case '\f':
+      result += "\\f";
+      break;
+    case '\n':
+      result += "\\n";
+      break;
+    case '\r':
+      result += "\\r";
+      break;
+    case '\t':
+      result += "\\t";
+      break;
+    default:
+      if (c < 0x20) {
+        std::ostringstream oss;
+        oss << "\\u" << std::setfill('0') << std::setw(4) << std::hex
+            << static_cast<int>(c);
+        result += oss.str();
+      } else {
+        result += c;
+      }
+      break;
     }
-    
-    return result;
+  }
+
+  return result;
 }
 
-void Logger::writeLog(const std::string& formattedMessage) {
-    if (config_.asyncLogging) {
-        writeLogAsync(formattedMessage);
-    } else {
-        writeLogSync(formattedMessage);
-    }
+void Logger::writeLog(const std::string &formattedMessage) {
+  if (config_.asyncLogging) {
+    writeLogAsync(formattedMessage);
+  } else {
+    writeLogSync(formattedMessage);
+  }
 }
 
-void Logger::writeLogSync(const std::string& formattedMessage) {
-    if (config_.consoleOutput) {
-        std::cout << formattedMessage << std::endl;
+void Logger::writeLogSync(const std::string &formattedMessage) {
+  if (config_.consoleOutput) {
+    std::cout << formattedMessage << std::endl;
+  }
+
+  if (config_.fileOutput) {
+    std::lock_guard<std::mutex> lock(fileMutex_);
+    if (fileStream_.is_open()) {
+      // Check if rotation is needed
+      if (config_.enableRotation &&
+          currentFileSize_ + formattedMessage.length() > config_.maxFileSize) {
+        rotateLogFile();
+      }
+
+      fileStream_ << formattedMessage << std::endl;
+      fileStream_.flush();
+      currentFileSize_ += formattedMessage.length() + 1;
     }
-    
-    if (config_.fileOutput) {
-        std::lock_guard<std::mutex> lock(fileMutex_);
-        if (fileStream_.is_open()) {
-            // Check if rotation is needed
-            if (config_.enableRotation && 
-                currentFileSize_ + formattedMessage.length() > config_.maxFileSize) {
-                rotateLogFile();
-            }
-            
-            fileStream_ << formattedMessage << std::endl;
-            fileStream_.flush();
-            currentFileSize_ += formattedMessage.length() + 1;
-        }
-    }
+  }
 }
 
-void Logger::writeLogAsync(const std::string& formattedMessage) {
-    std::lock_guard<std::mutex> lock(asyncMutex_);
-    
-    // Check queue size to prevent memory issues
-    if (constexpr size_t MAX_QUEUE_SIZE = 10000; messageQueue_.size() > MAX_QUEUE_SIZE) {
-        metrics_.droppedMessages++;
-        return;
-    }
-    
-    messageQueue_.push(formattedMessage);
-    asyncCondition_.notify_one();
+void Logger::writeLogAsync(const std::string &formattedMessage) {
+  std::lock_guard<std::mutex> lock(asyncMutex_);
+
+  // Check queue size to prevent memory issues
+  if (constexpr size_t MAX_QUEUE_SIZE = 10000;
+      messageQueue_.size() > MAX_QUEUE_SIZE) {
+    metrics_.droppedMessages++;
+    return;
+  }
+
+  messageQueue_.push(formattedMessage);
+  asyncCondition_.notify_one();
 }
 
 void Logger::asyncWorker() {
-    while (!stopAsync_) {
-        std::unique_lock<std::mutex> lock(asyncMutex_);
-        
-        asyncCondition_.wait(lock, [this] { 
-            return !messageQueue_.empty() || stopAsync_; 
-        });
-        
-        // Process all messages in queue
-        while (!messageQueue_.empty()) {
-            std::string message = messageQueue_.front();
-            messageQueue_.pop();
-            lock.unlock();
-            
-            writeLogSync(message);
-            
-            lock.lock();
-        }
-    }
-    
-    // Process remaining messages on shutdown
-    std::lock_guard<std::mutex> lock(asyncMutex_);
+  while (!stopAsync_) {
+    std::unique_lock<std::mutex> lock(asyncMutex_);
+
+    asyncCondition_.wait(
+        lock, [this] { return !messageQueue_.empty() || stopAsync_; });
+
+    // Process all messages in queue
     while (!messageQueue_.empty()) {
-        writeLogSync(messageQueue_.front());
-        messageQueue_.pop();
+      std::string message = messageQueue_.front();
+      messageQueue_.pop();
+      lock.unlock();
+
+      writeLogSync(message);
+
+      lock.lock();
     }
+  }
+
+  // Process remaining messages on shutdown
+  std::lock_guard<std::mutex> lock(asyncMutex_);
+  while (!messageQueue_.empty()) {
+    writeLogSync(messageQueue_.front());
+    messageQueue_.pop();
+  }
 }
 
 void Logger::rotateLogFile() {
-    if (!config_.enableRotation) return;
-    
-    fileStream_.close();
-    
-    // Move existing backup files
-    for (int i = config_.maxBackupFiles - 1; i > 0; i--) {
-        std::string oldFile = currentLogFile_ + "." + std::to_string(i);
-        std::string newFile = currentLogFile_ + "." + std::to_string(i + 1);
-        
-        if (std::filesystem::exists(oldFile)) {
-            if (i == config_.maxBackupFiles - 1) {
-                std::filesystem::remove(newFile); // Remove oldest
-            }
-            std::filesystem::rename(oldFile, newFile);
-        }
+  if (!config_.enableRotation)
+    return;
+
+  fileStream_.close();
+
+  // Move existing backup files
+  for (int i = config_.maxBackupFiles - 1; i > 0; i--) {
+    std::string oldFile = currentLogFile_ + "." + std::to_string(i);
+    std::string newFile = currentLogFile_ + "." + std::to_string(i + 1);
+
+    if (std::filesystem::exists(oldFile)) {
+      if (i == config_.maxBackupFiles - 1) {
+        std::filesystem::remove(newFile); // Remove oldest
+      }
+      std::filesystem::rename(oldFile, newFile);
     }
-    
-    // Move current log to .1
-    std::string firstBackup = currentLogFile_ + ".1";
-    if (std::filesystem::exists(currentLogFile_)) {
-        std::filesystem::rename(currentLogFile_, firstBackup);
-    }
-    
-    // Create new log file
-    fileStream_.open(currentLogFile_, std::ios::out);
-    currentFileSize_ = 0;
-    
-    if (!fileStream_.is_open()) {
-        std::cerr << "Failed to create new log file after rotation: " << currentLogFile_ << std::endl;
-        config_.fileOutput = false;
-    }
+  }
+
+  // Move current log to .1
+  std::string firstBackup = currentLogFile_ + ".1";
+  if (std::filesystem::exists(currentLogFile_)) {
+    std::filesystem::rename(currentLogFile_, firstBackup);
+  }
+
+  // Create new log file
+  fileStream_.open(currentLogFile_, std::ios::out);
+  currentFileSize_ = 0;
+
+  if (!fileStream_.is_open()) {
+    std::cerr << "Failed to create new log file after rotation: "
+              << currentLogFile_ << std::endl;
+    config_.fileOutput = false;
+  }
 }
 
-bool Logger::shouldLog(LogLevel level, const std::string& component) const {
-    if (level < config_.level) {
-        return false;
-    }
-    
-    if (!config_.componentFilter.empty() && 
-        config_.componentFilter.find(component) == config_.componentFilter.end()) {
-        return false;
-    }
-    
-    return true;
+bool Logger::shouldLog(LogLevel level, const std::string &component) const {
+  if (level < config_.level) {
+    return false;
+  }
+
+  if (!config_.componentFilter.empty() &&
+      config_.componentFilter.find(component) ==
+          config_.componentFilter.end()) {
+    return false;
+  }
+
+  return true;
 }
 
 // Real-time streaming methods implementation
 void Logger::setWebSocketManager(std::shared_ptr<WebSocketManager> wsManager) {
-    std::lock_guard<std::mutex> lock(configMutex_);
-    wsManager_ = wsManager;
+  std::lock_guard<std::mutex> lock(configMutex_);
+  wsManager_ = wsManager;
 }
 
 void Logger::enableRealTimeStreaming(bool enable) {
-    std::lock_guard<std::mutex> lock(configMutex_);
-    
-    if (enable && !config_.enableRealTimeStreaming && !streamingStarted_) {
-        config_.enableRealTimeStreaming = true;
-        stopStreaming_ = false;
-        streamingStarted_ = true;
-        streamingThread_ = std::thread(&Logger::streamingWorker, this);
-    } else if (!enable && config_.enableRealTimeStreaming && streamingStarted_) {
-        config_.enableRealTimeStreaming = false;
-        stopStreaming_ = true;
-        streamingCondition_.notify_all();
-        if (streamingThread_.joinable()) {
-            streamingThread_.join();
-        }
-        streamingStarted_ = false;
+  std::lock_guard<std::mutex> lock(configMutex_);
+
+  if (enable && !config_.enableRealTimeStreaming && !streamingStarted_) {
+    config_.enableRealTimeStreaming = true;
+    stopStreaming_ = false;
+    streamingStarted_ = true;
+    streamingThread_ = std::thread(&Logger::streamingWorker, this);
+  } else if (!enable && config_.enableRealTimeStreaming && streamingStarted_) {
+    config_.enableRealTimeStreaming = false;
+    stopStreaming_ = true;
+    streamingCondition_.notify_all();
+    if (streamingThread_.joinable()) {
+      streamingThread_.join();
     }
+    streamingStarted_ = false;
+  }
 }
 
-void Logger::setStreamingJobFilter(const std::unordered_set<std::string, TransparentStringHash, std::equal_to<>>& jobIds) {
-    std::lock_guard<std::mutex> lock(configMutex_);
-    config_.streamingJobFilter = jobIds;
+void Logger::setStreamingJobFilter(
+    const std::unordered_set<std::string, TransparentStringHash,
+                             std::equal_to<>> &jobIds) {
+  std::lock_guard<std::mutex> lock(configMutex_);
+  config_.streamingJobFilter = jobIds;
 }
 
-void Logger::addStreamingJobFilter(const std::string& jobId) {
-    std::lock_guard<std::mutex> lock(configMutex_);
-    config_.streamingJobFilter.insert(jobId);
+void Logger::addStreamingJobFilter(const std::string &jobId) {
+  std::lock_guard<std::mutex> lock(configMutex_);
+  config_.streamingJobFilter.insert(jobId);
 }
 
-void Logger::removeStreamingJobFilter(const std::string& jobId) {
-    std::lock_guard<std::mutex> lock(configMutex_);
-    config_.streamingJobFilter.erase(jobId);
+void Logger::removeStreamingJobFilter(const std::string &jobId) {
+  std::lock_guard<std::mutex> lock(configMutex_);
+  config_.streamingJobFilter.erase(jobId);
 }
 
 void Logger::clearStreamingJobFilter() {
-    std::lock_guard<std::mutex> lock(configMutex_);
-    config_.streamingJobFilter.clear();
+  std::lock_guard<std::mutex> lock(configMutex_);
+  config_.streamingJobFilter.clear();
 }
 
-void Logger::logForJob(LogLevel level, const std::string& component, 
-                       const std::string& message, const std::string& jobId,
-                       const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
-    // Regular logging
-    log(level, component, message, context);
-    
-    // Real-time streaming if enabled
-    if (config_.enableRealTimeStreaming && shouldStreamLog(level, jobId)) {
-        auto logMsg = createLogMessage(level, component, message, jobId, context);
-        
-        std::lock_guard<std::mutex> lock(streamingMutex_);
-        
-        // Check queue size to prevent memory issues
-        if (streamingQueue_.size() >= config_.streamingQueueSize) {
-            metrics_.droppedMessages++;
-            return;
-        }
-        
-        streamingQueue_.push(logMsg);
-        streamingCondition_.notify_one();
+void Logger::logForJob(
+    LogLevel level, const std::string &component, const std::string &message,
+    const std::string &jobId,
+    const std::unordered_map<std::string, std::string, TransparentStringHash,
+                             std::equal_to<>> &context) {
+  // Regular logging
+  log(level, component, message, context);
+
+  // Real-time streaming if enabled
+  if (config_.enableRealTimeStreaming && shouldStreamLog(level, jobId)) {
+    auto logMsg = createLogMessage(level, component, message, jobId, context);
+
+    std::lock_guard<std::mutex> lock(streamingMutex_);
+
+    // Check queue size to prevent memory issues
+    if (streamingQueue_.size() >= config_.streamingQueueSize) {
+      metrics_.droppedMessages++;
+      return;
     }
+
+    streamingQueue_.push(logMsg);
+    streamingCondition_.notify_one();
+  }
 }
 
-void Logger::debugForJob(const std::string& component, const std::string& message, 
-                         const std::string& jobId,
-                         const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
-    logForJob(LogLevel::DEBUG, component, message, jobId, context);
+void Logger::debugForJob(
+    const std::string &component, const std::string &message,
+    const std::string &jobId,
+    const std::unordered_map<std::string, std::string, TransparentStringHash,
+                             std::equal_to<>> &context) {
+  logForJob(LogLevel::DEBUG, component, message, jobId, context);
 }
 
-void Logger::infoForJob(const std::string& component, const std::string& message, 
-                        const std::string& jobId,
-                        const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
-    logForJob(LogLevel::INFO, component, message, jobId, context);
+void Logger::infoForJob(
+    const std::string &component, const std::string &message,
+    const std::string &jobId,
+    const std::unordered_map<std::string, std::string, TransparentStringHash,
+                             std::equal_to<>> &context) {
+  logForJob(LogLevel::INFO, component, message, jobId, context);
 }
 
-void Logger::warnForJob(const std::string& component, const std::string& message, 
-                        const std::string& jobId,
-                        const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
-    logForJob(LogLevel::WARN, component, message, jobId, context);
+void Logger::warnForJob(
+    const std::string &component, const std::string &message,
+    const std::string &jobId,
+    const std::unordered_map<std::string, std::string, TransparentStringHash,
+                             std::equal_to<>> &context) {
+  logForJob(LogLevel::WARN, component, message, jobId, context);
 }
 
-void Logger::errorForJob(const std::string& component, const std::string& message, 
-                         const std::string& jobId,
-                         const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
-    logForJob(LogLevel::ERROR, component, message, jobId, context);
+void Logger::errorForJob(
+    const std::string &component, const std::string &message,
+    const std::string &jobId,
+    const std::unordered_map<std::string, std::string, TransparentStringHash,
+                             std::equal_to<>> &context) {
+  logForJob(LogLevel::ERROR, component, message, jobId, context);
 }
 
-void Logger::fatalForJob(const std::string& component, const std::string& message, 
-                         const std::string& jobId,
-                         const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
-    logForJob(LogLevel::FATAL, component, message, jobId, context);
+void Logger::fatalForJob(
+    const std::string &component, const std::string &message,
+    const std::string &jobId,
+    const std::unordered_map<std::string, std::string, TransparentStringHash,
+                             std::equal_to<>> &context) {
+  logForJob(LogLevel::FATAL, component, message, jobId, context);
 }
 
 void Logger::streamingWorker() {
-    while (!stopStreaming_) {
-        std::unique_lock<std::mutex> lock(streamingMutex_);
-        
-        streamingCondition_.wait(lock, [this] { 
-            return !streamingQueue_.empty() || stopStreaming_; 
-        });
-        
-        // Process all messages in queue
-        while (!streamingQueue_.empty()) {
-            auto logMsg = streamingQueue_.front();
-            streamingQueue_.pop();
-            lock.unlock();
-            
-            broadcastLogMessage(logMsg);
-            
-            lock.lock();
-        }
-    }
-    
-    // Process remaining messages on shutdown
-    std::lock_guard<std::mutex> lock(streamingMutex_);
+  while (!stopStreaming_) {
+    std::unique_lock<std::mutex> lock(streamingMutex_);
+
+    streamingCondition_.wait(
+        lock, [this] { return !streamingQueue_.empty() || stopStreaming_; });
+
+    // Process all messages in queue
     while (!streamingQueue_.empty()) {
-        broadcastLogMessage(streamingQueue_.front());
-        streamingQueue_.pop();
+      auto logMsg = streamingQueue_.front();
+      streamingQueue_.pop();
+      lock.unlock();
+
+      broadcastLogMessage(logMsg);
+
+      lock.lock();
     }
+  }
+
+  // Process remaining messages on shutdown
+  std::lock_guard<std::mutex> lock(streamingMutex_);
+  while (!streamingQueue_.empty()) {
+    broadcastLogMessage(streamingQueue_.front());
+    streamingQueue_.pop();
+  }
 }
 
-void Logger::broadcastLogMessage(const std::shared_ptr<LogMessage>& logMsg) {
-    if (!wsManager_ || !logMsg) {
-        return;
-    }
-    
-    try {
-        // Broadcast to WebSocket clients with filtering
-        wsManager_->broadcastLogMessage(logMsg->toJson(), logMsg->jobId, logMsg->level);
-    } catch (const std::exception& e) {
-        // Log error without causing recursion
-        std::cerr << "Failed to broadcast log message: " << e.what() << std::endl;
-    }
+void Logger::broadcastLogMessage(const std::shared_ptr<LogMessage> &logMsg) {
+  if (!wsManager_ || !logMsg) {
+    return;
+  }
+
+  try {
+    // Broadcast to WebSocket clients with filtering
+    wsManager_->broadcastLogMessage(logMsg->toJson(), logMsg->jobId,
+                                    logMsg->level);
+  } catch (const std::exception &e) {
+    // Log error without causing recursion
+    std::cerr << "Failed to broadcast log message: " << e.what() << std::endl;
+  }
 }
 
-bool Logger::shouldStreamLog(LogLevel level, const std::string& jobId) {
-    // Check if streaming is enabled
-    if (!config_.enableRealTimeStreaming) {
-        return false;
-    }
-    
-    // Check log level filtering
-    if (!config_.streamAllLevels && level < config_.level) {
-        return false;
-    }
-    
-    // Check job ID filtering
-    if (!config_.streamingJobFilter.empty() && 
-        config_.streamingJobFilter.find(jobId) == config_.streamingJobFilter.end()) {
-        return false;
-    }
-    
-    return true;
+bool Logger::shouldStreamLog(LogLevel level, const std::string &jobId) {
+  // Check if streaming is enabled
+  if (!config_.enableRealTimeStreaming) {
+    return false;
+  }
+
+  // Check log level filtering
+  if (!config_.streamAllLevels && level < config_.level) {
+    return false;
+  }
+
+  // Check job ID filtering
+  if (!config_.streamingJobFilter.empty() &&
+      config_.streamingJobFilter.find(jobId) ==
+          config_.streamingJobFilter.end()) {
+    return false;
+  }
+
+  return true;
 }
 
-std::shared_ptr<LogMessage> Logger::createLogMessage(LogLevel level, const std::string& component,
-                                                    const std::string& message, const std::string& jobId,
-                                                    const std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>& context) {
-    auto logMsg = std::make_shared<LogMessage>();
-    logMsg->jobId = jobId;
-    logMsg->level = levelToString(level);
-    logMsg->component = component;
-    logMsg->message = message;
-    logMsg->timestamp = std::chrono::system_clock::now();
-    logMsg->context = context;
-    
-    return logMsg;
+std::shared_ptr<LogMessage> Logger::createLogMessage(
+    LogLevel level, const std::string &component, const std::string &message,
+    const std::string &jobId,
+    const std::unordered_map<std::string, std::string, TransparentStringHash,
+                             std::equal_to<>> &context) {
+  auto logMsg = std::make_shared<LogMessage>();
+  logMsg->jobId = jobId;
+  logMsg->level = levelToString(level);
+  logMsg->component = component;
+  logMsg->message = message;
+  logMsg->timestamp = std::chrono::system_clock::now();
+  logMsg->context = context;
+
+  return logMsg;
 }
 
-void Logger::indexLogFile(const std::string& logFile) {
-    if (!config_.enableLogIndexing) return;
+void Logger::indexLogFile(const std::string &logFile) {
+  if (!config_.enableLogIndexing)
+    return;
 
-    std::lock_guard<std::mutex> lock(fileMutex_);
+  std::lock_guard<std::mutex> lock(fileMutex_);
 
-    // Ensure archive directory exists and use proper path handling
-    namespace fs = std::filesystem;
-    const fs::path archiveDir{config_.archiveDirectory};
-    std::error_code ec;
-    fs::create_directories(archiveDir, ec); // ignore error; open() will validate
+  // Ensure archive directory exists and use proper path handling
+  namespace fs = std::filesystem;
+  const fs::path archiveDir{config_.archiveDirectory};
+  std::error_code ec;
+  fs::create_directories(archiveDir, ec); // ignore error; open() will validate
 
-    // Create or open the index file using proper path joining
-    const fs::path indexFilePath = archiveDir / "log_index.txt";
-    std::ofstream indexFile(indexFilePath.string(), std::ios::app);
-    if (!indexFile.is_open()) {
-        std::cerr << "Failed to open index file: " << indexFilePath.string() << std::endl;
-        return;
-    }
+  // Create or open the index file using proper path joining
+  const fs::path indexFilePath = archiveDir / "log_index.txt";
+  std::ofstream indexFile(indexFilePath.string(), std::ios::app);
+  if (!indexFile.is_open()) {
+    std::cerr << "Failed to open index file: " << indexFilePath.string()
+              << std::endl;
+    return;
+  }
 
-    // Write the log file entry
-    indexFile << logFile << " " << formatTimestamp() << std::endl;
+  // Write the log file entry
+  indexFile << logFile << " " << formatTimestamp() << std::endl;
 }
 
 void Logger::archiveOldLogs() {
-    if (!config_.enableHistoricalAccess) return;
+  if (!config_.enableHistoricalAccess)
+    return;
 
-    std::lock_guard<std::mutex> lock(fileMutex_);
+  std::lock_guard<std::mutex> lock(fileMutex_);
 
-    // Close the current log file
-    if (fileStream_.is_open()) {
-        fileStream_.close();
-    }
+  // Close the current log file
+  if (fileStream_.is_open()) {
+    fileStream_.close();
+  }
 
-    // Move the current log file to the archive directory
-    std::string archiveFile = config_.archiveDirectory + "/" + std::filesystem::path(currentLogFile_).filename().string();
-    std::filesystem::rename(currentLogFile_, archiveFile);
+  // Move the current log file to the archive directory
+  std::string archiveFile =
+      config_.archiveDirectory + "/" +
+      std::filesystem::path(currentLogFile_).filename().string();
+  std::filesystem::rename(currentLogFile_, archiveFile);
 
-    // Reopen the log file stream
-    fileStream_.open(currentLogFile_, std::ios::app);
-    currentFileSize_ = 0;
+  // Reopen the log file stream
+  fileStream_.open(currentLogFile_, std::ios::app);
+  currentFileSize_ = 0;
 
-    if (!fileStream_.is_open()) {
-        std::cerr << "Failed to open new log file after archiving: " << currentLogFile_ << std::endl;
-        config_.fileOutput = false;
-    }
+  if (!fileStream_.is_open()) {
+    std::cerr << "Failed to open new log file after archiving: "
+              << currentLogFile_ << std::endl;
+    config_.fileOutput = false;
+  }
 }

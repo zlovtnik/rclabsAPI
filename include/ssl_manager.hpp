@@ -1,8 +1,8 @@
 #pragma once
 
-#include <boost/beast/ssl.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
+#include <boost/beast/ssl.hpp>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -54,19 +54,18 @@ public:
     bool enableHPKP;
 
     SSLConfig()
-        : enableSSL(true),
-          requireClientCertificate(false),
-          minimumTLSVersion("TLSv1.3"), // Use TLS 1.3 for better security and performance
-          cipherSuites("HIGH:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!SRP:!CAMELLIA"),
-          verifyPeer(true),
-          verifyHost(true),
-          verifyDepth(9),
+        : enableSSL(true), requireClientCertificate(false),
+          minimumTLSVersion(
+              "TLSv1.3"), // Use TLS 1.3 for better security and performance
+          cipherSuites(
+              "HIGH:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!SRP:!CAMELLIA"),
+          verifyPeer(true), verifyHost(true), verifyDepth(9),
           enableSessionCaching(true),
-          sessionTimeout(3600), // 1 hour - balance between security and performance
-          enableHSTS(true),
-          hstsMaxAge("31536000"), // 1 year
-          hstsIncludeSubDomains(false), // Make configurable
-          hstsPreload(false), // Make configurable, don't set by default
+          sessionTimeout(
+              3600), // 1 hour - balance between security and performance
+          enableHSTS(true), hstsMaxAge("31536000"), // 1 year
+          hstsIncludeSubDomains(false),             // Make configurable
+          hstsPreload(false),  // Make configurable, don't set by default
           enableHPKP(false) {} // HTTP Public Key Pinning (deprecated)
   };
 
@@ -83,9 +82,7 @@ public:
       errorMessage = message;
     }
 
-    void addWarning(const std::string &message) {
-      warnings.push_back(message);
-    }
+    void addWarning(const std::string &message) { warnings.push_back(message); }
   };
 
   SSLManager(const SSLConfig &config = SSLConfig());
@@ -150,7 +147,7 @@ private:
   std::string getCertificateFingerprint(const std::string &certPath);
   bool validateCertificateDates(const std::string &certPath) const;
   SSLResult checkCertificatePermissions(const std::string &certPath,
-                                      const std::string &keyPath) const;
+                                        const std::string &keyPath) const;
 };
 
 } // namespace ETLPlus::SSL

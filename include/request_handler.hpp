@@ -77,8 +77,10 @@ private:
   std::shared_ptr<ETLJobManager> etlManager_;
   std::unique_ptr<RateLimiter> rateLimiter_;
   std::shared_ptr<WebSocketManager> wsManager_;
-  std::shared_ptr<JobMonitorService> monitorService_; // Initialize after wsManager_ for proper destruction order
-  
+  std::shared_ptr<JobMonitorService>
+      monitorService_; // Initialize after wsManager_ for proper destruction
+                       // order
+
   // Hana-based exception handling registry for better type safety
   ETLPlus::ExceptionHandling::HanaExceptionRegistry hanaExceptionRegistry_;
   ETLPlus::ExceptionHandling::ExceptionMapper exceptionMapper_;
@@ -92,7 +94,8 @@ private:
 
   // JWT validation middleware
 #ifdef ETL_ENABLE_JWT
-  std::optional<std::string> validateJWTToken(const http::request<http::string_body> &req) const;
+  std::optional<std::string>
+  validateJWTToken(const http::request<http::string_body> &req) const;
   bool isProtectedEndpoint(std::string_view target) const;
 #endif
 
