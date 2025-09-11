@@ -3,6 +3,7 @@
 #include "logger.hpp"
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <iomanip>
 #include <nlohmann/json.hpp>
 #include <sstream>
@@ -23,6 +24,43 @@ std::string normalizeStatus(const std::string &status) {
   std::transform(normalized.begin(), normalized.end(), normalized.begin(),
                  ::toupper);
   return normalized;
+}
+
+// Static regex for ISO 8601 timestamps to avoid recompilation
+const std::regex kIso8601MsZ(R"(^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z?$)");
+
+// Parse UTC timestamp string to time_point
+static std::optional<std::chrono::system_clock::time_point>
+parseUtc(const std::string& ts) {
+  std::tm tm = {};
+  std::istringstream ss(ts);
+  ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S");
+  if (ss.fail()) return std::nullopt;
+  
+  // Handle optional milliseconds
+  if (ss.peek() == '.') {
+    ss.get(); // consume '.'
+    int ms;
+    ss >> ms;
+  }
+  
+  // Handle optional 'Z'
+  if (ss.peek() == 'Z') {
+    ss.get();
+  }
+  
+  auto tp = std::chrono::system_clock::from_time_t(std::mktime(&tm));
+  return tp;
+}
+
+// Check if status string is valid (case-insensitive)
+static bool isValidStatus(std::string_view s) {
+  std::string v(s);
+  std::transform(v.begin(), v.end(), v.begin(), ::tolower);
+  static const std::unordered_set<std::string> ok = {
+    "pending","running","completed","failed","cancelled"
+  };
+  return ok.count(v) > 0;
 }
 } // namespace
 
@@ -261,8 +299,10 @@ InputValidator::validateJobUpdateRequest(const std::string &json) {
 
   // Validate status if provided
   if (!status.empty()) {
-    if (status != "PENDING" && status != "RUNNING" && status != "COMPLETED" &&
-        status != "FAILED" && status != "CANCELLED") {
+    std::string norm = normalizeStatus(status);
+    static const std::unordered_set<std::string> valid = {
+        "PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"};
+    if (valid.find(norm) == valid.end()) {
       result.addError("status", "Invalid job status", "INVALID_STATUS");
     }
   }
@@ -287,16 +327,7 @@ InputValidator::ValidationResult InputValidator::validateJobQueryParams(
       std::transform(lowerValue.begin(), lowerValue.end(), lowerValue.begin(),
                      ::tolower);
 
-      JobStatus status;
-      try {
-        status = stringToJobStatus(lowerValue);
-        // If stringToJobStatus returns PENDING for an unknown status, it's
-        // invalid (unless the input was actually "pending")
-        if (status == JobStatus::PENDING && lowerValue != "pending") {
-          result.addError("status", "Invalid status filter",
-                          "INVALID_STATUS_FILTER");
-        }
-      } catch (const std::exception &) {
+      if (!isValidStatus(lowerValue)) {
         result.addError("status", "Invalid status filter",
                         "INVALID_STATUS_FILTER");
       }
@@ -351,7 +382,7 @@ InputValidator::ValidationResult InputValidator::validateMetricsParams(
                         "INVALID_TIME_RANGE");
       }
     } else {
-      result.addError(key, "Unknown monitoring parameter", "UNKNOWN_PARAMETER");
+      result.addError(key, "Unknown metrics parameter", "UNKNOWN_PARAMETER");
     }
   }
 
@@ -439,7 +470,12 @@ InputValidator::validateAuthorizationHeader(const std::string &authHeader) {
     return result;
   }
 
-  if (authHeader.size() < 7 || authHeader.substr(0, 7) != "Bearer ") {
+  if (authHeader.size() < 7 ||
+      !std::equal(authHeader.begin(), authHeader.begin() + 7, "Bearer ",
+                  [](char a, char b) {
+                    return std::tolower(static_cast<unsigned char>(a)) ==
+                           std::tolower(static_cast<unsigned char>(b));
+                  })) {
     result.addError("authorization", "Invalid authorization scheme",
                     "INVALID_AUTH_SCHEME");
     return result;
@@ -716,10 +752,7 @@ InputValidator::ValidationResult InputValidator::validateMonitoringParams(
   auto fromIt = params.find("from");
   if (fromIt != params.end()) {
     const std::string &from = fromIt->second;
-    // Basic ISO 8601 format validation
-    std::regex timestampPattern(
-        R"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z?)");
-    if (!std::regex_match(from, timestampPattern)) {
+    if (!std::regex_match(from, kIso8601MsZ)) {
       result.addError("from", "Invalid timestamp format, expected ISO 8601",
                       "INVALID_TIMESTAMP");
     }
@@ -728,10 +761,7 @@ InputValidator::ValidationResult InputValidator::validateMonitoringParams(
   auto toIt = params.find("to");
   if (toIt != params.end()) {
     const std::string &to = toIt->second;
-    // Basic ISO 8601 format validation
-    std::regex timestampPattern(
-        R"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z?)");
-    if (!std::regex_match(to, timestampPattern)) {
+    if (!std::regex_match(to, kIso8601MsZ)) {
       result.addError("to", "Invalid timestamp format, expected ISO 8601",
                       "INVALID_TIMESTAMP");
     }
@@ -739,9 +769,9 @@ InputValidator::ValidationResult InputValidator::validateMonitoringParams(
 
   // Validate that from is before to if both are present
   if (fromIt != params.end() && toIt != params.end()) {
-    // This is a simplified check - in a real implementation you'd parse the
-    // timestamps
-    if (fromIt->second > toIt->second) {
+    auto fromTime = parseUtc(fromIt->second);
+    auto toTime = parseUtc(toIt->second);
+    if (fromTime && toTime && *fromTime >= *toTime) {
       result.addError("from", "From timestamp must be before to timestamp",
                       "INVALID_RANGE");
     }
