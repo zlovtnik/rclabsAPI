@@ -33,29 +33,7 @@ RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
                ", Auth: " + std::string(authManager ? "valid" : "null") +
                ", ETL: " + std::string(etlManager ? "valid" : "null"));
 
-  // Initialize rate limiter
-  rateLimiter_->initializeDefaultRules();
-
-  // Configure the exception mapper for RequestHandler
-  ETLPlus::ExceptionHandling::ExceptionMappingConfig config;
-  config.serverHeader = "ETL Plus Backend";
-  config.corsOrigin = "*";
-  config.keepAlive = false;
-  config.includeInternalDetails = false; // Don't expose internal details in production
-  exceptionMapper_.updateConfig(config);
-
-  // Initialize Hana-based exception handlers for better type safety and performance
-  hanaExceptionRegistry_.registerHandler<etl::ValidationException>(
-      ETLPlus::ExceptionHandling::makeValidationErrorHandler());
-  hanaExceptionRegistry_.registerHandler<etl::SystemException>(
-      ETLPlus::ExceptionHandling::makeSystemErrorHandler());
-  hanaExceptionRegistry_.registerHandler<etl::BusinessException>(
-      ETLPlus::ExceptionHandling::makeBusinessErrorHandler());
-
-  // Note: HanaExceptionRegistry provides better type safety than the old ExceptionMapper
-  // The old ExceptionMapper registration is removed in favor of Hana-based handling
-
-  REQ_LOG_INFO("Hana-based exception handlers registered for improved error handling");
+  initCommon();
 }
 
 RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
@@ -114,26 +92,7 @@ RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
                ", ETL: " + std::string(etlManager ? "valid" : "null") +
                ", WebSocket: " + std::string(wsManager ? "valid" : "null"));
 
-  // Initialize rate limiter
-  rateLimiter_->initializeDefaultRules();
-
-  // Configure the exception mapper for RequestHandler
-  ETLPlus::ExceptionHandling::ExceptionMappingConfig config;
-  config.serverHeader = "ETL Plus Backend";
-  config.corsOrigin = "*";
-  config.keepAlive = false;
-  config.includeInternalDetails = false; // Don't expose internal details in production
-  exceptionMapper_.updateConfig(config);
-
-  // Initialize Hana-based exception handlers for better type safety and performance
-  hanaExceptionRegistry_.registerHandler<etl::ValidationException>(
-      ETLPlus::ExceptionHandling::makeValidationErrorHandler());
-  hanaExceptionRegistry_.registerHandler<etl::SystemException>(
-      ETLPlus::ExceptionHandling::makeSystemErrorHandler());
-  hanaExceptionRegistry_.registerHandler<etl::BusinessException>(
-      ETLPlus::ExceptionHandling::makeBusinessErrorHandler());
-
-  REQ_LOG_INFO("Hana-based exception handlers registered for improved error handling");
+  initCommon();
 }
 
 RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
@@ -176,6 +135,55 @@ RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
       ETLPlus::ExceptionHandling::makeBusinessErrorHandler());
 
   REQ_LOG_INFO("Hana-based exception handlers registered for improved error handling");
+}
+
+void RequestHandler::initCommon() {
+  // Initialize rate limiter if not already set
+  if (!rateLimiter_) {
+    rateLimiter_ = std::make_unique<RateLimiter>();
+  }
+  rateLimiter_->initializeDefaultRules();
+
+  // Configure the exception mapper for RequestHandler
+  ETLPlus::ExceptionHandling::ExceptionMappingConfig config;
+  config.serverHeader = "ETL Plus Backend";
+  config.corsOrigin = "*";
+  config.keepAlive = false;
+  config.includeInternalDetails = false; // Don't expose internal details in production
+  exceptionMapper_.updateConfig(config);
+
+  // Initialize Hana-based exception handlers for better type safety and performance
+  hanaExceptionRegistry_.registerHandler<etl::ValidationException>(
+      ETLPlus::ExceptionHandling::makeValidationErrorHandler());
+  hanaExceptionRegistry_.registerHandler<etl::SystemException>(
+      ETLPlus::ExceptionHandling::makeSystemErrorHandler());
+  hanaExceptionRegistry_.registerHandler<etl::BusinessException>(
+      ETLPlus::ExceptionHandling::makeBusinessErrorHandler());
+
+  REQ_LOG_INFO("Hana-based exception handlers registered for improved error handling");
+}
+
+RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
+                               std::shared_ptr<AuthManager> authManager,
+                               std::shared_ptr<ETLJobManager> etlManager,
+                               RequestHandlerOptions options)
+    : dbManager_(dbManager), authManager_(authManager), etlManager_(etlManager),
+      rateLimiter_(std::move(options.rateLimiter)), wsManager_(options.wsManager),
+      trustProxy_(options.trustProxy), numTrustedHops_(options.numTrustedHops), exceptionMapper_()
+{
+  REQ_LOG_INFO("RequestHandler created with options - DB: " +
+               std::string(dbManager ? "valid" : "null") +
+               ", Auth: " + std::string(authManager ? "valid" : "null") +
+               ", ETL: " + std::string(etlManager ? "valid" : "null") +
+               ", RateLimiter: " + std::string(rateLimiter_ ? "valid" : "null") +
+               ", WebSocket: " + std::string(wsManager_ ? "valid" : "null"));
+
+  // Validate WebSocket manager if provided
+  if (wsManager_ && !wsManager_) {
+    throw std::invalid_argument("WebSocketManager pointer cannot be null when provided");
+  }
+
+  initCommon();
 }
 
 #if ETL_ENABLE_JWT
@@ -1612,19 +1620,29 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
   size_t completedJobs = 0;
   size_t failedJobs = 0;
   if (etlManager_) {
-    // These would need to be implemented in ETLJobManager
-    // For now, use placeholder values
-    totalJobs = 0;
-    runningJobs = 0;
-    completedJobs = 0;
-    failedJobs = 0;
+    try {
+      auto allJobs = etlManager_->getAllJobs();
+      totalJobs = allJobs.size();
+      
+      auto running = etlManager_->getJobsByStatus(JobStatus::RUNNING);
+      runningJobs = running.size();
+      
+      auto completed = etlManager_->getJobsByStatus(JobStatus::COMPLETED);
+      completedJobs = completed.size();
+      
+      auto failed = etlManager_->getJobsByStatus(JobStatus::FAILED);
+      failedJobs = failed.size();
+    } catch (const std::exception& e) {
+      REQ_LOG_WARN("Failed to get ETL job statistics: " + std::string(e.what()));
+      // Keep default values of 0
+    }
   }
 
   // Basic health check
   if (target == "/api/health" || target == "/api/status")
   {
     std::string status = "healthy";
-    if (!dbConnected || !wsRunning) {
+    if (!dbConnected || !dbPoolHealthy || !wsRunning) {
       status = "degraded";
     }
     return createSuccessResponse("{\"status\":\"" + status + "\",\"timestamp\":\"" + std::to_string(timestamp) + "\"}", req.version());
@@ -1734,7 +1752,7 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
        << wsConnections << R"(,
           "messages_sent": )"
        << wsBroadcasterStats.totalMessagesSent << R"(,
-          "messages_received": )"
+          "messages_queued": )"
        << wsBroadcasterStats.totalMessagesQueued << R"(
         },
         "jobs": {
@@ -1799,7 +1817,7 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
        << wsPoolStats.activeConnections << R"(,
         "messages_sent": )"
        << wsBroadcasterStats.totalMessagesSent << R"(,
-        "messages_received": )"
+        "messages_queued": )"
        << wsBroadcasterStats.totalMessagesQueued << R"(,
         "broadcast_errors": )"
        << wsBroadcasterStats.totalMessagesDropped << R"(
@@ -1919,7 +1937,7 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
     {
       std::stringstream ss;
       ss << R"({
-        "status": ")" << ((dbConnected && wsRunning) ? "healthy" : "degraded") << R"(",
+        "status": ")" << ((dbConnected && dbPoolHealthy && wsRunning) ? "healthy" : "degraded") << R"(",
         "timestamp": ")"
          << timestamp << R"(",
         "detailed": {
@@ -1960,7 +1978,7 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
     }
     else
     {
-      std::string status = (dbConnected && wsRunning) ? "healthy" : "degraded";
+      std::string status = (dbConnected && dbPoolHealthy && wsRunning) ? "healthy" : "degraded";
       healthData = "{\"status\":\"" + status + "\",\"timestamp\":\"" + std::to_string(timestamp) + "\"}";
     }
 

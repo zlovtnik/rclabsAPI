@@ -1,7 +1,10 @@
 #ifndef REDIS_CACHE_HPP
 #define REDIS_CACHE_HPP
 
+#ifdef ETL_ENABLE_REDIS
 #include <hiredis/hiredis.h>
+#endif
+
 #include <string>
 #include <vector>
 #include <memory>

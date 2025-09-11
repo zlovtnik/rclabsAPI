@@ -21,11 +21,18 @@
 
 namespace http = boost::beast::http;
 
+struct RequestHandlerOptions {
+  std::unique_ptr<RateLimiter> rateLimiter;
+  std::shared_ptr<WebSocketManager> wsManager;
+  bool trustProxy = false;
+  int numTrustedHops = 0;
+};
+
 class DatabaseManager;
 class AuthManager;
 class ETLJobManager;
 class JobMonitorService;
-class WebSocketManager;
+// WebSocketManager is provided by websocket_manager.hpp
 
 class RequestHandler {
 public:
@@ -46,8 +53,7 @@ public:
   RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
                  std::shared_ptr<AuthManager> authManager,
                  std::shared_ptr<ETLJobManager> etlManager,
-                 std::unique_ptr<RateLimiter> rateLimiter,
-                 std::shared_ptr<WebSocketManager> wsManager);
+                 RequestHandlerOptions options);
 
   template <class Body, class Allocator>
   http::response<http::string_body>
@@ -63,17 +69,20 @@ private:
   std::shared_ptr<DatabaseManager> dbManager_;
   std::shared_ptr<AuthManager> authManager_;
   std::shared_ptr<ETLJobManager> etlManager_;
-  std::shared_ptr<JobMonitorService> monitorService_; // Add this member
-  std::shared_ptr<WebSocketManager> wsManager_;
   std::unique_ptr<RateLimiter> rateLimiter_;
+  std::shared_ptr<WebSocketManager> wsManager_;
+  std::shared_ptr<JobMonitorService> monitorService_; // Initialize after wsManager_ for proper destruction order
+  
+  // Hana-based exception handling registry for better type safety
+  ETLPlus::ExceptionHandling::HanaExceptionRegistry hanaExceptionRegistry_;
   ETLPlus::ExceptionHandling::ExceptionMapper exceptionMapper_;
 
   // Trust proxy configuration for client IP extraction
   bool trustProxy_ = false;
   int numTrustedHops_ = 0;
 
-  // Hana-based exception handling registry for better type safety
-  ETLPlus::ExceptionHandling::HanaExceptionRegistry hanaExceptionRegistry_;
+  // Common initialization helper
+  void initCommon();
 
   // JWT validation middleware
 #ifdef ETL_ENABLE_JWT

@@ -10,7 +10,6 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y \
     git \
     libboost-all-dev \
     libcurl4-openssl-dev \
-    libgtest-dev \
     libhiredis-dev \
     libjsoncpp-dev \
     libpqxx-dev \
