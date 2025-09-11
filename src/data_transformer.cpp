@@ -2,6 +2,25 @@
 #include <algorithm>
 #include <iostream>
 #include <regex>
+#include <sstream>
+#include <iomanip>
+
+// Helper function to format doubles without trailing zeros
+static std::string to_string_no_trailing_zeros(double v) {
+  std::ostringstream oss;
+  oss << std::setprecision(15) << v; // not fixed => no forced trailing zeros
+  auto s = oss.str();
+  auto dot = s.find('.');
+  if (dot != std::string::npos) {
+    // trim trailing zeros
+    auto last = s.find_last_not_of('0');
+    if (last != std::string::npos) {
+      if (s[last] == '.') last--;
+      s.erase(last + 1);
+    }
+  }
+  return s;
+}
 
 DataTransformer::DataTransformer() {}
 
@@ -11,11 +30,11 @@ void DataTransformer::addTransformationRule(const TransformationRule &rule) {
             << rule.targetField << std::endl;
 }
 
-void DataTransformer::removeTransformationRule(const std::string &ruleId) {
-  // For simplicity, remove by source field name
+void DataTransformer::removeTransformationRule(const std::string &sourceField) {
+  // Removes by source field name
   rules_.erase(std::remove_if(rules_.begin(), rules_.end(),
-                              [&ruleId](const TransformationRule &rule) {
-                                return rule.sourceField == ruleId;
+                              [&sourceField](const TransformationRule &rule) {
+                                return rule.sourceField == sourceField;
                               }),
                rules_.end());
 }
@@ -38,8 +57,8 @@ DataRecord DataTransformer::transformRecord(const DataRecord &record) const {
   DataRecord result = record; // Start with original data
 
   for (const auto &rule : rules_) {
-    auto it = record.fields.find(rule.sourceField);
-    if (it != record.fields.end()) {
+    auto it = result.fields.find(rule.sourceField);
+    if (it != result.fields.end()) {
       std::string transformedValue = applyTransformation(it->second, rule);
       result.fields[rule.targetField] = transformedValue;
     }
@@ -64,8 +83,8 @@ DataTransformer::getValidationErrors(const DataRecord &record) const {
 
   // Basic validation - check for empty required fields
   for (const auto &rule : rules_) {
-    if (rule.parameters.count("required") &&
-        rule.parameters.at("required") == "true") {
+    auto itReq = rule.parameters.find("required");
+    if (itReq != rule.parameters.end() && itReq->second == "true") {
       auto it = record.fields.find(rule.sourceField);
       if (it == record.fields.end() || it->second.empty()) {
         errors.push_back("Required field '" + rule.sourceField +
@@ -109,7 +128,9 @@ std::string DataTransformer::applyStringTransformation(
     return result;
   } else if (type == "trim") {
     std::string result = value;
-    result.erase(0, result.find_first_not_of(" \t\n\r"));
+    auto start = result.find_first_not_of(" \t\n\r");
+    if (start == std::string::npos) return std::string{};
+    result.erase(0, start);
     result.erase(result.find_last_not_of(" \t\n\r") + 1);
     return result;
   }
@@ -127,17 +148,19 @@ std::string DataTransformer::applyNumericTransformation(
       auto it = params.find("factor");
       if (it != params.end()) {
         double factor = std::stod(it->second);
-        return std::to_string(numValue * factor);
+        return to_string_no_trailing_zeros(numValue * factor);
       }
     } else if (type == "add") {
       auto it = params.find("addend");
       if (it != params.end()) {
         double addend = std::stod(it->second);
-        return std::to_string(numValue + addend);
+        return to_string_no_trailing_zeros(numValue + addend);
       }
     }
-  } catch (const std::exception &) {
-    // Return original value if transformation fails
+  } catch (const std::exception &e) {
+    // Log the exception and return original value
+    std::cerr << "Numeric transformation failed for value '" << value 
+              << "' with type '" << type << "': " << e.what() << std::endl;
     return value;
   }
 
