@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <iomanip>
+#include <nlohmann/json.hpp>
 
 // Static regex patterns initialization
 // const std::regex InputValidator::emailPattern_(R"([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})");
@@ -13,26 +14,25 @@ const std::regex InputValidator::userIdPattern_(R"(^[a-zA-Z0-9_-]{1,32}$)");
 const std::regex InputValidator::tokenPattern_(R"(^[a-zA-Z0-9._-]{10,512}$)");
 const std::regex InputValidator::pathPattern_(R"(^/api/[a-zA-Z0-9/_-]*$)");
 
-std::string InputValidator::ValidationResult::toJsonString() const {
-    std::ostringstream json;
-    json << "{";
-    json << "\"valid\":" << (isValid ? "true" : "false");
-    
-    if (!errors.empty()) {
-        json << ",\"errors\":[";
-        for (size_t i = 0; i < errors.size(); ++i) {
-            if (i > 0) json << ",";
-            json << "{";
-            json << "\"field\":\"" << sanitizeString(errors[i].field) << "\",";
-            json << "\"message\":\"" << sanitizeString(errors[i].message) << "\",";
-            json << "\"code\":\"" << sanitizeString(errors[i].code) << "\"";
-            json << "}";
-        }
-        json << "]";
+namespace {
+    // Utility function to normalize status values to uppercase
+    std::string normalizeStatus(const std::string& status) {
+        std::string normalized = status;
+        std::transform(normalized.begin(), normalized.end(), normalized.begin(), ::toupper);
+        return normalized;
     }
-    
-    json << "}";
-    return json.str();
+}
+
+std::string InputValidator::ValidationResult::toJsonString() const {
+    nlohmann::json j;
+    j["valid"] = isValid;
+    if (!errors.empty()) {
+        j["errors"] = nlohmann::json::array();
+        for (const auto& e : errors) {
+            j["errors"].push_back({{"field", e.field}, {"message", e.message}, {"code", e.code}});
+        }
+    }
+    return j.dump();
 }
 
 InputValidator::ValidationResult InputValidator::validateJson(const std::string& json) {
@@ -623,9 +623,9 @@ InputValidator::ValidationResult InputValidator::validateMonitoringParams(
     // Validate status parameter if present
     auto statusIt = params.find("status");
     if (statusIt != params.end()) {
-        const std::string& status = statusIt->second;
-        if (status != "pending" && status != "running" && status != "completed" && 
-            status != "failed" && status != "cancelled") {
+        const std::string& normalizedStatus = normalizeStatus(statusIt->second);
+        if (normalizedStatus != "PENDING" && normalizedStatus != "RUNNING" && normalizedStatus != "COMPLETED" && 
+            normalizedStatus != "FAILED" && normalizedStatus != "CANCELLED") {
             result.addError("status", "Invalid job status value", "INVALID_STATUS");
         }
     }

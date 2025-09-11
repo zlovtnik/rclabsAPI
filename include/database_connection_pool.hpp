@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 #include <thread>
+#include <cstring>
 #include "logger.hpp"
 
 struct DatabaseConnectionConfig {
@@ -38,7 +39,10 @@ struct DatabaseConnectionConfig {
     }
 
     void clearPassword() {
-        std::fill(password.begin(), password.end(), 0);
+        if (!password.empty()) {
+            volatile char* p = const_cast<volatile char*>(password.data());
+            std::memset(const_cast<char*>(p), 0, password.size());
+        }
         password.clear();
     }
 };

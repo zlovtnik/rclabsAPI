@@ -7,11 +7,20 @@ set -e
 
 echo "=== Redis Cache Load Test ==="
 
-# Configuration
+# Configuration variables
 REDIS_HOST=${REDIS_HOST:-"localhost"}
 REDIS_PORT=${REDIS_PORT:-6379}
-REDIS_DB=${REDIS_DB:-0}
 REDIS_PASSWORD=${REDIS_PASSWORD:-""}
+REDIS_DB=${REDIS_DB:-0}
+
+# Helper function to wrap all redis-cli calls
+redis_cli() {
+    if [ -n "$REDIS_PASSWORD" ]; then 
+        REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -n "$REDIS_DB" "$@"
+    else 
+        redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -n "$REDIS_DB" "$@"
+    fi
+}
 
 CONCURRENT_CLIENTS=${CONCURRENT_CLIENTS:-20}
 TEST_DURATION=${TEST_DURATION:-30}
@@ -54,7 +63,7 @@ run_cache_test() {
         case $((RANDOM % 4)) in
             0)
                 # SET operation
-                if $REDIS_CMD SET "$key" "$value" EX 300 > /dev/null 2>&1; then
+                if redis_cli SET "$key" "$value" EX 300 > /dev/null 2>&1; then
                     ((operations++))
                 else
                     ((errors++))
@@ -63,9 +72,9 @@ run_cache_test() {
             1)
                 # GET operation
                 local result
-                if result=$($REDIS_CMD GET "$key" 2>/dev/null); then
+                if result=$(redis_cli GET "$key" 2>/dev/null); then
                     ((operations++))
-                    if [ "$result" != "(nil)" ] && [ -n "$result" ]; then
+                    if [ "$result" != "(nil)" ]; then
                         ((hits++))
                     else
                         ((misses++))
@@ -137,11 +146,16 @@ monitor_redis() {
         fi
 
         if [ $? -eq 0 ]; then
-            # Memory usage
-            local memory=$(echo "$info" | grep "used_memory:" | cut -d: -f2)
-            memory_samples+=("$memory")
-
-            # Connected clients
+        # Memory usage - portable detection
+        local mem
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS - simplified approach using top
+            mem=$(top -l 1 -s 0 | grep "PhysMem" | awk '{print $2}' | sed 's/M.*//' || echo "0")
+        else
+            # Linux
+            mem=$(free | grep Mem | awk '{printf "%.2f", $3/$2 * 100.0}')
+        fi
+        mem_samples+=("$mem")            # Connected clients
             local connections=$(echo "$info" | grep "connected_clients:" | cut -d: -f2)
             connections_samples+=("$connections")
 
@@ -291,19 +305,19 @@ for ((i=1; i<=CONCURRENT_CLIENTS; i++)); do
 done
 
 # Calculate overall statistics
-avg_duration=$(echo "scale=2; $total_duration / $CONCURRENT_CLIENTS" | bc)
-total_ops_per_sec=$(echo "scale=2; $total_operations / $DURATION" | bc)
+avg_duration=$(awk -v td="$total_duration" -v cc="$CONCURRENT_CLIENTS" 'BEGIN{printf "%.2f", td/cc}')
+total_ops_per_sec=$(awk -v to="$total_operations" -v d="$DURATION" 'BEGIN{printf "%.2f", to/d}')
 
 # Calculate hit rate (avoid division by zero)
 if [ $((total_hits + total_misses)) -gt 0 ]; then
-    hit_rate=$(echo "scale=2; $total_hits * 100 / ($total_hits + $total_misses)" | bc)
+    hit_rate=$(awk -v h="$total_hits" -v m="$total_misses" 'BEGIN{printf "%.2f", h*100/(h+m)}')
 else
     hit_rate="0"
 fi
 
 # Calculate success rate (avoid division by zero)
 if [ $total_operations -gt 0 ]; then
-    success_rate=$(echo "scale=2; ($total_operations - $total_errors) * 100 / $total_operations" | bc)
+    success_rate=$(awk -v to="$total_operations" -v te="$total_errors" 'BEGIN{printf "%.2f", (to-te)*100/to}')
 else
     success_rate="0"
 fi

@@ -75,18 +75,37 @@ std::shared_ptr<pqxx::connection> DatabaseConnectionPool::acquireConnection() {
         pooledConn = idleConnections_.front();
         idleConnections_.pop();
     } else if (activeConnections_.size() < config_.maxConnections) {
-        // Create new connection if under max limit
+        // Reserve a slot and release lock to create connection
+        // This prevents blocking other threads during slow connection creation
+        activeConnections_.emplace_back(nullptr); // Reserve slot
+        
+        // Release lock temporarily during connection creation
+        lock.unlock();
+        
+        std::shared_ptr<pqxx::connection> conn;
         try {
-            auto conn = createConnection();
-            if (conn) {
-                pooledConn = std::make_shared<PooledConnection>(conn);
-                metrics_.totalConnections++;
-                metrics_.connectionsCreated++;
-            }
+            conn = createConnection();
         } catch (const std::exception& e) {
+            // Reacquire lock to remove reserved slot on failure
+            lock.lock();
+            activeConnections_.pop_back(); // Remove reserved slot
             DB_LOG_ERROR("Failed to create new connection: " + std::string(e.what()));
             throw etl::ETLException(etl::ErrorCode::DATABASE_ERROR,
                                    "Failed to create new database connection");
+        }
+        
+        // Reacquire lock to finalize connection setup
+        lock.lock();
+        
+        if (conn) {
+            pooledConn = std::make_shared<PooledConnection>(conn);
+            // Replace the reserved nullptr with actual connection
+            activeConnections_.back() = pooledConn;
+            metrics_.totalConnections++;
+            metrics_.connectionsCreated++;
+        } else {
+            // Remove reserved slot if connection creation failed
+            activeConnections_.pop_back();
         }
     }
 

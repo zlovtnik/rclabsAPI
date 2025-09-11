@@ -44,6 +44,9 @@ public:
     std::vector<std::string> blockedSqlKeywords;
     std::vector<std::string> blockedXssPatterns;
 
+    // File upload validation
+    std::vector<std::string> allowedContentTypes;
+
     // Content Security Policy
     std::string cspHeader;
 
@@ -64,6 +67,11 @@ public:
           blockedXssPatterns({
               "<script", "</script>", "javascript:", "onload=", "onerror=",
               "onclick=", "onmouseover=", "<iframe", "<object", "<embed"
+          }),
+          allowedContentTypes({
+              "text/plain", "text/csv", "application/json",
+              "application/xml", "text/xml", "image/jpeg",
+              "image/png", "image/gif"
           }),
           cspHeader("default-src 'self'; script-src 'self'; "
                    "style-src 'self' 'unsafe-inline'; "

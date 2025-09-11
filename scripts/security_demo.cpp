@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <cstdlib>
 
 #include "security_validator.hpp"
 #include "ssl_manager.hpp"
@@ -78,7 +79,11 @@ int main(int argc, char* argv[]) {
     std::cout << "3. Testing JWT Key Manager...\n";
     JWTKeyManager::KeyConfig jwtConfig;
     jwtConfig.algorithm = JWTKeyManager::Algorithm::HS256;
-    jwtConfig.secretKey = "your-super-secret-key-change-in-production";
+    if (const char* env = std::getenv("DEMO_JWT_SECRET")) {
+        jwtConfig.secretKey = env;
+    } else {
+        jwtConfig.secretKey = "demo-only-not-for-production";
+    }
     jwtConfig.enableRotation = true;
     jwtConfig.issuer = "etl-backend-demo";
 
@@ -161,6 +166,8 @@ int main(int argc, char* argv[]) {
         reportFile << report;
         reportFile.close();
         std::cout << "Full security audit report saved to: security_audit_report.txt\n";
+    } else {
+        std::cerr << "Failed to write security audit report to security_audit_report.txt\n";
     }
 
     std::cout << "=== Security Features Demo Complete ===\n";

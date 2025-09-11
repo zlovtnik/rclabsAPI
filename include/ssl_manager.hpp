@@ -49,20 +49,24 @@ public:
     // Security headers
     bool enableHSTS;
     std::string hstsMaxAge;
+    bool hstsIncludeSubDomains;
+    bool hstsPreload;
     bool enableHPKP;
 
     SSLConfig()
         : enableSSL(true),
           requireClientCertificate(false),
-          minimumTLSVersion("TLSv1.2"),
+          minimumTLSVersion("TLSv1.3"), // Use TLS 1.3 for better security and performance
           cipherSuites("HIGH:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!SRP:!CAMELLIA"),
           verifyPeer(true),
           verifyHost(true),
           verifyDepth(9),
           enableSessionCaching(true),
-          sessionTimeout(300), // 5 minutes
+          sessionTimeout(3600), // 1 hour - balance between security and performance
           enableHSTS(true),
           hstsMaxAge("31536000"), // 1 year
+          hstsIncludeSubDomains(false), // Make configurable
+          hstsPreload(false), // Make configurable, don't set by default
           enableHPKP(false) {} // HTTP Public Key Pinning (deprecated)
   };
 
@@ -144,9 +148,9 @@ private:
   SSLResult configureSessionCaching();
   boost::asio::ssl::context::method getTLSMethod(const std::string &version);
   std::string getCertificateFingerprint(const std::string &certPath);
-  bool validateCertificateDates(const std::string &certPath);
+  bool validateCertificateDates(const std::string &certPath) const;
   SSLResult checkCertificatePermissions(const std::string &certPath,
-                                      const std::string &keyPath);
+                                      const std::string &keyPath) const;
 };
 
 } // namespace ETLPlus::SSL

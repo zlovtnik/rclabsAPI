@@ -231,7 +231,6 @@ if(NOT HIREDIS_FOUND)
             /opt/homebrew/include
             /usr/local/include
             /usr/include
-        NO_DEFAULT_PATH
     )
     find_library(HIREDIS_LIBRARIES
         NAMES hiredis
@@ -239,7 +238,6 @@ if(NOT HIREDIS_FOUND)
             /opt/homebrew/lib
             /usr/local/lib
             /usr/lib
-        NO_DEFAULT_PATH
     )
 
     if(HIREDIS_INCLUDE_DIR AND HIREDIS_LIBRARIES)
@@ -253,6 +251,8 @@ if(NOT HIREDIS_FOUND)
     endif()
 else()
     message(STATUS "Found hiredis via pkg-config: ${HIREDIS_LIBRARIES}")
+    # Expose override in cache for user convenience
+    set(HIREDIS_LIBRARIES_OVERRIDE "" CACHE FILEPATH "Override absolute path to hiredis library")
     # Allow user override via CMake variable
     if(NOT HIREDIS_LIBRARIES_OVERRIDE)
         # Use pkg-config result but resolve to full path if needed
@@ -262,7 +262,6 @@ else()
                 find_library(HIREDIS_RESOLVED_LIBRARY
                     NAMES hiredis
                     PATHS ${HIREDIS_LIBRARY_DIRS}
-                    NO_DEFAULT_PATH
                 )
                 if(HIREDIS_RESOLVED_LIBRARY)
                     set(HIREDIS_LIBRARIES "${HIREDIS_RESOLVED_LIBRARY}")
@@ -318,7 +317,7 @@ set(COMMON_SOURCES
     src/type_definitions.cpp
     src/security_validator.cpp
     src/ssl_manager.cpp
-    src/jwt_key_manager.cpp
+    $<$<BOOL:${JWT_CPP_FOUND}>:src/jwt_key_manager.cpp>
     src/security_auditor.cpp
 )
 
@@ -428,8 +427,10 @@ create_test_executable(test_websocket_filtering_unit scripts/test_websocket_filt
 create_test_executable(test_websocket_error_handling scripts/test_websocket_error_handling.cpp)
 create_test_executable(test_job_monitoring_models scripts/test_job_monitoring_models.cpp)
 create_test_executable(test_etl_job_manager_monitoring scripts/test_etl_job_manager_monitoring.cpp)
-create_test_executable(test_cache_warmup scripts/test_cache_warmup.cpp)
-create_test_executable(test_optional_ttl scripts/test_optional_ttl.cpp)
+if(ENABLE_TESTS)
+  create_test_executable(test_cache_warmup scripts/test_cache_warmup.cpp)
+  create_test_executable(test_optional_ttl scripts/test_optional_ttl.cpp)
+endif()
 create_test_executable(test_job_monitor_service scripts/test_job_monitor_service.cpp)
 create_test_executable(test_job_monitor_service_simple scripts/test_job_monitor_service_simple.cpp)
 create_test_executable(test_job_monitor_service_error_handling scripts/test_job_monitor_service_error_handling.cpp)
@@ -448,7 +449,9 @@ create_test_executable(demo_response_builder_simple scripts/demo_response_builde
 create_test_executable(demo_exception_mapper_integration scripts/demo_exception_mapper_integration.cpp)
 create_test_executable(test_exception_mapper scripts/test_exception_mapper.cpp)
 create_test_executable(test_request_handler_refactored scripts/test_request_handler_refactored.cpp)
-create_test_executable(security_demo scripts/security_demo.cpp)
+if(ENABLE_TESTS AND JWT_CPP_FOUND)
+  create_test_executable(security_demo scripts/security_demo.cpp)
+endif()
 create_test_executable(load_test_advanced scripts/load_test_advanced.cpp)
 if(ENABLE_TESTS AND JWT_CPP_FOUND)
   create_test_executable(test_jwt_auth scripts/test_jwt_auth.cpp)

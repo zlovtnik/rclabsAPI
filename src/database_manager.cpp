@@ -38,6 +38,8 @@ bool DatabaseManager::connect(const ConnectionConfig& config) {
             pImpl->connectionPool->releaseConnection(testConn);
             pImpl->connected = true;
             DB_LOG_INFO("PostgreSQL database connection pool established successfully");
+            // Reduce password lifetime in memory
+            pImpl->poolConfig.clearPassword();
             return true;
         } else {
             DB_LOG_ERROR("Failed to establish database connection pool");
@@ -123,7 +125,11 @@ bool DatabaseManager::executeQuery(const std::string& query) {
         return false;
     }
 
+#ifdef ETL_ENABLE_SQL_LOGGING
     DB_LOG_DEBUG("Executing query: " + query.substr(0, 100) + (query.length() > 100 ? "..." : ""));
+#else
+    DB_LOG_DEBUG("Executing parameterized query (SQL body hidden in production)");
+#endif
 
     try {
         auto conn = pImpl->connectionPool->acquireConnection();

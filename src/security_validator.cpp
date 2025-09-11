@@ -102,13 +102,6 @@ SecurityValidator::validateXss(const std::string &input) {
     result.addViolation("Potential XSS (Cross-Site Scripting) detected");
   }
 
-  // Additional XSS checks
-  if (input.find("<script") != std::string::npos ||
-      input.find("javascript:") != std::string::npos ||
-      input.find("onload=") != std::string::npos) {
-    result.addViolation("XSS pattern detected");
-  }
-
   return result;
 }
 
@@ -248,11 +241,7 @@ SecurityValidator::validateFileUpload(const std::string &filename,
   }
 
   // Check content type
-  std::vector<std::string> allowedTypes = {
-      "text/plain", "text/csv", "application/json",
-      "application/xml", "text/xml", "image/jpeg",
-      "image/png", "image/gif"
-  };
+  const auto& allowedTypes = config_.allowedContentTypes;
 
   bool validType = false;
   for (const auto &allowed : allowedTypes) {

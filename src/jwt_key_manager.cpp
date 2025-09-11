@@ -253,15 +253,41 @@ std::optional<JWTKeyManager::JWKS> JWTKeyManager::getJWKS() {
   try {
     JWKS jwks;
 
+    // Detect key type from algorithm
+    std::string keyType = "RSA"; // Default
+    if (config_.algorithm == Algorithm::ES256 ||
+        config_.algorithm == Algorithm::ES384 ||
+        config_.algorithm == Algorithm::ES512) {
+      keyType = "EC";
+    }
+
     // Add current key
     std::string currentKeyEntry = createJWKSKeyEntry(currentKeyId_,
                                                    currentPublicKey_,
                                                    config_.algorithm);
     if (!currentKeyEntry.empty()) {
       jwks.keys.push_back({{"kid", currentKeyId_},
-                          {"kty", "RSA"}, // Simplified - should detect key type
+                          {"kty", keyType}, // Detect key type from algorithm
                           {"use", "sig"},
                           {"n", currentPublicKey_}}); // Simplified
+    }
+
+    // Add previous key if rotation is enabled and previous key exists (grace period)
+    if (config_.enableRotation && !previousPublicKey_.empty() && !previousKeyId_.empty()) {
+      // Check if previous key is still within grace period
+      auto now = std::chrono::system_clock::now();
+      auto graceWindow = std::chrono::hours(24); // 24 hour grace period
+      if ((now - lastRotation_) < graceWindow) {
+        std::string previousKeyEntry = createJWKSKeyEntry(previousKeyId_,
+                                                         previousPublicKey_,
+                                                         config_.algorithm);
+        if (!previousKeyEntry.empty()) {
+          jwks.keys.push_back({{"kid", previousKeyId_},
+                              {"kty", keyType},
+                              {"use", "sig"},
+                              {"n", previousPublicKey_}});
+        }
+      }
     }
 
     // Build JSON
@@ -423,8 +449,7 @@ bool JWTKeyManager::validateConfiguration() {
   return true;
 }
 
-#ifdef ETL_ENABLE_JWT
-
+// Utility functions that don't depend on jwt-cpp
 std::string JWTKeyManager::generateKeyId() {
   std::random_device rd;
   std::mt19937 gen(rd());
@@ -432,17 +457,16 @@ std::string JWTKeyManager::generateKeyId() {
 
   std::stringstream ss;
   ss << std::hex << std::setfill('0');
-  for (int i = 0; i < 16; ++i) {
+  for (int i = 0; i < 8; ++i) {
     ss << dis(gen);
   }
-
   return ss.str();
 }
 
 std::string JWTKeyManager::loadKeyFromFile(const std::string &filePath) {
   std::ifstream file(filePath);
   if (!file.is_open()) {
-    throw std::runtime_error("Cannot open key file: " + filePath);
+    return "";
   }
 
   std::stringstream buffer;
@@ -475,6 +499,9 @@ std::string JWTKeyManager::getAlgorithmString(Algorithm alg) const {
   }
 }
 
+#ifdef ETL_ENABLE_JWT
+
+// Functions that depend on jwt-cpp
 std::string JWTKeyManager::signToken(const auto& builder, const std::string& key, Algorithm alg) {
   switch (alg) {
     case Algorithm::HS256: return builder.sign(jwt::algorithm::hs256(key));

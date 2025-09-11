@@ -195,10 +195,9 @@ private:
         std::string url = config_.serverUrl;
         std::string endpoint;
 
-        // Randomly select endpoint
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::uniform_int_distribution<> dis(1, 5);
+        // Randomly select endpoint (thread-local PRNG)
+        static thread_local std::mt19937 gen(std::random_device{}());
+        static thread_local std::uniform_int_distribution<int> dis(1, 5);
 
         switch (dis(gen)) {
             case 1:
@@ -406,10 +405,17 @@ private:
         // Print summary to console
         std::cout << "\n=== Load Test Results ===\n";
         std::cout << "Duration: " << duration.count() << " seconds\n";
-        std::cout << "Total Requests: " << metrics_.totalRequests << "\n";
-        std::cout << "Successful: " << metrics_.successfulRequests << " (" << successRate << "%)\n";
-        std::cout << "Failed: " << metrics_.failedRequests << "\n";
-        std::cout << "Timeouts: " << metrics_.timeoutRequests << "\n";
+        
+        // Use snapshot values when printing atomics to avoid multiple loads
+        const auto total = metrics_.totalRequests.load();
+        const auto successful = metrics_.successfulRequests.load();
+        const auto failed = metrics_.failedRequests.load();
+        const auto timeouts = metrics_.timeoutRequests.load();
+        
+        std::cout << "Total Requests: " << total << "\n";
+        std::cout << "Successful: " << successful << " (" << successRate << "%)\n";
+        std::cout << "Failed: " << failed << "\n";
+        std::cout << "Timeouts: " << timeouts << "\n";
         std::cout << "Avg Response Time: " << metrics_.avgResponseTime << " ms\n";
         std::cout << "95th Percentile: " << metrics_.p95ResponseTime << " ms\n";
         std::cout << "99th Percentile: " << metrics_.p99ResponseTime << " ms\n";

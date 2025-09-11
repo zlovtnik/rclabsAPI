@@ -149,6 +149,12 @@ private:
   std::mutex keyMutex_;
   bool initialized_ = false;
 
+  // Utility helper methods (don't depend on jwt-cpp)
+  std::string generateKeyId();
+  std::string loadKeyFromFile(const std::string &filePath);
+  bool saveKeyToFile(const std::string &key, const std::string &filePath);
+  std::string getAlgorithmString(Algorithm alg) const;
+
 #ifdef ETL_ENABLE_JWT
   // Current keys
   std::string currentSecretKey_;
@@ -166,11 +172,7 @@ private:
   std::chrono::system_clock::time_point keyCreatedAt_;
   std::chrono::system_clock::time_point lastRotation_;
 
-  // Helper methods
-  std::string generateKeyId();
-  std::string loadKeyFromFile(const std::string &filePath);
-  bool saveKeyToFile(const std::string &key, const std::string &filePath);
-  std::string getAlgorithmString(Algorithm alg) const;
+  // Helper methods that depend on jwt-cpp
   std::string signToken(const auto& builder, const std::string& key, Algorithm alg);
   bool verifyToken(const jwt::decoded_jwt<jwt::traits::kazuho_picojson>& decoded, const std::string& key, Algorithm alg);
   std::string createJWKSKeyEntry(const std::string &keyId,

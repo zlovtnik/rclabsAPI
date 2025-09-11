@@ -12,7 +12,10 @@ DB_HOST=${DB_HOST:-"localhost"}
 DB_PORT=${DB_PORT:-5432}
 DB_NAME=${DB_NAME:-"etl_db"}
 DB_USER=${DB_USER:-"etl_user"}
-DB_PASSWORD=${DB_PASSWORD:-"password"}
+if [ -z "$DB_PASSWORD" ]; then
+    echo "ERROR: DB_PASSWORD environment variable must be set"
+    exit 1
+fi
 
 CONCURRENT_CONNECTIONS=${CONCURRENT_CONNECTIONS:-50}
 TEST_DURATION=${TEST_DURATION:-60}
@@ -125,13 +128,20 @@ monitor_resources() {
         fi
         cpu_samples+=("$cpu")
 
-        # Memory usage
-        local mem=$(free | grep Mem | awk '{printf "%.2f", $3/$2 * 100.0}')
+        # Memory usage - portable detection
+        local mem
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS - simplified approach using top
+            mem=$(top -l 1 -s 0 | grep "PhysMem" | awk '{print $2}' | sed 's/M.*//' || echo "0")
+        else
+            # Linux
+            mem=$(free | grep Mem | awk '{printf "%.2f", $3/$2 * 100.0}')
+        fi
         mem_samples+=("$mem")
 
         # Database connections - use SQL query instead of process grep
         local connections
-        PGPASSWORD="$DB_PASSWORD" connections=$(psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -t -c "SELECT count(*) FROM pg_stat_activity WHERE usename = '$DB_USER';" 2>/dev/null || echo "0")
+        connections=$(PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -t -c "SELECT count(*) FROM pg_stat_activity WHERE usename = '$DB_USER';" 2>/dev/null || echo "0")
         conn_samples+=("$connections")
 
         sleep $interval

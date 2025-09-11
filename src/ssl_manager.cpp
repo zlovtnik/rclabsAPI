@@ -186,8 +186,21 @@ std::unordered_map<std::string, std::string> SSLManager::getSecurityHeaders() {
   std::unordered_map<std::string, std::string> headers;
 
   if (config_.enableHSTS) {
-    headers["Strict-Transport-Security"] = "max-age=" + config_.hstsMaxAge +
-                                          "; includeSubDomains; preload";
+    std::string hstsValue = "max-age=" + config_.hstsMaxAge;
+    
+    if (config_.hstsIncludeSubDomains) {
+      hstsValue += "; includeSubDomains";
+    }
+    
+    if (config_.hstsPreload) {
+      // Validate requirements for preload
+      long maxAge = std::stol(config_.hstsMaxAge);
+      if (maxAge >= 31536000 && config_.hstsIncludeSubDomains) {
+        hstsValue += "; preload";
+      }
+    }
+    
+    headers["Strict-Transport-Security"] = hstsValue;
   }
 
   headers["X-Frame-Options"] = "DENY";
@@ -368,7 +381,7 @@ std::string SSLManager::getCertificateFingerprint(const std::string &certPath) {
   }
 }
 
-bool SSLManager::validateCertificateDates(const std::string &certPath) {
+bool SSLManager::validateCertificateDates(const std::string &certPath) const {
   try {
     FILE *fp = fopen(certPath.c_str(), "r");
     if (!fp) return false;
@@ -399,21 +412,23 @@ bool SSLManager::validateCertificateDates(const std::string &certPath) {
 }
 
 SSLManager::SSLResult SSLManager::checkCertificatePermissions(const std::string &certPath,
-                                                             const std::string &keyPath) {
+                                                             const std::string &keyPath) const {
   SSLResult result;
 
   try {
     // Check certificate file permissions (should be readable by owner only)
     std::filesystem::perms certPerms = std::filesystem::status(certPath).permissions();
-    if ((certPerms & std::filesystem::perms::group_read) != std::filesystem::perms::none ||
-        (certPerms & std::filesystem::perms::others_read) != std::filesystem::perms::none) {
+    if ((certPerms & (std::filesystem::perms::group_read | std::filesystem::perms::group_write |
+                      std::filesystem::perms::others_read | std::filesystem::perms::others_write)) != std::filesystem::perms::none ||
+        (certPerms & std::filesystem::perms::owner_read) == std::filesystem::perms::none) {
       result.addWarning("Certificate file permissions are too permissive");
     }
 
     // Check private key file permissions (should be readable by owner only)
     std::filesystem::perms keyPerms = std::filesystem::status(keyPath).permissions();
-    if ((keyPerms & std::filesystem::perms::group_read) != std::filesystem::perms::none ||
-        (keyPerms & std::filesystem::perms::others_read) != std::filesystem::perms::none) {
+    if ((keyPerms & (std::filesystem::perms::group_read | std::filesystem::perms::group_write |
+                     std::filesystem::perms::others_read | std::filesystem::perms::others_write)) != std::filesystem::perms::none ||
+        (keyPerms & std::filesystem::perms::owner_read) == std::filesystem::perms::none) {
       result.addWarning("Private key file permissions are too permissive");
     }
 
