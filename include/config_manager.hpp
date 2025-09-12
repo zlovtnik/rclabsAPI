@@ -122,14 +122,15 @@ private:
   std::string configFilePath;
 
   bool parseConfigFile(const std::string &configPath);
-  void flattenJson(const nlohmann::json &json, const std::string &prefix, int currentDepth = 0, int maxDepth = 100);
+  void flattenJson(const nlohmann::json &json, const std::string &prefix,
+                   int currentDepth = 0, int maxDepth = 100);
   LogLevel parseLogLevel(const std::string &levelStr) const;
   LogFormat parseLogFormat(const std::string &formatStr) const;
 
   // Helper methods for configuration updates
   void notifyConfigChange(const std::string &section,
                           const MonitoringConfig &newConfig);
-  bool validateAndUpdateConfigData(
+  bool updateConfigData(
       const std::string &section,
       const std::unordered_map<std::string, std::string, TransparentStringHash,
                                std::equal_to<>> &updates);

@@ -1,72 +1,52 @@
 #include "request_handler.hpp"
 #include "auth_manager.hpp"
 #include "database_manager.hpp"
+#include "etl_exceptions.hpp"
 #include "etl_job_manager.hpp"
-#include "rate_limiter.hpp"
-#include "websocket_filter_manager.hpp"
 #include "exception_handler.hpp"
 #include "exception_mapper.hpp"
-#include "etl_exceptions.hpp"
 #include "input_validator.hpp"
 #include "logger.hpp"
-#include <iostream>
-#include <sstream>
-#include <iomanip>
-#include <ctime>
-#include <regex>
+#include "rate_limiter.hpp"
+#include "system_metrics.hpp"
+#include "websocket_filter_manager.hpp"
+#include "websocket_manager.hpp"
 #include <algorithm>
-#include <stdexcept>
-#include <unistd.h> // for getpid()
+#include <ctime>
+#include <iomanip>
+#include <iostream>
 #include <nlohmann/json.hpp>
+#include <regex>
+#include <sstream>
+#include <stdexcept>
+#include <thread>
+#include <unistd.h> // for getpid()
 
 RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
                                std::shared_ptr<AuthManager> authManager,
                                std::shared_ptr<ETLJobManager> etlManager)
-    : dbManager_(dbManager), authManager_(authManager),
-      etlManager_(etlManager), rateLimiter_(std::make_unique<RateLimiter>()), exceptionMapper_()
-{
+    : dbManager_(dbManager), authManager_(authManager), etlManager_(etlManager),
+      rateLimiter_(std::make_unique<RateLimiter>()), exceptionMapper_() {
   REQ_LOG_INFO("RequestHandler created with components - DB: " +
                std::string(dbManager ? "valid" : "null") +
                ", Auth: " + std::string(authManager ? "valid" : "null") +
                ", ETL: " + std::string(etlManager ? "valid" : "null"));
 
-  // Initialize rate limiter
-  rateLimiter_->initializeDefaultRules();
-
-  // Configure the exception mapper for RequestHandler
-  ETLPlus::ExceptionHandling::ExceptionMappingConfig config;
-  config.serverHeader = "ETL Plus Backend";
-  config.corsOrigin = "*";
-  config.keepAlive = false;
-  config.includeInternalDetails = false; // Don't expose internal details in production
-  exceptionMapper_.updateConfig(config);
-
-  // Initialize Hana-based exception handlers for better type safety and performance
-  hanaExceptionRegistry_.registerHandler<etl::ValidationException>(
-      ETLPlus::ExceptionHandling::makeValidationErrorHandler());
-  hanaExceptionRegistry_.registerHandler<etl::SystemException>(
-      ETLPlus::ExceptionHandling::makeSystemErrorHandler());
-  hanaExceptionRegistry_.registerHandler<etl::BusinessException>(
-      ETLPlus::ExceptionHandling::makeBusinessErrorHandler());
-
-  // Note: HanaExceptionRegistry provides better type safety than the old ExceptionMapper
-  // The old ExceptionMapper registration is removed in favor of Hana-based handling
-
-  REQ_LOG_INFO("Hana-based exception handlers registered for improved error handling");
+  initCommon();
 }
 
 RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
                                std::shared_ptr<AuthManager> authManager,
                                std::shared_ptr<ETLJobManager> etlManager,
                                std::unique_ptr<RateLimiter> rateLimiter)
-    : dbManager_(dbManager), authManager_(authManager),
-      etlManager_(etlManager), rateLimiter_(std::move(rateLimiter)), exceptionMapper_()
-{
-  REQ_LOG_INFO("RequestHandler created with injected components - DB: " +
-               std::string(dbManager ? "valid" : "null") +
-               ", Auth: " + std::string(authManager ? "valid" : "null") +
-               ", ETL: " + std::string(etlManager ? "valid" : "null") +
-               ", RateLimiter: " + std::string(rateLimiter_ ? "valid" : "null"));
+    : dbManager_(dbManager), authManager_(authManager), etlManager_(etlManager),
+      rateLimiter_(std::move(rateLimiter)), exceptionMapper_() {
+  REQ_LOG_INFO(
+      "RequestHandler created with injected components - DB: " +
+      std::string(dbManager ? "valid" : "null") +
+      ", Auth: " + std::string(authManager ? "valid" : "null") +
+      ", ETL: " + std::string(etlManager ? "valid" : "null") +
+      ", RateLimiter: " + std::string(rateLimiter_ ? "valid" : "null"));
 
   // Validate rate limiter pointer
   if (!rateLimiter_) {
@@ -81,10 +61,12 @@ RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
   config.serverHeader = "ETL Plus Backend";
   config.corsOrigin = "*";
   config.keepAlive = false;
-  config.includeInternalDetails = false; // Don't expose internal details in production
+  config.includeInternalDetails =
+      false; // Don't expose internal details in production
   exceptionMapper_.updateConfig(config);
 
-  // Initialize Hana-based exception handlers for better type safety and performance
+  // Initialize Hana-based exception handlers for better type safety and
+  // performance
   hanaExceptionRegistry_.registerHandler<etl::ValidationException>(
       ETLPlus::ExceptionHandling::makeValidationErrorHandler());
   hanaExceptionRegistry_.registerHandler<etl::SystemException>(
@@ -92,14 +74,134 @@ RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
   hanaExceptionRegistry_.registerHandler<etl::BusinessException>(
       ETLPlus::ExceptionHandling::makeBusinessErrorHandler());
 
-  // Note: HanaExceptionRegistry provides better type safety than the old ExceptionMapper
-  // The old ExceptionMapper registration is removed in favor of Hana-based handling
+  // Note: HanaExceptionRegistry provides better type safety than the old
+  // ExceptionMapper The old ExceptionMapper registration is removed in favor of
+  // Hana-based handling
 
-  REQ_LOG_INFO("Hana-based exception handlers registered for improved error handling");
+  REQ_LOG_INFO(
+      "Hana-based exception handlers registered for improved error handling");
+}
+
+RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
+                               std::shared_ptr<AuthManager> authManager,
+                               std::shared_ptr<ETLJobManager> etlManager,
+                               std::shared_ptr<WebSocketManager> wsManager)
+    : dbManager_(dbManager), authManager_(authManager), etlManager_(etlManager),
+      wsManager_(wsManager), rateLimiter_(std::make_unique<RateLimiter>()),
+      exceptionMapper_() {
+  REQ_LOG_INFO("RequestHandler created with WebSocket support - DB: " +
+               std::string(dbManager ? "valid" : "null") +
+               ", Auth: " + std::string(authManager ? "valid" : "null") +
+               ", ETL: " + std::string(etlManager ? "valid" : "null") +
+               ", WebSocket: " + std::string(wsManager ? "valid" : "null"));
+
+  initCommon();
+}
+
+RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
+                               std::shared_ptr<AuthManager> authManager,
+                               std::shared_ptr<ETLJobManager> etlManager,
+                               std::unique_ptr<RateLimiter> rateLimiter,
+                               std::shared_ptr<WebSocketManager> wsManager)
+    : dbManager_(dbManager), authManager_(authManager), etlManager_(etlManager),
+      wsManager_(wsManager), rateLimiter_(std::move(rateLimiter)),
+      exceptionMapper_() {
+  REQ_LOG_INFO(
+      "RequestHandler created with injected components and WebSocket support - "
+      "DB: " +
+      std::string(dbManager ? "valid" : "null") +
+      ", Auth: " + std::string(authManager ? "valid" : "null") +
+      ", ETL: " + std::string(etlManager ? "valid" : "null") +
+      ", RateLimiter: " + std::string(rateLimiter_ ? "valid" : "null") +
+      ", WebSocket: " + std::string(wsManager ? "valid" : "null"));
+
+  // Validate rate limiter pointer
+  if (!rateLimiter_) {
+    throw std::invalid_argument("RateLimiter pointer cannot be null");
+  }
+
+  // Initialize rate limiter
+  rateLimiter_->initializeDefaultRules();
+
+  // Configure the exception mapper for RequestHandler
+  ETLPlus::ExceptionHandling::ExceptionMappingConfig config;
+  config.serverHeader = "ETL Plus Backend";
+  config.corsOrigin = "*";
+  config.keepAlive = false;
+  config.includeInternalDetails =
+      false; // Don't expose internal details in production
+  exceptionMapper_.updateConfig(config);
+
+  // Initialize Hana-based exception handlers for better type safety and
+  // performance
+  hanaExceptionRegistry_.registerHandler<etl::ValidationException>(
+      ETLPlus::ExceptionHandling::makeValidationErrorHandler());
+  hanaExceptionRegistry_.registerHandler<etl::SystemException>(
+      ETLPlus::ExceptionHandling::makeSystemErrorHandler());
+  hanaExceptionRegistry_.registerHandler<etl::BusinessException>(
+      ETLPlus::ExceptionHandling::makeBusinessErrorHandler());
+
+  REQ_LOG_INFO(
+      "Hana-based exception handlers registered for improved error handling");
+}
+
+void RequestHandler::initCommon() {
+  // Initialize rate limiter if not already set
+  if (!rateLimiter_) {
+    rateLimiter_ = std::make_unique<RateLimiter>();
+  }
+  rateLimiter_->initializeDefaultRules();
+
+  // Configure the exception mapper for RequestHandler
+  ETLPlus::ExceptionHandling::ExceptionMappingConfig config;
+  config.serverHeader = "ETL Plus Backend";
+  config.corsOrigin = "*";
+  config.keepAlive = false;
+  config.includeInternalDetails =
+      false; // Don't expose internal details in production
+  exceptionMapper_.updateConfig(config);
+
+  // Initialize Hana-based exception handlers for better type safety and
+  // performance
+  hanaExceptionRegistry_.registerHandler<etl::ValidationException>(
+      ETLPlus::ExceptionHandling::makeValidationErrorHandler());
+  hanaExceptionRegistry_.registerHandler<etl::SystemException>(
+      ETLPlus::ExceptionHandling::makeSystemErrorHandler());
+  hanaExceptionRegistry_.registerHandler<etl::BusinessException>(
+      ETLPlus::ExceptionHandling::makeBusinessErrorHandler());
+
+  REQ_LOG_INFO(
+      "Hana-based exception handlers registered for improved error handling");
+}
+
+RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
+                               std::shared_ptr<AuthManager> authManager,
+                               std::shared_ptr<ETLJobManager> etlManager,
+                               RequestHandlerOptions options)
+    : dbManager_(dbManager), authManager_(authManager), etlManager_(etlManager),
+      rateLimiter_(std::move(options.rateLimiter)),
+      wsManager_(options.wsManager), trustProxy_(options.trustProxy),
+      numTrustedHops_(options.numTrustedHops), exceptionMapper_() {
+  REQ_LOG_INFO(
+      "RequestHandler created with options - DB: " +
+      std::string(dbManager ? "valid" : "null") +
+      ", Auth: " + std::string(authManager ? "valid" : "null") +
+      ", ETL: " + std::string(etlManager ? "valid" : "null") +
+      ", RateLimiter: " + std::string(rateLimiter_ ? "valid" : "null") +
+      ", WebSocket: " + std::string(wsManager_ ? "valid" : "null"));
+
+  // Validate WebSocket manager if provided
+  if (wsManager_ && !wsManager_) {
+    throw std::invalid_argument(
+        "WebSocketManager pointer cannot be null when provided");
+  }
+
+  initCommon();
 }
 
 #if ETL_ENABLE_JWT
-std::optional<std::string> RequestHandler::validateJWTToken(const http::request<http::string_body> &req) const {
+std::optional<std::string> RequestHandler::validateJWTToken(
+    const http::request<http::string_body> &req) const {
   auto headers = extractHeaders(req);
   if (auto authIt = headers.find("authorization"); authIt != headers.end()) {
     std::string authHeader = authIt->second;
@@ -114,14 +216,10 @@ std::optional<std::string> RequestHandler::validateJWTToken(const http::request<
 bool RequestHandler::isProtectedEndpoint(std::string_view target) const {
   // Define which endpoints require authentication
   static const std::vector<std::string> protectedEndpoints = {
-    "/api/etl/jobs",
-    "/api/logs",
-    "/api/monitor",
-    "/api/auth/profile",
-    "/api/auth/logout"
-  };
+      "/api/etl/jobs", "/api/logs", "/api/monitor", "/api/auth/profile",
+      "/api/auth/logout"};
 
-  for (const auto& endpoint : protectedEndpoints) {
+  for (const auto &endpoint : protectedEndpoints) {
     if (target.starts_with(endpoint)) {
       return true;
     }
@@ -130,13 +228,16 @@ bool RequestHandler::isProtectedEndpoint(std::string_view target) const {
 }
 #endif
 
-std::string RequestHandler::getClientId(const http::request<http::string_body> &req) const {
+std::string
+RequestHandler::getClientId(const http::request<http::string_body> &req) const {
   auto headers = extractHeaders(req);
 
-  // Try to get client IP from X-Forwarded-For header (for proxies/load balancers)
-  if (auto forwardedIt = headers.find("x-forwarded-for"); forwardedIt != headers.end()) {
+  // Try to get client IP from X-Forwarded-For header (for proxies/load
+  // balancers)
+  if (auto forwardedIt = headers.find("x-forwarded-for");
+      forwardedIt != headers.end()) {
     std::string forwarded = forwardedIt->second;
-    
+
     if (trustProxy_ && numTrustedHops_ > 0) {
       // Parse X-Forwarded-For with trusted hops
       std::vector<std::string> ips;
@@ -144,14 +245,22 @@ std::string RequestHandler::getClientId(const http::request<http::string_body> &
       std::string ip;
       while (std::getline(ss, ip, ',')) {
         // Trim whitespace
-        ip.erase(ip.begin(), std::find_if(ip.begin(), ip.end(), [](unsigned char ch) { return !std::isspace(ch); }));
-        ip.erase(std::find_if(ip.rbegin(), ip.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), ip.end());
+        ip.erase(ip.begin(),
+                 std::find_if(ip.begin(), ip.end(), [](unsigned char ch) {
+                   return !std::isspace(ch);
+                 }));
+        ip.erase(
+            std::find_if(ip.rbegin(), ip.rend(),
+                         [](unsigned char ch) { return !std::isspace(ch); })
+                .base(),
+            ip.end());
         if (!ip.empty()) {
           ips.push_back(ip);
         }
       }
-      
-      // Return the IP that is numTrustedHops from the end (the original client IP)
+
+      // Return the IP that is numTrustedHops from the end (the original client
+      // IP)
       if (static_cast<int>(ips.size()) > numTrustedHops_) {
         return ips[ips.size() - 1 - numTrustedHops_];
       } else if (!ips.empty()) {
@@ -178,43 +287,51 @@ std::string RequestHandler::getClientId(const http::request<http::string_body> &
   return "default_client";
 }
 
-bool RequestHandler::checkRateLimit(const http::request<http::string_body> &req) const {
+bool RequestHandler::checkRateLimit(
+    const http::request<http::string_body> &req) const {
   std::string clientId = getClientId(req);
   std::string endpoint = std::string(req.target());
 
   if (!rateLimiter_->isAllowed(clientId, endpoint)) {
-    REQ_LOG_WARN("Rate limit exceeded for client " + clientId + " on endpoint " + endpoint);
+    REQ_LOG_WARN("Rate limit exceeded for client " + clientId +
+                 " on endpoint " + endpoint);
     return false;
   }
 
   return true;
 }
 
-void RequestHandler::addRateLimitHeaders(http::response<http::string_body> &res, const std::string &clientId, const std::string &endpoint) {
+void RequestHandler::addRateLimitHeaders(http::response<http::string_body> &res,
+                                         const std::string &clientId,
+                                         const std::string &endpoint) {
   auto rateLimitInfo = rateLimiter_->getRateLimitInfo(clientId, endpoint);
 
   // Add standard rate limit headers
   res.set("X-RateLimit-Limit", std::to_string(rateLimitInfo.limit));
-  res.set("X-RateLimit-Remaining", std::to_string(rateLimitInfo.remainingRequests));
+  res.set("X-RateLimit-Remaining",
+          std::to_string(rateLimitInfo.remainingRequests));
 
   // Convert reset time to Unix timestamp
   auto resetTime = std::chrono::duration_cast<std::chrono::seconds>(
-      rateLimitInfo.resetTime.time_since_epoch()).count();
+                       rateLimitInfo.resetTime.time_since_epoch())
+                       .count();
   res.set("X-RateLimit-Reset", std::to_string(resetTime));
 
   // Add retry-after header if rate limited
   if (rateLimitInfo.remainingRequests == 0) {
     auto now = std::chrono::system_clock::now();
     auto secondsUntilReset = std::chrono::duration_cast<std::chrono::seconds>(
-        rateLimitInfo.resetTime - now).count();
-    res.set("Retry-After", std::to_string(std::max(0LL, static_cast<long long>(secondsUntilReset))));
+                                 rateLimitInfo.resetTime - now)
+                                 .count();
+    res.set("Retry-After",
+            std::to_string(
+                std::max(0LL, static_cast<long long>(secondsUntilReset))));
   }
 }
 
 template <class Body, class Allocator>
 http::response<http::string_body> RequestHandler::handleRequest(
-    http::request<Body, http::basic_fields<Allocator>> req)
-{
+    http::request<Body, http::basic_fields<Allocator>> req) {
   REQ_LOG_DEBUG("RequestHandler::handleRequest() - Received request: " +
                 std::string(req.method_string()) + " " +
                 std::string(req.target()));
@@ -226,38 +343,31 @@ http::response<http::string_body> RequestHandler::handleRequest(
   string_req.version(req.version());
   string_req.keep_alive(req.keep_alive());
 
-  try
-  {
+  try {
     REQ_LOG_DEBUG(
         "RequestHandler::handleRequest() - Converting request headers");
     // Copy headers - check for valid field names to avoid assertion failures
-    for (auto const &field : req)
-    {
-      try
-      {
+    for (auto const &field : req) {
+      try {
         // Only copy known header fields to avoid Beast assertion failures
-        if (field.name() != http::field::unknown)
-        {
+        if (field.name() != http::field::unknown) {
           string_req.set(field.name(), field.value());
-        }
-        else
-        {
+        } else {
           // For unknown fields, use the string name
           string_req.set(field.name_string(), field.value());
         }
-      }
-      catch (...)
-      {
-        REQ_LOG_WARN("RequestHandler::handleRequest() - Failed to copy header: " +
-                     std::string(field.name_string()) + " = " + std::string(field.value()));
+      } catch (...) {
+        REQ_LOG_WARN(
+            "RequestHandler::handleRequest() - Failed to copy header: " +
+            std::string(field.name_string()) + " = " +
+            std::string(field.value()));
         // Continue processing other headers
       }
     }
 
     REQ_LOG_DEBUG("RequestHandler::handleRequest() - Converting request body");
     // Copy body if it exists
-    if constexpr (std::is_same_v<Body, http::string_body>)
-    {
+    if constexpr (std::is_same_v<Body, http::string_body>) {
       string_req.body() = req.body();
     }
 
@@ -272,9 +382,7 @@ http::response<http::string_body> RequestHandler::handleRequest(
     addRateLimitHeaders(response, clientId, endpoint);
 
     return response;
-  }
-  catch (const etl::ETLException &ex)
-  {
+  } catch (const etl::ETLException &ex) {
     // Use Hana-based exception handling for better type safety and performance
     auto errorResponse = hanaExceptionRegistry_.handle(ex, "handleRequest");
 
@@ -284,9 +392,7 @@ http::response<http::string_body> RequestHandler::handleRequest(
     addRateLimitHeaders(errorResponse, clientId, endpoint);
 
     return errorResponse;
-  }
-  catch (const std::exception &e)
-  {
+  } catch (const std::exception &e) {
     // Fallback to traditional exception mapper for non-ETL exceptions
     auto errorResponse = exceptionMapper_.mapToResponse(e, "handleRequest");
 
@@ -296,9 +402,7 @@ http::response<http::string_body> RequestHandler::handleRequest(
     addRateLimitHeaders(errorResponse, clientId, endpoint);
 
     return errorResponse;
-  }
-  catch (...)
-  {
+  } catch (...) {
     auto errorResponse = exceptionMapper_.mapToResponse("handleRequest");
 
     // Add rate limit headers to error responses
@@ -311,16 +415,14 @@ http::response<http::string_body> RequestHandler::handleRequest(
 }
 
 http::response<http::string_body> RequestHandler::validateAndHandleRequest(
-    const http::request<http::string_body> &req) const
-{
+    const http::request<http::string_body> &req) const {
   // Step 1: Validate basic request structure
-  if (auto basicValidation = validateRequestBasics(req); !basicValidation.isValid)
-  {
+  if (auto basicValidation = validateRequestBasics(req);
+      !basicValidation.isValid) {
     REQ_LOG_WARN(
         "RequestHandler::validateAndHandleRequest() - Basic validation failed");
-    throw etl::ValidationException(
-        etl::ErrorCode::INVALID_INPUT,
-        "Request validation failed");
+    throw etl::ValidationException(etl::ErrorCode::INVALID_INPUT,
+                                   "Request validation failed");
   }
 
   auto target = std::string(req.target());
@@ -331,40 +433,34 @@ http::response<http::string_body> RequestHandler::validateAndHandleRequest(
                method + " " + target);
 
   // Step 2: Validate components before routing
-  if (!dbManager_)
-  {
+  if (!dbManager_) {
     REQ_LOG_ERROR("RequestHandler::validateAndHandleRequest() - Database "
                   "manager is null");
-    throw etl::SystemException(
-        etl::ErrorCode::COMPONENT_UNAVAILABLE,
-        "Database manager not available",
-        "RequestHandler");
+    throw etl::SystemException(etl::ErrorCode::COMPONENT_UNAVAILABLE,
+                               "Database manager not available",
+                               "RequestHandler");
   }
 
-  if (!authManager_)
-  {
+  if (!authManager_) {
     REQ_LOG_ERROR(
         "RequestHandler::validateAndHandleRequest() - Auth manager is null");
-    throw etl::SystemException(
-        etl::ErrorCode::COMPONENT_UNAVAILABLE,
-        "Authentication manager not available",
-        "RequestHandler");
+    throw etl::SystemException(etl::ErrorCode::COMPONENT_UNAVAILABLE,
+                               "Authentication manager not available",
+                               "RequestHandler");
   }
 
-  if (!etlManager_)
-  {
+  if (!etlManager_) {
     REQ_LOG_ERROR(
         "RequestHandler::validateAndHandleRequest() - ETL manager is null");
-    throw etl::SystemException(
-        etl::ErrorCode::COMPONENT_UNAVAILABLE,
-        "ETL manager not available",
-        "RequestHandler");
+    throw etl::SystemException(etl::ErrorCode::COMPONENT_UNAVAILABLE,
+                               "ETL manager not available", "RequestHandler");
   }
 
   // Step 2.4: Rate Limiting
-  if (!checkRateLimit(req))
-  {
-    REQ_LOG_WARN("RequestHandler::validateAndHandleRequest() - Rate limit exceeded for: " + target);
+  if (!checkRateLimit(req)) {
+    REQ_LOG_WARN("RequestHandler::validateAndHandleRequest() - Rate limit "
+                 "exceeded for: " +
+                 target);
     throw etl::ValidationException(
         etl::ErrorCode::RATE_LIMIT_EXCEEDED,
         "Rate limit exceeded. Please try again later.");
@@ -372,86 +468,74 @@ http::response<http::string_body> RequestHandler::validateAndHandleRequest(
 
   // Step 2.5: JWT Authentication for protected endpoints
 #if ETL_ENABLE_JWT
-  if (isProtectedEndpoint(target))
-  {
+  if (isProtectedEndpoint(target)) {
     auto userId = validateJWTToken(req);
-    if (!userId.has_value())
-    {
-      REQ_LOG_WARN("RequestHandler::validateAndHandleRequest() - JWT validation failed for protected endpoint: " + target);
+    if (!userId.has_value()) {
+      REQ_LOG_WARN("RequestHandler::validateAndHandleRequest() - JWT "
+                   "validation failed for protected endpoint: " +
+                   target);
       throw etl::ValidationException(
           etl::ErrorCode::UNAUTHORIZED,
           "Authentication required for this endpoint");
     }
-    REQ_LOG_DEBUG("RequestHandler::validateAndHandleRequest() - JWT validated for user: " + userId.value());
+    REQ_LOG_DEBUG("RequestHandler::validateAndHandleRequest() - JWT validated "
+                  "for user: " +
+                  userId.value());
   }
 #endif
 
   // Step 3: Route requests with endpoint-specific validation
-  if (target.rfind("/api/auth", 0) == 0)
-  {
+  if (target.rfind("/api/auth", 0) == 0) {
     REQ_LOG_DEBUG(
         "RequestHandler::validateAndHandleRequest() - Routing to auth handler");
     return handleAuth(req);
-  }
-  else if (target.rfind("/api/logs", 0) == 0)
-  {
+  } else if (target.rfind("/api/logs", 0) == 0) {
     REQ_LOG_DEBUG("RequestHandler::validateAndHandleRequest() - Routing to "
                   "logs handler");
     return handleLogs(req);
-  }
-  else if (target.rfind("/api/jobs", 0) == 0)
-  {
+  } else if (target.rfind("/api/jobs", 0) == 0) {
     REQ_LOG_DEBUG("RequestHandler::validateAndHandleRequest() - Routing to ETL "
                   "jobs handler");
     return handleETLJobs(req);
-  }
-  else if (target.rfind("/api/monitor", 0) == 0)
-  {
+  } else if (target.rfind("/api/monitor", 0) == 0) {
     REQ_LOG_DEBUG("RequestHandler::validateAndHandleRequest() - Routing to "
                   "monitoring handler");
     return handleMonitoring(req);
-  }
-  else if (target == "/api/health" || target == "/api/status" || target.rfind("/api/health/", 0) == 0)
-  {
+  } else if (target == "/api/health" || target == "/api/status" ||
+             target.rfind("/api/health/", 0) == 0) {
     REQ_LOG_DEBUG("RequestHandler::validateAndHandleRequest() - Routing to "
                   "health/status handler");
     return handleHealth(req);
-  }
-  else
-  {
+  } else {
     REQ_LOG_WARN(
         "RequestHandler::validateAndHandleRequest() - Unknown endpoint: " +
         target);
-    throw etl::SystemException(
-        etl::ErrorCode::NETWORK_ERROR,
-        "Endpoint not found: " + target,
-        "RequestHandler");
+    throw etl::SystemException(etl::ErrorCode::NETWORK_ERROR,
+                               "Endpoint not found: " + target,
+                               "RequestHandler");
   }
 }
 
 InputValidator::ValidationResult RequestHandler::validateRequestBasics(
-    const http::request<http::string_body> &req) const
-{
+    const http::request<http::string_body> &req) const {
   InputValidator::ValidationResult result;
 
   auto target = std::string(req.target());
   auto method = std::string(req.method_string());
 
   // Validate request target/path
-  if (auto pathValidation = InputValidator::validateEndpointPath(target); !pathValidation.isValid)
-  {
+  if (auto pathValidation = InputValidator::validateEndpointPath(target);
+      !pathValidation.isValid) {
     result.errors.insert(result.errors.end(), pathValidation.errors.begin(),
                          pathValidation.errors.end());
     result.isValid = false;
   }
 
   // Validate query parameters if present
-  if (size_t queryPos = target.find('?'); queryPos != std::string::npos)
-  {
+  if (size_t queryPos = target.find('?'); queryPos != std::string::npos) {
     std::string queryString = target.substr(queryPos + 1);
     auto queryValidation = InputValidator::validateQueryParameters(queryString);
-    if (!queryValidation.isValid)
-    {
+    if (!queryValidation.isValid) {
       result.errors.insert(result.errors.end(), queryValidation.errors.begin(),
                            queryValidation.errors.end());
       result.isValid = false;
@@ -460,9 +544,9 @@ InputValidator::ValidationResult RequestHandler::validateRequestBasics(
 
   // Validate HTTP method
   if (const std::vector<std::string> allowedMethods = {"GET", "POST", "PUT",
-                                                       "DELETE", "OPTIONS", "PATCH"};
-      !InputValidator::isValidHttpMethod(method, allowedMethods))
-  {
+                                                       "DELETE", "OPTIONS",
+                                                       "PATCH"};
+      !InputValidator::isValidHttpMethod(method, allowedMethods)) {
     result.addError("method", "HTTP method not allowed", "METHOD_NOT_ALLOWED");
   }
 
@@ -470,40 +554,39 @@ InputValidator::ValidationResult RequestHandler::validateRequestBasics(
   auto headers = extractHeaders(req);
 
   // Convert to standard unordered_map for InputValidator
-  std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> standardHeaders;
-  for (const auto &[key, value] : headers)
-  {
+  std::unordered_map<std::string, std::string, TransparentStringHash,
+                     std::equal_to<>>
+      standardHeaders;
+  for (const auto &[key, value] : headers) {
     standardHeaders[key] = value;
   }
 
   // Convert standardHeaders to the expected type
   std::unordered_map<std::string, std::string> convertedHeaders;
-  for (const auto &[key, value] : standardHeaders)
-  {
+  for (const auto &[key, value] : standardHeaders) {
     convertedHeaders[key] = value;
   }
 
   // Pass convertedHeaders to the function
-  if (auto headerValidation = InputValidator::validateRequestHeaders(convertedHeaders); !headerValidation.isValid)
-  {
+  if (auto headerValidation =
+          InputValidator::validateRequestHeaders(convertedHeaders);
+      !headerValidation.isValid) {
     result.errors.insert(result.errors.end(), headerValidation.errors.begin(),
                          headerValidation.errors.end());
     result.isValid = false;
   }
 
   // Validate request size
-  if (!InputValidator::isValidRequestSize(req.body().length()))
-  {
+  if (!InputValidator::isValidRequestSize(req.body().length())) {
     result.addError("content-length", "Request body too large",
                     "BODY_TOO_LARGE");
   }
 
   // Validate content type for POST/PUT/PATCH requests
-  if (method == "POST" || method == "PUT" || method == "PATCH")
-  {
-    if (auto it = headers.find("content-type"); it != headers.end() &&
-                                                !InputValidator::isValidContentType(it->second))
-    {
+  if (method == "POST" || method == "PUT" || method == "PATCH") {
+    if (auto it = headers.find("content-type");
+        it != headers.end() &&
+        !InputValidator::isValidContentType(it->second)) {
       result.addError("content-type", "Unsupported content type",
                       "INVALID_CONTENT_TYPE");
     }
@@ -512,13 +595,15 @@ InputValidator::ValidationResult RequestHandler::validateRequestBasics(
   return result;
 }
 
-std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>
-RequestHandler::extractHeaders(const http::request<http::string_body> &req) const
-{
-  std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> headers;
+std::unordered_map<std::string, std::string, TransparentStringHash,
+                   std::equal_to<>>
+RequestHandler::extractHeaders(
+    const http::request<http::string_body> &req) const {
+  std::unordered_map<std::string, std::string, TransparentStringHash,
+                     std::equal_to<>>
+      headers;
 
-  for (const auto &field : req)
-  {
+  for (const auto &field : req) {
     auto name = std::string(field.name_string());
     auto value = std::string(field.value());
     headers[name] = value;
@@ -527,12 +612,11 @@ RequestHandler::extractHeaders(const http::request<http::string_body> &req) cons
   return headers;
 }
 
-std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>>
-RequestHandler::extractQueryParams(std::string_view target) const
-{
+std::unordered_map<std::string, std::string, TransparentStringHash,
+                   std::equal_to<>>
+RequestHandler::extractQueryParams(std::string_view target) const {
   size_t queryPos = target.find('?');
-  if (queryPos == std::string::npos)
-  {
+  if (queryPos == std::string::npos) {
     return {};
   }
 
@@ -540,9 +624,10 @@ RequestHandler::extractQueryParams(std::string_view target) const
   auto standardParams = InputValidator::parseQueryString(queryString);
 
   // Convert to TransparentStringHash map
-  std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> result;
-  for (const auto &[key, value] : standardParams)
-  {
+  std::unordered_map<std::string, std::string, TransparentStringHash,
+                     std::equal_to<>>
+      result;
+  for (const auto &[key, value] : standardParams) {
     result[key] = value;
   }
 
@@ -550,48 +635,42 @@ RequestHandler::extractQueryParams(std::string_view target) const
 }
 
 http::response<http::string_body>
-RequestHandler::handleAuth(const http::request<http::string_body> &req) const
-{
+RequestHandler::handleAuth(const http::request<http::string_body> &req) const {
   auto target = std::string(req.target());
   auto method = std::string(req.method_string());
 
   // Handle CORS preflight
-  if (req.method() == http::verb::options)
-  {
+  if (req.method() == http::verb::options) {
     http::response<http::string_body> res{http::status::ok, 11};
     res.set(http::field::server, "ETL Plus Backend");
     res.set(http::field::access_control_allow_origin, "*");
     res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
-    res.set(http::field::access_control_allow_headers, "Content-Type, Authorization");
+    res.set(http::field::access_control_allow_headers,
+            "Content-Type, Authorization");
     res.set(http::field::access_control_expose_headers,
-            "X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After");
+            "X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, "
+            "Retry-After");
     res.keep_alive(false);
     res.prepare_payload();
     return res;
   }
 
   // Validate allowed methods for auth endpoints
-  if (!InputValidator::isValidHttpMethod(method, {"POST", "GET"}))
-  {
-    throw etl::ValidationException(
-        etl::ErrorCode::INVALID_INPUT,
-        "Method not allowed for auth endpoint",
-        "method",
-        std::string(req.method_string()));
+  if (!InputValidator::isValidHttpMethod(method, {"POST", "GET"})) {
+    throw etl::ValidationException(etl::ErrorCode::INVALID_INPUT,
+                                   "Method not allowed for auth endpoint",
+                                   "method", std::string(req.method_string()));
   }
 
-  if (req.method() == http::verb::post && target == "/api/auth/login")
-  {
+  if (req.method() == http::verb::post && target == "/api/auth/login") {
 #if ETL_ENABLE_JWT
     // Validate login request body
-    if (auto validation = InputValidator::validateLoginRequest(req.body()); !validation.isValid)
-    {
+    if (auto validation = InputValidator::validateLoginRequest(req.body());
+        !validation.isValid) {
       REQ_LOG_WARN("RequestHandler::handleAuth() - Login validation failed");
-      throw etl::ValidationException(
-          etl::ErrorCode::INVALID_INPUT,
-          "Login validation failed",
-          "body",
-          req.body());
+      throw etl::ValidationException(etl::ErrorCode::INVALID_INPUT,
+                                     "Login validation failed", "body",
+                                     req.body());
     }
 
     REQ_LOG_INFO(
@@ -599,144 +678,132 @@ RequestHandler::handleAuth(const http::request<http::string_body> &req) const
 
     // Parse login credentials from request body
     try {
-        auto jsonBody = nlohmann::json::parse(req.body());
-        std::string username = jsonBody["username"];
-        std::string password = jsonBody["password"];
+      auto jsonBody = nlohmann::json::parse(req.body());
+      std::string username = jsonBody["username"];
+      std::string password = jsonBody["password"];
 
-        // Authenticate user with password
-        if (!authManager_->authenticateUser(username, password)) {
-            REQ_LOG_WARN("RequestHandler::handleAuth() - Authentication failed for user: " + username);
-            throw etl::ValidationException(
-                etl::ErrorCode::UNAUTHORIZED,
-                "Invalid username or password");
-        }
+      // Authenticate user with password
+      if (!authManager_->authenticateUser(username, password)) {
+        REQ_LOG_WARN(
+            "RequestHandler::handleAuth() - Authentication failed for user: " +
+            username);
+        throw etl::ValidationException(etl::ErrorCode::UNAUTHORIZED,
+                                       "Invalid username or password");
+      }
 
-        // Get user details
-        auto user = authManager_->getUserByUsername(username);
-        if (!user) {
-            REQ_LOG_ERROR("RequestHandler::handleAuth() - User not found after authentication: " + username);
-            throw etl::ValidationException(
-                etl::ErrorCode::UNAUTHORIZED,
-                "User authentication failed");
-        }
+      // Get user details
+      auto user = authManager_->getUserByUsername(username);
+      if (!user) {
+        REQ_LOG_ERROR("RequestHandler::handleAuth() - User not found after "
+                      "authentication: " +
+                      username);
+        throw etl::ValidationException(etl::ErrorCode::UNAUTHORIZED,
+                                       "User authentication failed");
+      }
 
-        // Generate JWT token
-        std::string token = authManager_->generateJWTToken(user->id);
-        if (token.empty()) {
-            REQ_LOG_ERROR("RequestHandler::handleAuth() - Failed to generate JWT token for user: " + username);
-            throw etl::ValidationException(
-                etl::ErrorCode::INTERNAL_ERROR,
-                "Token generation failed");
-        }
+      // Generate JWT token
+      std::string token = authManager_->generateJWTToken(user->id);
+      if (token.empty()) {
+        REQ_LOG_ERROR("RequestHandler::handleAuth() - Failed to generate JWT "
+                      "token for user: " +
+                      username);
+        throw etl::ValidationException(etl::ErrorCode::INTERNAL_ERROR,
+                                       "Token generation failed");
+      }
 
-        // Return JWT token response
-        nlohmann::json response = {
-            {"token", token},
-            {"user_id", user->id},
-            {"username", user->username},
-            {"expires_in", authManager_->getJWTExpiryHours().count() * 3600},
-            {"token_type", "Bearer"}
-        };
+      // Return JWT token response
+      nlohmann::json response = {
+          {"token", token},
+          {"user_id", user->id},
+          {"username", user->username},
+          {"expires_in", authManager_->getJWTExpiryHours().count() * 3600},
+          {"token_type", "Bearer"}};
 
-        REQ_LOG_INFO("RequestHandler::handleAuth() - Login successful for user: " + username);
-        return createSuccessResponse(response.dump(), req.version());
-    } catch (const nlohmann::json::exception& e) {
-        REQ_LOG_ERROR("RequestHandler::handleAuth() - JSON parsing failed: " + std::string(e.what()));
-        throw etl::ValidationException(
-            etl::ErrorCode::INVALID_INPUT,
-            "Invalid JSON format",
-            "body",
-            req.body());
+      REQ_LOG_INFO(
+          "RequestHandler::handleAuth() - Login successful for user: " +
+          username);
+      return createSuccessResponse(response.dump(), req.version());
+    } catch (const nlohmann::json::exception &e) {
+      REQ_LOG_ERROR("RequestHandler::handleAuth() - JSON parsing failed: " +
+                    std::string(e.what()));
+      throw etl::ValidationException(etl::ErrorCode::INVALID_INPUT,
+                                     "Invalid JSON format", "body", req.body());
     }
 #else
     // JWT authentication is disabled
-    REQ_LOG_WARN("RequestHandler::handleAuth() - JWT authentication is disabled");
-    throw etl::ValidationException(
-        etl::ErrorCode::UNAUTHORIZED,
-        "Authentication is currently disabled");
+    REQ_LOG_WARN(
+        "RequestHandler::handleAuth() - JWT authentication is disabled");
+    throw etl::ValidationException(etl::ErrorCode::UNAUTHORIZED,
+                                   "Authentication is currently disabled");
 #endif
-  }
-  else if (req.method() == http::verb::post && target == "/api/auth/logout")
-  {
+  } else if (req.method() == http::verb::post && target == "/api/auth/logout") {
     // Validate logout request (may be empty or contain token)
-    if (!req.body().empty())
-    {
-      if (auto validation = InputValidator::validateLogoutRequest(req.body()); !validation.isValid)
-      {
+    if (!req.body().empty()) {
+      if (auto validation = InputValidator::validateLogoutRequest(req.body());
+          !validation.isValid) {
         REQ_LOG_WARN("RequestHandler::handleAuth() - Logout validation failed");
-        throw etl::ValidationException(
-            etl::ErrorCode::INVALID_INPUT,
-            "Logout validation failed",
-            "body",
-            req.body());
+        throw etl::ValidationException(etl::ErrorCode::INVALID_INPUT,
+                                       "Logout validation failed", "body",
+                                       req.body());
       }
     }
 
     // Extract token from Authorization header
     auto headers = extractHeaders(req);
     std::string token;
-    if (auto authIt = headers.find("authorization"); authIt != headers.end())
-    {
+    if (auto authIt = headers.find("authorization"); authIt != headers.end()) {
       // Extract token from "Bearer <token>" format
       std::string authHeader = authIt->second;
-      if (authHeader.starts_with("Bearer "))
-      {
+      if (authHeader.starts_with("Bearer ")) {
         token = authHeader.substr(7); // Remove "Bearer " prefix
       }
     }
 
-    if (!token.empty())
-    {
+    if (!token.empty()) {
 #if ETL_ENABLE_JWT
       // Validate the token (optional for logout, but good practice)
       auto userId = authManager_->validateJWTToken(token);
-      if (userId.has_value())
-      {
-        REQ_LOG_INFO("RequestHandler::handleAuth() - Logout for user: " + userId.value());
-      }
-      else
-      {
-        REQ_LOG_WARN("RequestHandler::handleAuth() - Logout with invalid token");
+      if (userId.has_value()) {
+        REQ_LOG_INFO("RequestHandler::handleAuth() - Logout for user: " +
+                     userId.value());
+      } else {
+        REQ_LOG_WARN(
+            "RequestHandler::handleAuth() - Logout with invalid token");
       }
 #else
-      REQ_LOG_INFO("RequestHandler::handleAuth() - Logout requested (JWT validation disabled)");
+      REQ_LOG_INFO("RequestHandler::handleAuth() - Logout requested (JWT "
+                   "validation disabled)");
 #endif
-    }
-    else
-    {
+    } else {
       REQ_LOG_INFO("RequestHandler::handleAuth() - Logout without token");
     }
 
-    return createSuccessResponse(R"({"message":"Logged out successfully"})", req.version());
-  }
-  else if (req.method() == http::verb::get && target == "/api/auth/profile")
-  {
+    return createSuccessResponse(R"({"message":"Logged out successfully"})",
+                                 req.version());
+  } else if (req.method() == http::verb::get && target == "/api/auth/profile") {
 #if ETL_ENABLE_JWT
-    // JWT validation is now handled by middleware, so we can extract user info from token
+    // JWT validation is now handled by middleware, so we can extract user info
+    // from token
     auto userId = validateJWTToken(req);
-    if (!userId.has_value())
-    {
+    if (!userId.has_value()) {
       // This should not happen since middleware validates, but just in case
-      throw etl::ValidationException(
-          etl::ErrorCode::UNAUTHORIZED,
-          "Authentication required");
+      throw etl::ValidationException(etl::ErrorCode::UNAUTHORIZED,
+                                     "Authentication required");
     }
 #else
     // Without JWT, profile endpoint is not available
-    throw etl::ValidationException(
-        etl::ErrorCode::UNAUTHORIZED,
-        "Authentication not available");
+    throw etl::ValidationException(etl::ErrorCode::UNAUTHORIZED,
+                                   "Authentication not available");
 #endif
 
 #if ETL_ENABLE_JWT
     // Get user details from database
     auto user = authManager_->getUser(userId.value());
-    if (!user)
-    {
-      REQ_LOG_ERROR("RequestHandler::handleAuth() - User not found: " + userId.value());
-      throw etl::ValidationException(
-          etl::ErrorCode::UNAUTHORIZED,
-          "User not found");
+    if (!user) {
+      REQ_LOG_ERROR("RequestHandler::handleAuth() - User not found: " +
+                    userId.value());
+      throw etl::ValidationException(etl::ErrorCode::UNAUTHORIZED,
+                                     "User not found");
     }
 
     // Return user profile information
@@ -746,100 +813,95 @@ RequestHandler::handleAuth(const http::request<http::string_body> &req) const
         {"email", user->email},
         {"roles", user->roles},
         {"is_active", user->isActive},
-        {"created_at", this->formatTimestamp(user->createdAt)}
-    };
+        {"created_at", this->formatTimestamp(user->createdAt)}};
 
-    REQ_LOG_INFO("RequestHandler::handleAuth() - Profile retrieved for user: " + user->username);
+    REQ_LOG_INFO("RequestHandler::handleAuth() - Profile retrieved for user: " +
+                 user->username);
     return createSuccessResponse(response.dump(), req.version());
 #else
     // Without JWT, profile endpoint is not available
-    throw etl::ValidationException(
-        etl::ErrorCode::UNAUTHORIZED,
-        "Authentication not available");
+    throw etl::ValidationException(etl::ErrorCode::UNAUTHORIZED,
+                                   "Authentication not available");
 #endif
   }
 
-  throw etl::ValidationException(
-      etl::ErrorCode::INVALID_INPUT,
-      "Invalid auth endpoint",
-      "target",
-      target);
+  throw etl::ValidationException(etl::ErrorCode::INVALID_INPUT,
+                                 "Invalid auth endpoint", "target", target);
 }
 
 http::response<http::string_body>
-RequestHandler::handleLogs(const http::request<http::string_body> &req) const
-{
+RequestHandler::handleLogs(const http::request<http::string_body> &req) const {
   auto target = std::string(req.target());
   auto method = std::string(req.method_string());
 
   // Handle CORS preflight
-  if (req.method() == http::verb::options)
-  {
+  if (req.method() == http::verb::options) {
     http::response<http::string_body> res{http::status::ok, 11};
     res.set(http::field::server, "ETL Plus Backend");
     res.set(http::field::access_control_allow_origin, "*");
     res.set(http::field::access_control_allow_methods, "GET, POST, OPTIONS");
-    res.set(http::field::access_control_allow_headers, "Content-Type, Authorization");
+    res.set(http::field::access_control_allow_headers,
+            "Content-Type, Authorization");
     res.set(http::field::access_control_expose_headers,
-            "X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After");
+            "X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, "
+            "Retry-After");
     res.keep_alive(false);
     res.prepare_payload();
     return res;
   }
 
   // Validate allowed methods for logs endpoints
-  if (!InputValidator::isValidHttpMethod(method, {"GET", "POST"}))
-  {
-    throw etl::ValidationException(
-        etl::ErrorCode::INVALID_INPUT,
-        "Method not allowed for logs endpoint",
-        "method",
-        method);
+  if (!InputValidator::isValidHttpMethod(method, {"GET", "POST"})) {
+    throw etl::ValidationException(etl::ErrorCode::INVALID_INPUT,
+                                   "Method not allowed for logs endpoint",
+                                   "method", method);
   }
 
   // Handle different log endpoints
-  if (req.method() == http::verb::get && target == "/api/logs")
-  {
+  if (req.method() == http::verb::get && target == "/api/logs") {
     // Return recent logs
     REQ_LOG_INFO("RequestHandler::handleLogs() - Retrieving recent logs");
-    return createSuccessResponse(R"({"logs":[],"total":0,"message":"Logs endpoint implemented"})", req.version());
-  }
-  else if (req.method() == http::verb::get && target.rfind("/api/logs/", 0) == 0)
-  {
+    return createSuccessResponse(
+        R"({"logs":[],"total":0,"message":"Logs endpoint implemented"})",
+        req.version());
+  } else if (req.method() == http::verb::get &&
+             target.rfind("/api/logs/", 0) == 0) {
     // Handle specific log queries with parameters
-    REQ_LOG_INFO("RequestHandler::handleLogs() - Processing log query with parameters");
-    return createSuccessResponse(R"({"logs":[],"total":0,"message":"Log query endpoint implemented"})", req.version());
-  }
-  else if (req.method() == http::verb::post && target == "/api/logs/search")
-  {
+    REQ_LOG_INFO(
+        "RequestHandler::handleLogs() - Processing log query with parameters");
+    return createSuccessResponse(
+        R"({"logs":[],"total":0,"message":"Log query endpoint implemented"})",
+        req.version());
+  } else if (req.method() == http::verb::post && target == "/api/logs/search") {
     // Handle log search requests
-    REQ_LOG_INFO("RequestHandler::handleLogs() - Processing log search request");
-    return createSuccessResponse(R"({"results":[],"total":0,"message":"Log search endpoint implemented"})", req.version());
+    REQ_LOG_INFO(
+        "RequestHandler::handleLogs() - Processing log search request");
+    return createSuccessResponse(
+        R"({"results":[],"total":0,"message":"Log search endpoint implemented"})",
+        req.version());
   }
 
-  throw etl::ValidationException(
-      etl::ErrorCode::INVALID_INPUT,
-      "Invalid logs endpoint",
-      "target",
-      target);
+  throw etl::ValidationException(etl::ErrorCode::INVALID_INPUT,
+                                 "Invalid logs endpoint", "target", target);
 }
 
-http::response<http::string_body>
-RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
-{
+http::response<http::string_body> RequestHandler::handleETLJobs(
+    const http::request<http::string_body> &req) const {
   auto target = std::string(req.target());
   auto method = std::string(req.method_string());
 
   // Handle CORS preflight
-  if (req.method() == http::verb::options)
-  {
+  if (req.method() == http::verb::options) {
     http::response<http::string_body> res{http::status::ok, 11};
     res.set(http::field::server, "ETL Plus Backend");
     res.set(http::field::access_control_allow_origin, "*");
-    res.set(http::field::access_control_allow_methods, "GET, POST, PUT, DELETE, OPTIONS");
-    res.set(http::field::access_control_allow_headers, "Content-Type, Authorization");
+    res.set(http::field::access_control_allow_methods,
+            "GET, POST, PUT, DELETE, OPTIONS");
+    res.set(http::field::access_control_allow_headers,
+            "Content-Type, Authorization");
     res.set(http::field::access_control_expose_headers,
-            "X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After");
+            "X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, "
+            "Retry-After");
     res.keep_alive(false);
     res.prepare_payload();
     return res;
@@ -847,37 +909,26 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
 
   // Validate allowed methods for jobs endpoints
   if (!InputValidator::isValidHttpMethod(method,
-                                         {"GET", "POST", "PUT", "DELETE"}))
-  {
-    throw etl::ValidationException(
-        etl::ErrorCode::INVALID_INPUT,
-        "Method not allowed for jobs endpoint",
-        "method",
-        method);
+                                         {"GET", "POST", "PUT", "DELETE"})) {
+    throw etl::ValidationException(etl::ErrorCode::INVALID_INPUT,
+                                   "Method not allowed for jobs endpoint",
+                                   "method", method);
   }
 
   // Handle GET /api/jobs/{id}/status - detailed job status
   if (req.method() == http::verb::get && target.rfind("/api/jobs/", 0) == 0 &&
-      target.size() > 7 && target.substr(target.size() - 7) == "/status")
-  {
+      target.size() > 7 && target.substr(target.size() - 7) == "/status") {
     auto jobId = extractJobIdFromPath(target, "/api/jobs/", "/status");
-    if (!InputValidator::isValidJobId(jobId))
-    {
-      throw etl::ValidationException(
-          etl::ErrorCode::INVALID_INPUT,
-          "Invalid job ID format",
-          "jobId",
-          jobId);
+    if (!InputValidator::isValidJobId(jobId)) {
+      throw etl::ValidationException(etl::ErrorCode::INVALID_INPUT,
+                                     "Invalid job ID format", "jobId", jobId);
     }
 
     auto job = etlManager_->getJob(jobId);
-    if (!job)
-    {
-      throw etl::BusinessException(
-          etl::ErrorCode::JOB_NOT_FOUND,
-          "Job not found",
-          "getJob",
-          etl::ErrorContext{{"jobId", jobId}});
+    if (!job) {
+      throw etl::BusinessException(etl::ErrorCode::JOB_NOT_FOUND,
+                                   "Job not found", "getJob",
+                                   etl::ErrorContext{{"jobId", jobId}});
     }
 
     // Create detailed job status response
@@ -886,23 +937,25 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
          << R"("jobId":")" << job->jobId << R"(",)"
          << R"("type":")" << jobTypeToString(job->type) << R"(",)"
          << R"("status":")" << jobStatusToString(job->status) << R"(",)"
-         << R"("createdAt":")" << this->formatTimestamp(job->createdAt) << R"(",)"
-         << R"("startedAt":")" << this->formatTimestamp(job->startedAt) << R"(",)"
-         << R"("completedAt":")" << this->formatTimestamp(job->completedAt) << R"(",)"
+         << R"("createdAt":")" << this->formatTimestamp(job->createdAt)
+         << R"(",)"
+         << R"("startedAt":")" << this->formatTimestamp(job->startedAt)
+         << R"(",)"
+         << R"("completedAt":")" << this->formatTimestamp(job->completedAt)
+         << R"(",)"
          << R"("recordsProcessed":)" << job->recordsProcessed << ","
          << R"("recordsSuccessful":)" << job->recordsSuccessful << ","
          << R"("recordsFailed":)" << job->recordsFailed;
 
-    if (!job->errorMessage.empty())
-    {
-      json << R"(,"errorMessage":")" << InputValidator::sanitizeString(job->errorMessage) << R"(")";
+    if (!job->errorMessage.empty()) {
+      json << R"(,"errorMessage":")"
+           << InputValidator::sanitizeString(job->errorMessage) << R"(")";
     }
 
     // Calculate execution time
     auto executionTime = std::chrono::duration_cast<std::chrono::milliseconds>(
         job->completedAt - job->startedAt);
-    if (job->status == JobStatus::RUNNING)
-    {
+    if (job->status == JobStatus::RUNNING) {
       executionTime = std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::system_clock::now() - job->startedAt);
     }
@@ -914,43 +967,36 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
 
   // Handle GET /api/jobs/{id}/metrics - job execution metrics
   if (req.method() == http::verb::get && target.rfind("/api/jobs/", 0) == 0 &&
-      target.size() > 8 && target.substr(target.size() - 8) == "/metrics")
-  {
+      target.size() > 8 && target.substr(target.size() - 8) == "/metrics") {
     auto jobId = extractJobIdFromPath(target, "/api/jobs/", "/metrics");
-    if (!InputValidator::isValidJobId(jobId))
-    {
-      throw etl::ValidationException(
-          etl::ErrorCode::INVALID_INPUT,
-          "Invalid job ID format",
-          "jobId",
-          jobId);
+    if (!InputValidator::isValidJobId(jobId)) {
+      throw etl::ValidationException(etl::ErrorCode::INVALID_INPUT,
+                                     "Invalid job ID format", "jobId", jobId);
     }
 
     auto job = etlManager_->getJob(jobId);
-    if (!job)
-    {
-      throw etl::BusinessException(
-          etl::ErrorCode::JOB_NOT_FOUND,
-          "Job not found",
-          "getJob",
-          etl::ErrorContext{{"jobId", jobId}});
+    if (!job) {
+      throw etl::BusinessException(etl::ErrorCode::JOB_NOT_FOUND,
+                                   "Job not found", "getJob",
+                                   etl::ErrorContext{{"jobId", jobId}});
     }
 
     // Calculate metrics
     auto executionTime = std::chrono::duration_cast<std::chrono::milliseconds>(
-        job->status == JobStatus::RUNNING ? std::chrono::system_clock::now() - job->startedAt : job->completedAt - job->startedAt);
+        job->status == JobStatus::RUNNING
+            ? std::chrono::system_clock::now() - job->startedAt
+            : job->completedAt - job->startedAt);
 
     double processingRate = 0.0;
     const double secs = static_cast<double>(executionTime.count()) / 1000.0;
-    if (secs > 0.0)
-    {
+    if (secs > 0.0) {
       processingRate = static_cast<double>(job->recordsProcessed) / secs;
     }
 
     double successRate = 0.0;
-    if (job->recordsProcessed > 0)
-    {
-      successRate = (double)job->recordsSuccessful / job->recordsProcessed * 100.0;
+    if (job->recordsProcessed > 0) {
+      successRate =
+          (double)job->recordsSuccessful / job->recordsProcessed * 100.0;
     }
 
     std::ostringstream json;
@@ -968,49 +1014,46 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
     return createSuccessResponse(json.str(), req.version());
   }
 
-  if (req.method() == http::verb::get && target == "/api/jobs")
-  {
+  if (req.method() == http::verb::get && target == "/api/jobs") {
     // Validate query parameters
-    auto queryParams = extractQueryParams(std::string_view(target.data(), target.size()));
+    auto queryParams =
+        extractQueryParams(std::string_view(target.data(), target.size()));
 
     // Convert to standard unordered_map for InputValidator
-    std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> standardParams;
-    for (const auto &[key, value] : queryParams)
-    {
+    std::unordered_map<std::string, std::string, TransparentStringHash,
+                       std::equal_to<>>
+        standardParams;
+    for (const auto &[key, value] : queryParams) {
       standardParams[key] = value;
     }
 
     // Convert standardParams to the expected type
     std::unordered_map<std::string, std::string> convertedParams;
-    for (const auto &[key, value] : standardParams)
-    {
+    for (const auto &[key, value] : standardParams) {
       convertedParams[key] = value;
     }
 
     // Pass convertedParams to the function
-    if (auto queryValidation = InputValidator::validateJobQueryParams(convertedParams); !queryValidation.isValid)
-    {
+    if (auto queryValidation =
+            InputValidator::validateJobQueryParams(convertedParams);
+        !queryValidation.isValid) {
       REQ_LOG_WARN("RequestHandler::handleETLJobs() - Query parameter "
                    "validation failed");
-      throw etl::ValidationException(
-          etl::ErrorCode::INVALID_INPUT,
-          "Query parameter validation failed",
-          "query",
-          std::string(req.target()));
+      throw etl::ValidationException(etl::ErrorCode::INVALID_INPUT,
+                                     "Query parameter validation failed",
+                                     "query", std::string(req.target()));
     }
 
     // Return list of jobs
     auto jobs = etlManager_->getAllJobs();
     std::ostringstream json;
     json << R"({"jobs":[)";
-    for (size_t i = 0; i < jobs.size(); ++i)
-    {
+    for (size_t i = 0; i < jobs.size(); ++i) {
       if (i > 0)
         json << ",";
       json << R"({"id":")" << jobs[i]->jobId << R"(","status":")";
       using enum JobStatus;
-      switch (jobs[i]->status)
-      {
+      switch (jobs[i]->status) {
       case PENDING:
         json << "pending";
         break;
@@ -1032,27 +1075,21 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
     json << R"(]})";
 
     return createSuccessResponse(json.str(), req.version());
-  }
-  else if (req.method() == http::verb::post && target == "/api/jobs")
-  {
+  } else if (req.method() == http::verb::post && target == "/api/jobs") {
     // Validate job creation request
     auto validation = InputValidator::validateJobCreationRequest(req.body());
-    if (!validation.isValid)
-    {
+    if (!validation.isValid) {
       REQ_LOG_WARN(
           "RequestHandler::handleETLJobs() - Job creation validation failed");
-      throw etl::ValidationException(
-          etl::ErrorCode::INVALID_INPUT,
-          "Job creation validation failed",
-          "body",
-          req.body());
+      throw etl::ValidationException(etl::ErrorCode::INVALID_INPUT,
+                                     "Job creation validation failed", "body",
+                                     req.body());
     }
 
     REQ_LOG_INFO("RequestHandler::handleETLJobs() - Processing validated job "
                  "creation request");
 
-    try
-    {
+    try {
       // Mock job creation
       ETLJobConfig config;
       using namespace std::chrono;
@@ -1069,42 +1106,30 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
       std::stringstream ss2;
       ss2 << R"({{"job_id":")" << jobId << R"(","status":"scheduled"}})";
       return createSuccessResponse(ss2.str(), req.version());
-    }
-    catch (const etl::ETLException &e)
-    {
+    } catch (const etl::ETLException &e) {
       REQ_LOG_ERROR(
           "RequestHandler::handleETLJobs() - Exception during job creation: " +
           std::string(e.what()));
-      throw etl::SystemException(
-          etl::ErrorCode::PROCESSING_FAILED,
-          "Failed to create job",
-          "ETLJobManager");
+      throw etl::SystemException(etl::ErrorCode::PROCESSING_FAILED,
+                                 "Failed to create job", "ETLJobManager");
     }
-  }
-  else if (req.method() == http::verb::put &&
-           target.find("/api/jobs/") == 0)
-  {
+  } else if (req.method() == http::verb::put &&
+             target.find("/api/jobs/") == 0) {
     // Extract job ID from path
     std::string jobId = target.substr(11); // Remove "/api/jobs/"
-    if (!InputValidator::isValidJobId(jobId))
-    {
-      throw etl::ValidationException(
-          etl::ErrorCode::INVALID_INPUT,
-          "Invalid job ID format",
-          "jobId",
-          jobId);
+    if (!InputValidator::isValidJobId(jobId)) {
+      throw etl::ValidationException(etl::ErrorCode::INVALID_INPUT,
+                                     "Invalid job ID format", "jobId", jobId);
     }
 
     // Validate job update request
-    if (auto validation = InputValidator::validateJobUpdateRequest(req.body()); !validation.isValid)
-    {
+    if (auto validation = InputValidator::validateJobUpdateRequest(req.body());
+        !validation.isValid) {
       REQ_LOG_WARN(
           "RequestHandler::handleETLJobs() - Job update validation failed");
-      throw etl::ValidationException(
-          etl::ErrorCode::INVALID_INPUT,
-          "Job update validation failed",
-          "body",
-          req.body());
+      throw etl::ValidationException(etl::ErrorCode::INVALID_INPUT,
+                                     "Job update validation failed", "body",
+                                     req.body());
     }
 
     std::stringstream ss;
@@ -1112,64 +1137,58 @@ RequestHandler::handleETLJobs(const http::request<http::string_body> &req) const
     return createSuccessResponse(ss.str(), req.version());
   }
 
-  throw etl::ValidationException(
-      etl::ErrorCode::INVALID_INPUT,
-      "Invalid jobs endpoint",
-      "target",
-      target);
+  throw etl::ValidationException(etl::ErrorCode::INVALID_INPUT,
+                                 "Invalid jobs endpoint", "target", target);
 }
 
-http::response<http::string_body>
-RequestHandler::handleMonitoring(const http::request<http::string_body> &req) const
-{
+http::response<http::string_body> RequestHandler::handleMonitoring(
+    const http::request<http::string_body> &req) const {
   auto target = std::string(req.target());
   auto method = std::string(req.method_string());
 
   // Handle CORS preflight
-  if (req.method() == http::verb::options)
-  {
+  if (req.method() == http::verb::options) {
     http::response<http::string_body> res{http::status::ok, 11};
     res.set(http::field::server, "ETL Plus Backend");
     res.set(http::field::access_control_allow_origin, "*");
     res.set(http::field::access_control_allow_methods, "GET, OPTIONS");
-    res.set(http::field::access_control_allow_headers, "Content-Type, Authorization");
+    res.set(http::field::access_control_allow_headers,
+            "Content-Type, Authorization");
     res.set(http::field::access_control_expose_headers,
-            "X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After");
+            "X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, "
+            "Retry-After");
     res.keep_alive(false);
     res.prepare_payload();
     return res;
   }
 
   // Validate allowed methods for monitoring endpoints
-  if (!InputValidator::isValidHttpMethod(method, {"GET"}))
-  {
-    throw etl::ValidationException(
-        etl::ErrorCode::INVALID_INPUT,
-        "Method not allowed for monitoring endpoint",
-        "method",
-        method);
+  if (!InputValidator::isValidHttpMethod(method, {"GET"})) {
+    throw etl::ValidationException(etl::ErrorCode::INVALID_INPUT,
+                                   "Method not allowed for monitoring endpoint",
+                                   "method", method);
   }
 
   // Handle GET /api/monitor/jobs - filtered job monitoring
-  if (req.method() == http::verb::get && target.find("/api/monitor/jobs") == 0)
-  {
-    auto queryParams = extractQueryParams(std::string_view(target.data(), target.size()));
+  if (req.method() == http::verb::get &&
+      target.find("/api/monitor/jobs") == 0) {
+    auto queryParams =
+        extractQueryParams(std::string_view(target.data(), target.size()));
 
     // Convert to standard unordered_map for InputValidator
     std::unordered_map<std::string, std::string> standardParams;
-    for (const auto &[key, value] : queryParams)
-    {
+    for (const auto &[key, value] : queryParams) {
       standardParams[key] = value;
     }
 
-    if (auto queryValidation = InputValidator::validateMonitoringParams(standardParams); !queryValidation.isValid)
-    {
-      REQ_LOG_WARN("RequestHandler::handleMonitoring() - Jobs query validation failed");
-      throw etl::ValidationException(
-          etl::ErrorCode::INVALID_INPUT,
-          "Query parameter validation failed",
-          "query",
-          std::string(req.target()));
+    if (auto queryValidation =
+            InputValidator::validateMonitoringParams(standardParams);
+        !queryValidation.isValid) {
+      REQ_LOG_WARN(
+          "RequestHandler::handleMonitoring() - Jobs query validation failed");
+      throw etl::ValidationException(etl::ErrorCode::INVALID_INPUT,
+                                     "Query parameter validation failed",
+                                     "query", std::string(req.target()));
     }
 
     // Get all jobs from ETL manager
@@ -1179,31 +1198,24 @@ RequestHandler::handleMonitoring(const http::request<http::string_body> &req) co
     std::vector<std::shared_ptr<ETLJob>> filteredJobs;
 
     // Filter by status if specified
-    if (auto statusIt = queryParams.find("status"); statusIt != queryParams.end())
-    {
+    if (auto statusIt = queryParams.find("status");
+        statusIt != queryParams.end()) {
       JobStatus filterStatus = stringToJobStatus(statusIt->second);
-      for (const auto &job : allJobs)
-      {
-        if (job->status == filterStatus)
-        {
+      for (const auto &job : allJobs) {
+        if (job->status == filterStatus) {
           filteredJobs.push_back(job);
         }
       }
-    }
-    else
-    {
+    } else {
       filteredJobs = allJobs;
     }
 
     // Filter by job type if specified
-    if (auto typeIt = queryParams.find("type"); typeIt != queryParams.end())
-    {
+    if (auto typeIt = queryParams.find("type"); typeIt != queryParams.end()) {
       JobType filterType = stringToJobType(typeIt->second);
       std::vector<std::shared_ptr<ETLJob>> typeFiltered;
-      for (const auto &job : filteredJobs)
-      {
-        if (job->type == filterType)
-        {
+      for (const auto &job : filteredJobs) {
+        if (job->type == filterType) {
           typeFiltered.push_back(job);
         }
       }
@@ -1213,26 +1225,23 @@ RequestHandler::handleMonitoring(const http::request<http::string_body> &req) co
     // Filter by date range if specified
     auto fromIt = queryParams.find("from");
     auto toIt = queryParams.find("to");
-    if (fromIt != queryParams.end() || toIt != queryParams.end())
-    {
+    if (fromIt != queryParams.end() || toIt != queryParams.end()) {
       std::vector<std::shared_ptr<ETLJob>> dateFiltered;
 
-      std::chrono::system_clock::time_point fromTime = std::chrono::system_clock::time_point::min();
-      std::chrono::system_clock::time_point toTime = std::chrono::system_clock::time_point::max();
+      std::chrono::system_clock::time_point fromTime =
+          std::chrono::system_clock::time_point::min();
+      std::chrono::system_clock::time_point toTime =
+          std::chrono::system_clock::time_point::max();
 
-      if (fromIt != queryParams.end())
-      {
+      if (fromIt != queryParams.end()) {
         fromTime = parseTimestamp(fromIt->second);
       }
-      if (toIt != queryParams.end())
-      {
+      if (toIt != queryParams.end()) {
         toTime = parseTimestamp(toIt->second);
       }
 
-      for (const auto &job : filteredJobs)
-      {
-        if (job->createdAt >= fromTime && job->createdAt <= toTime)
-        {
+      for (const auto &job : filteredJobs) {
+        if (job->createdAt >= fromTime && job->createdAt <= toTime) {
           dateFiltered.push_back(job);
         }
       }
@@ -1240,70 +1249,65 @@ RequestHandler::handleMonitoring(const http::request<http::string_body> &req) co
     }
 
     // Apply limit if specified
-    if (auto limitIt = queryParams.find("limit"); limitIt != queryParams.end())
-    {
-      try
-      {
+    if (auto limitIt = queryParams.find("limit");
+        limitIt != queryParams.end()) {
+      try {
         size_t limit = std::stoull(limitIt->second);
-        if (filteredJobs.size() > limit)
-        {
+        if (filteredJobs.size() > limit) {
           filteredJobs.resize(limit);
         }
-      }
-      catch (const std::invalid_argument &)
-      {
-        throw etl::ValidationException(
-            etl::ErrorCode::INVALID_RANGE,
-            "Invalid limit parameter",
-            "limit",
-            limitIt->second);
-      }
-      catch (const std::out_of_range &)
-      {
-        throw etl::ValidationException(
-            etl::ErrorCode::INVALID_RANGE,
-            "Invalid limit parameter",
-            "limit",
-            limitIt->second);
+      } catch (const std::invalid_argument &) {
+        throw etl::ValidationException(etl::ErrorCode::INVALID_RANGE,
+                                       "Invalid limit parameter", "limit",
+                                       limitIt->second);
+      } catch (const std::out_of_range &) {
+        throw etl::ValidationException(etl::ErrorCode::INVALID_RANGE,
+                                       "Invalid limit parameter", "limit",
+                                       limitIt->second);
       }
     }
 
     // Build JSON response
     std::ostringstream json;
     json << "{\"jobs\":[";
-    for (size_t i = 0; i < filteredJobs.size(); ++i)
-    {
+    for (size_t i = 0; i < filteredJobs.size(); ++i) {
       if (i > 0)
         json << ",";
 
       const auto &job = filteredJobs[i];
 
       // Calculate execution time
-      auto executionTime = std::chrono::duration_cast<std::chrono::milliseconds>(
-          job->status == JobStatus::RUNNING ? std::chrono::system_clock::now() - job->startedAt : job->completedAt - job->startedAt);
+      auto executionTime =
+          std::chrono::duration_cast<std::chrono::milliseconds>(
+              job->status == JobStatus::RUNNING
+                  ? std::chrono::system_clock::now() - job->startedAt
+                  : job->completedAt - job->startedAt);
 
       double processingRate = 0.0;
-      if (executionTime.count() > 0)
-      {
-        processingRate = (double)job->recordsProcessed / (executionTime.count() / 1000.0);
+      if (executionTime.count() > 0) {
+        processingRate =
+            (double)job->recordsProcessed / (executionTime.count() / 1000.0);
       }
 
       json << "{"
            << "\"jobId\":\"" << job->jobId << "\","
            << "\"type\":\"" << jobTypeToString(job->type) << "\","
            << "\"status\":\"" << jobStatusToString(job->status) << "\","
-           << "\"createdAt\":\"" << this->formatTimestamp(job->createdAt) << "\","
-           << "\"startedAt\":\"" << this->formatTimestamp(job->startedAt) << "\","
-           << "\"completedAt\":\"" << this->formatTimestamp(job->completedAt) << "\","
+           << "\"createdAt\":\"" << this->formatTimestamp(job->createdAt)
+           << "\","
+           << "\"startedAt\":\"" << this->formatTimestamp(job->startedAt)
+           << "\","
+           << "\"completedAt\":\"" << this->formatTimestamp(job->completedAt)
+           << "\","
            << "\"recordsProcessed\":" << job->recordsProcessed << ","
            << "\"recordsSuccessful\":" << job->recordsSuccessful << ","
            << "\"recordsFailed\":" << job->recordsFailed << ","
            << "\"processingRate\":" << processingRate << ","
            << "\"executionTimeMs\":" << executionTime.count();
 
-      if (!job->errorMessage.empty())
-      {
-        json << ",\"errorMessage\":\"" << InputValidator::sanitizeString(job->errorMessage) << "\"";
+      if (!job->errorMessage.empty()) {
+        json << ",\"errorMessage\":\""
+             << InputValidator::sanitizeString(job->errorMessage) << "\"";
       }
 
       json << "}";
@@ -1313,94 +1317,84 @@ RequestHandler::handleMonitoring(const http::request<http::string_body> &req) co
     return createSuccessResponse(json.str(), req.version());
   }
 
-  if (req.method() == http::verb::get && target == "/api/monitor/status")
-  {
+  if (req.method() == http::verb::get && target == "/api/monitor/status") {
     // Use safe JSON construction to avoid string concatenation issues
     nlohmann::json statusJson = {
         {"server_status", "running"},
         {"db_connected", dbManager_ && dbManager_->isConnected()},
-        {"etl_manager_running", etlManager_ && etlManager_->isRunning()}
-    };
+        {"etl_manager_running", etlManager_ && etlManager_->isRunning()}};
 
     return createSuccessResponse(statusJson.dump(), req.version());
-  }
-  else if (req.method() == http::verb::get &&
-           target == "/api/monitor/metrics")
-  {
+  } else if (req.method() == http::verb::get &&
+             target == "/api/monitor/metrics") {
     // Validate query parameters for metrics
-    auto queryParams = extractQueryParams(std::string_view(target.data(), target.size()));
+    auto queryParams =
+        extractQueryParams(std::string_view(target.data(), target.size()));
 
     // Convert to standard unordered_map for InputValidator
     std::unordered_map<std::string, std::string> standardParams;
-    for (const auto &[key, value] : queryParams)
-    {
+    for (const auto &[key, value] : queryParams) {
       standardParams[key] = value;
     }
 
     if (auto queryValidation =
             InputValidator::validateMetricsParams(standardParams);
-        !queryValidation.isValid)
-    {
+        !queryValidation.isValid) {
       REQ_LOG_WARN("RequestHandler::handleMonitoring() - Metrics query "
                    "validation failed");
-      throw etl::ValidationException(
-          etl::ErrorCode::INVALID_INPUT,
-          "Query parameter validation failed",
-          "query",
-          std::string(req.target()));
+      throw etl::ValidationException(etl::ErrorCode::INVALID_INPUT,
+                                     "Query parameter validation failed",
+                                     "query", std::string(req.target()));
     }
 
-    return createSuccessResponse(R"({"total_jobs":0,"running_jobs":0,"completed_jobs":0,"failed_jobs":0})", req.version());
+    return createSuccessResponse(
+        R"({"total_jobs":0,"running_jobs":0,"completed_jobs":0,"failed_jobs":0})",
+        req.version());
   }
 
-  throw etl::ValidationException(
-      etl::ErrorCode::INVALID_INPUT,
-      "Invalid monitoring endpoint",
-      "target",
-      target);
+  throw etl::ValidationException(etl::ErrorCode::INVALID_INPUT,
+                                 "Invalid monitoring endpoint", "target",
+                                 target);
 }
 
 http::response<http::string_body>
-RequestHandler::createSuccessResponse(std::string_view data, unsigned int version) const
-{
+RequestHandler::createSuccessResponse(std::string_view data,
+                                      unsigned int version) const {
 
   http::response<http::string_body> res{http::status::ok, version};
   res.set(http::field::server, "ETL Plus Backend");
   res.set(http::field::content_type, "application/json");
   res.set(http::field::access_control_allow_origin, "*");
   res.set(http::field::access_control_expose_headers,
-          "X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After");
+          "X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, "
+          "Retry-After");
   res.keep_alive(false);
   res.body() = std::string(data);
   res.prepare_payload();
   return res;
 }
 
-std::string RequestHandler::extractJobIdFromPath(std::string_view target,
-                                                 std::string_view prefix,
-                                                 std::string_view suffix) const
-{
-  if (target.length() <= prefix.length() + suffix.length())
-  {
+std::string
+RequestHandler::extractJobIdFromPath(std::string_view target,
+                                     std::string_view prefix,
+                                     std::string_view suffix) const {
+  if (target.length() <= prefix.length() + suffix.length()) {
     return "";
   }
 
   size_t startPos = prefix.length();
   size_t endPos = target.length() - suffix.length();
 
-  if (startPos >= endPos)
-  {
+  if (startPos >= endPos) {
     return "";
   }
 
   return std::string(target.substr(startPos, endPos - startPos));
 }
 
-std::string RequestHandler::jobStatusToString(JobStatus status) const
-{
+std::string RequestHandler::jobStatusToString(JobStatus status) const {
   using enum JobStatus;
-  switch (status)
-  {
+  switch (status) {
   case PENDING:
     return "pending";
   case RUNNING:
@@ -1416,8 +1410,7 @@ std::string RequestHandler::jobStatusToString(JobStatus status) const
   }
 }
 
-JobStatus RequestHandler::stringToJobStatus(std::string_view statusStr) const
-{
+JobStatus RequestHandler::stringToJobStatus(std::string_view statusStr) const {
   using enum JobStatus;
   if (statusStr == "pending")
     return PENDING;
@@ -1432,11 +1425,9 @@ JobStatus RequestHandler::stringToJobStatus(std::string_view statusStr) const
   return PENDING; // default
 }
 
-std::string RequestHandler::jobTypeToString(JobType type) const
-{
+std::string RequestHandler::jobTypeToString(JobType type) const {
   using enum JobType;
-  switch (type)
-  {
+  switch (type) {
   case EXTRACT:
     return "extract";
   case TRANSFORM:
@@ -1450,8 +1441,7 @@ std::string RequestHandler::jobTypeToString(JobType type) const
   }
 }
 
-JobType RequestHandler::stringToJobType(std::string_view typeStr) const
-{
+JobType RequestHandler::stringToJobType(std::string_view typeStr) const {
   using enum JobType;
   if (typeStr == "extract")
     return EXTRACT;
@@ -1462,8 +1452,8 @@ JobType RequestHandler::stringToJobType(std::string_view typeStr) const
   return FULL_ETL; // default
 }
 
-std::string RequestHandler::formatTimestamp(const std::chrono::system_clock::time_point &timePoint) const
-{
+std::string RequestHandler::formatTimestamp(
+    const std::chrono::system_clock::time_point &timePoint) const {
   auto tt = std::chrono::system_clock::to_time_t(timePoint);
   std::tm tm{};
 #if defined(_WIN32)
@@ -1476,13 +1466,13 @@ std::string RequestHandler::formatTimestamp(const std::chrono::system_clock::tim
   return ss.str();
 }
 
-std::chrono::system_clock::time_point RequestHandler::parseTimestamp(std::string_view timestampStr) const
-{
+std::chrono::system_clock::time_point
+RequestHandler::parseTimestamp(std::string_view timestampStr) const {
   std::tm tm{};
 
   // Try to parse ISO 8601 format: YYYY-MM-DDTHH:MM:SS.sssZ
-  if (std::istringstream ss{std::string(timestampStr)}; ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S"))
-  {
+  if (std::istringstream ss{std::string(timestampStr)};
+      ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S")) {
     // Treat parsed time as UTC
 #if defined(__APPLE__) || defined(__unix__)
     time_t utc = timegm(&tm);
@@ -1496,26 +1486,81 @@ std::chrono::system_clock::time_point RequestHandler::parseTimestamp(std::string
   return std::chrono::system_clock::now();
 }
 
-http::response<http::string_body>
-RequestHandler::handleHealth(const http::request<http::string_body> &req) const
-{
+http::response<http::string_body> RequestHandler::handleHealth(
+    const http::request<http::string_body> &req) const {
   using namespace std::chrono;
 
   const auto target = req.target();
   const auto now = system_clock::now();
   const auto timestamp = duration_cast<seconds>(now.time_since_epoch()).count();
 
-  REQ_LOG_DEBUG("RequestHandler::handleHealth() - Processing health endpoint: " + std::string(target));
+  REQ_LOG_DEBUG(
+      "RequestHandler::handleHealth() - Processing health endpoint: " +
+      std::string(target));
+
+  // Get real system metrics
+  ETLPlus::Metrics::SystemMetrics sysMetrics;
+  sysMetrics.startMonitoring();
+  std::this_thread::sleep_for(
+      std::chrono::milliseconds(100)); // Brief monitoring period
+  double cpuUsage = sysMetrics.getProcessCpuUsage();
+  size_t memoryUsage = sysMetrics.getProcessMemoryUsage();
+  sysMetrics.stopMonitoring();
+
+  // Get database health
+  bool dbConnected = dbManager_ && dbManager_->isConnected();
+  bool dbPoolHealthy = dbManager_ && dbManager_->isPoolHealthy();
+  auto dbMetrics = dbManager_ ? dbManager_->getPoolMetrics()
+                              : DatabaseConnectionPool::PoolMetrics{};
+
+  // Get WebSocket health
+  bool wsRunning = wsManager_ && wsManager_->isRunning();
+  size_t wsConnections = wsManager_ ? wsManager_->getConnectionCount() : 0;
+  auto wsPoolStats =
+      wsManager_ ? wsManager_->getConnectionPoolStats() : ConnectionPoolStats{};
+  auto wsBroadcasterStats = wsManager_
+                                ? wsManager_->getMessageBroadcasterStats()
+                                : MessageBroadcasterStats{};
+
+  // Get ETL job statistics
+  size_t totalJobs = 0;
+  size_t runningJobs = 0;
+  size_t completedJobs = 0;
+  size_t failedJobs = 0;
+  if (etlManager_) {
+    try {
+      auto allJobs = etlManager_->getAllJobs();
+      totalJobs = allJobs.size();
+
+      auto running = etlManager_->getJobsByStatus(JobStatus::RUNNING);
+      runningJobs = running.size();
+
+      auto completed = etlManager_->getJobsByStatus(JobStatus::COMPLETED);
+      completedJobs = completed.size();
+
+      auto failed = etlManager_->getJobsByStatus(JobStatus::FAILED);
+      failedJobs = failed.size();
+    } catch (const std::exception &e) {
+      REQ_LOG_WARN("Failed to get ETL job statistics: " +
+                   std::string(e.what()));
+      // Keep default values of 0
+    }
+  }
 
   // Basic health check
-  if (target == "/api/health" || target == "/api/status")
-  {
-    return createSuccessResponse("{\"status\":\"healthy\",\"timestamp\":\"" + std::to_string(timestamp) + "\"}", req.version());
+  if (target == "/api/health" || target == "/api/status") {
+    std::string status = "healthy";
+    if (!dbConnected || !dbPoolHealthy || !wsRunning) {
+      status = "degraded";
+    }
+    return createSuccessResponse("{\"status\":\"" + status +
+                                     "\",\"timestamp\":\"" +
+                                     std::to_string(timestamp) + "\"}",
+                                 req.version());
   }
 
   // Detailed health endpoints
-  if (target == "/api/health/status")
-  {
+  if (target == "/api/health/status") {
     std::stringstream ss;
     ss << R"({
       "status": "healthy",
@@ -1523,28 +1568,57 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
        << timestamp << R"(",
       "version": "1.0.0",
       "uptime": )"
-       << (timestamp - 1754851364) << R"(
+       << (timestamp - 1754851364) << R"(,
+      "components": {
+        "database": {)"
+       << "\"connected\": " << (dbConnected ? "true" : "false") << R"(,
+          "pool_healthy": )"
+       << (dbPoolHealthy ? "true" : "false") << R"(
+        },
+        "websocket": {)"
+       << "\"running\": " << (wsRunning ? "true" : "false") << R"(,
+          "connections": )"
+       << wsConnections << R"(
+        },
+        "system": {
+          "cpu_usage": )"
+       << cpuUsage << R"(,
+          "memory_usage": )"
+       << memoryUsage << R"(
+        }
+      }
     })";
     std::string healthData = ss.str();
     return createSuccessResponse(healthData, req.version());
   }
 
-  if (target == "/api/health/ready")
-  {
+  if (target == "/api/health/ready") {
+    std::string readinessStatus =
+        (dbConnected && dbPoolHealthy && wsRunning) ? "ready" : "not_ready";
     std::stringstream ss;
     ss << R"({
-      "status": "ready",
+      "status": ")"
+       << readinessStatus << R"(",
       "timestamp": ")"
        << timestamp << R"(",
-      "database": "connected",
-      "websocket": "running"
+      "database": {
+        "connected": )"
+       << (dbConnected ? "true" : "false") << R"(,
+        "pool_healthy": )"
+       << (dbPoolHealthy ? "true" : "false") << R"(
+      },
+      "websocket": {
+        "running": )"
+       << (wsRunning ? "true" : "false") << R"(,
+        "connections": )"
+       << wsConnections << R"(
+      }
     })";
     std::string readinessData = ss.str();
     return createSuccessResponse(readinessData, req.version());
   }
 
-  if (target == "/api/health/live")
-  {
+  if (target == "/api/health/live") {
     std::stringstream ss;
     ss << R"({
       "status": "alive",
@@ -1552,113 +1626,187 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
        << timestamp << R"(",
       "pid": )"
        << getpid() << R"(,
-      "memory": "OK"
+      "memory": {
+        "used_bytes": )"
+       << memoryUsage << R"(,
+        "cpu_percent": )"
+       << cpuUsage << R"(
+      }
     })";
     std::string livenessData = ss.str();
     return createSuccessResponse(livenessData, req.version());
   }
 
-  if (target == "/api/health/metrics")
-  {
+  if (target == "/api/health/metrics") {
     std::stringstream ss;
     ss << R"({
       "status": "healthy",
       "timestamp": ")"
        << timestamp << R"(",
       "metrics": {
-        "cpu_usage": "12.5%",
-        "memory_usage": "45.2%",
-        "disk_usage": "23.1%",
-        "active_connections": 1,
-        "requests_per_minute": 15
+        "cpu_usage": )"
+       << cpuUsage << R"(,
+        "memory_usage": )"
+       << memoryUsage << R"(,
+        "database": {
+          "connections_active": )"
+       << dbMetrics.activeConnections << R"(,
+          "connections_idle": )"
+       << dbMetrics.idleConnections << R"(,
+          "connection_timeouts": )"
+       << dbMetrics.connectionTimeouts << R"(
+        },
+        "websocket": {
+          "connections": )"
+       << wsConnections << R"(,
+          "messages_sent": )"
+       << wsBroadcasterStats.totalMessagesSent << R"(,
+          "messages_queued": )"
+       << wsBroadcasterStats.totalMessagesQueued << R"(
+        },
+        "jobs": {
+          "total": )"
+       << totalJobs << R"(,
+          "running": )"
+       << runningJobs << R"(,
+          "completed": )"
+       << completedJobs << R"(,
+          "failed": )"
+       << failedJobs << R"(
+        }
       }
     })";
     std::string metricsData = ss.str();
     return createSuccessResponse(metricsData, req.version());
   }
 
-  if (target == "/api/health/database")
-  {
+  if (target == "/api/health/database") {
     std::stringstream ss;
     ss << R"({
-      "status": "healthy",
+      "status": ")"
+       << (dbConnected ? "healthy" : "unhealthy") << R"(",
       "timestamp": ")"
        << timestamp << R"(",
       "database": {
-        "connection": "active",
-        "response_time": "5ms",
-        "pool_size": 10,
-        "active_connections": 3
+        "connected": )"
+       << (dbConnected ? "true" : "false") << R"(,
+        "pool_healthy": )"
+       << (dbPoolHealthy ? "true" : "false") << R"(,
+        "active_connections": )"
+       << dbMetrics.activeConnections << R"(,
+        "idle_connections": )"
+       << dbMetrics.idleConnections << R"(,
+        "total_connections": )"
+       << dbMetrics.totalConnections << R"(,
+        "connection_timeouts": )"
+       << dbMetrics.connectionTimeouts << R"(,
+        "average_wait_time_ms": )"
+       << dbMetrics.averageWaitTimeMs << R"(
       }
     })";
     std::string dbHealthData = ss.str();
     return createSuccessResponse(dbHealthData, req.version());
   }
 
-  if (target == "/api/health/websocket")
-  {
+  if (target == "/api/health/websocket") {
     std::stringstream ss;
     ss << R"({
-      "status": "healthy",
+      "status": ")"
+       << (wsRunning ? "healthy" : "unhealthy") << R"(",
       "timestamp": ")"
        << timestamp << R"(",
       "websocket": {
-        "server": "running",
-        "connections": 0,
-        "message_queue": "empty"
+        "running": )"
+       << (wsRunning ? "true" : "false") << R"(,
+        "connections": )"
+       << wsConnections << R"(,
+        "pool_size": )"
+       << wsPoolStats.totalConnections << R"(,
+        "active_sessions": )"
+       << wsPoolStats.activeConnections << R"(,
+        "messages_sent": )"
+       << wsBroadcasterStats.totalMessagesSent << R"(,
+        "messages_queued": )"
+       << wsBroadcasterStats.totalMessagesQueued << R"(,
+        "broadcast_errors": )"
+       << wsBroadcasterStats.totalMessagesDropped << R"(
       }
     })";
     std::string wsHealthData = ss.str();
     return createSuccessResponse(wsHealthData, req.version());
   }
 
-  if (target == "/api/health/memory")
-  {
+  if (target == "/api/health/memory") {
+    // Get system memory info
+    size_t systemMemory = sysMetrics.getCurrentMemoryUsage();
+    double systemMemoryPercent =
+        sysMetrics.getCurrentCpuUsage(); // Note: This is actually CPU, but
+                                         // we'll use it as placeholder
+
     std::stringstream ss;
     ss << R"({
       "status": "healthy",
       "timestamp": ")"
        << timestamp << R"(",
       "memory": {
-        "used": "45.2MB",
-        "available": "512MB",
-        "percentage": "8.8%"
+        "process_used_bytes": )"
+       << memoryUsage << R"(,
+        "system_used_bytes": )"
+       << systemMemory << R"(,
+        "system_cpu_percent": )"
+       << systemMemoryPercent << R"(,
+        "process_cpu_percent": )"
+       << cpuUsage << R"(
       }
     })";
     std::string memoryData = ss.str();
     return createSuccessResponse(memoryData, req.version());
   }
 
-  if (target == "/api/health/system")
-  {
+  if (target == "/api/health/system") {
+    // Get system information
+    double systemCpu = sysMetrics.getCurrentCpuUsage();
+    size_t systemMemory = sysMetrics.getCurrentMemoryUsage();
+
     std::stringstream ss;
     ss << R"({
       "status": "healthy",
       "timestamp": ")"
        << timestamp << R"(",
       "system": {
-        "cpu_cores": 8,
-        "load_average": "0.75",
-        "disk_space": "2.1TB available"
+        "cpu_usage_percent": )"
+       << systemCpu << R"(,
+        "memory_used_bytes": )"
+       << systemMemory << R"(,
+        "process_memory_bytes": )"
+       << memoryUsage << R"(,
+        "uptime_seconds": )"
+       << (timestamp - 1754851364) << R"(,
+        "process_id": )"
+       << getpid() << R"(
       }
     })";
     std::string systemData = ss.str();
     return createSuccessResponse(systemData, req.version());
   }
 
-  if (target == "/api/health/jobs")
-  {
-    // Get job stats from ETL manager if available
+  if (target == "/api/health/jobs") {
     std::stringstream ss;
     ss << R"({
       "status": "healthy",
       "timestamp": ")"
        << timestamp << R"(",
       "jobs": {
-        "total": 0,
-        "running": 0,
-        "completed": 0,
-        "failed": 0
+        "total": )"
+       << totalJobs << R"(,
+        "running": )"
+       << runningJobs << R"(,
+        "completed": )"
+       << completedJobs << R"(,
+        "failed": )"
+       << failedJobs << R"(,
+        "etl_manager_available": )"
+       << (etlManager_ ? "true" : "false") << R"(
       }
     })";
     std::string jobsData = ss.str();
@@ -1666,55 +1814,78 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
   }
 
   // Handle parameterized health endpoint
-  if (target.find("/api/health?") == 0)
-  {
-    auto queryParams = extractQueryParams(std::string_view(target.data(), target.size()));
+  if (target.find("/api/health?") == 0) {
+    auto queryParams =
+        extractQueryParams(std::string_view(target.data(), target.size()));
     std::string format = "json";
     bool detailed = false;
 
     auto formatIt = queryParams.find("format");
-    if (formatIt != queryParams.end())
-    {
+    if (formatIt != queryParams.end()) {
       format = formatIt->second;
     }
 
     auto detailedIt = queryParams.find("detailed");
-    if (detailedIt != queryParams.end())
-    {
+    if (detailedIt != queryParams.end()) {
       detailed = (detailedIt->second == "true");
     }
 
-    if (format != "json" && format != "text")
-    {
+    if (format != "json" && format != "text") {
       throw etl::ValidationException(
           etl::ErrorCode::INVALID_INPUT,
-          "Invalid format parameter. Supported: json, text",
-          "format", format);
+          "Invalid format parameter. Supported: json, text", "format", format);
     }
 
     std::string healthData;
-    if (detailed)
-    {
+    if (detailed) {
       std::stringstream ss;
       ss << R"({
-        "status": "healthy",
+        "status": ")"
+         << ((dbConnected && dbPoolHealthy && wsRunning) ? "healthy"
+                                                         : "degraded")
+         << R"(",
         "timestamp": ")"
          << timestamp << R"(",
         "detailed": {
           "version": "1.0.0",
           "uptime": )"
          << (timestamp - 1754851364) << R"(,
-          "database": "connected",
-          "websocket": "running",
-          "memory_usage": "45.2%",
-          "cpu_usage": "12.5%"
+          "database": {
+            "connected": )"
+         << (dbConnected ? "true" : "false") << R"(,
+            "pool_healthy": )"
+         << (dbPoolHealthy ? "true" : "false") << R"(,
+            "active_connections": )"
+         << dbMetrics.activeConnections << R"(
+          },
+          "websocket": {
+            "running": )"
+         << (wsRunning ? "true" : "false") << R"(,
+            "connections": )"
+         << wsConnections << R"(
+          },
+          "system": {
+            "cpu_usage": )"
+         << cpuUsage << R"(,
+            "memory_usage": )"
+         << memoryUsage << R"(,
+            "process_id": )"
+         << getpid() << R"(
+          },
+          "jobs": {
+            "total": )"
+         << totalJobs << R"(,
+            "running": )"
+         << runningJobs << R"(
+          }
         }
       })";
       healthData = ss.str();
-    }
-    else
-    {
-      healthData = "{\"status\":\"healthy\",\"timestamp\":\"" + std::to_string(timestamp) + "\"}";
+    } else {
+      std::string status =
+          (dbConnected && dbPoolHealthy && wsRunning) ? "healthy" : "degraded";
+      healthData = "{\"status\":\"" + status + "\",\"timestamp\":\"" +
+                   std::to_string(timestamp) + "\"}";
     }
 
     return createSuccessResponse(healthData, req.version());
@@ -1723,8 +1894,7 @@ RequestHandler::handleHealth(const http::request<http::string_body> &req) const
   // Unknown health endpoint
   throw etl::SystemException(
       etl::ErrorCode::NETWORK_ERROR,
-      "Health endpoint not found: " + std::string(target),
-      "RequestHandler");
+      "Health endpoint not found: " + std::string(target), "RequestHandler");
 }
 
 // Explicit template instantiation

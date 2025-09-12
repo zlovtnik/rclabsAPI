@@ -1,5 +1,7 @@
 # 🚀 ETL Plus CI/CD Documentation
 
+Welcome to the ETL Plus CI/CD documentation!
+
 This directory contains the GitHub Actions workflows for the ETL Plus project, providing comprehensive CI/CD capabilities.
 
 ## 🎯 Workflows Overview

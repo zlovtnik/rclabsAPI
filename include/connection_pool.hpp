@@ -68,6 +68,9 @@ public:
   void stop();
   bool isRunning() const { return running_.load(); }
 
+  // IO context setup for timers
+  void setIoContext(net::io_context &ioContext);
+
   // Connection management
   void addConnection(std::shared_ptr<WebSocketConnection> connection);
   void removeConnection(const std::string &connectionId);

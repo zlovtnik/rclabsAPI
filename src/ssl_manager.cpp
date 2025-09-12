@@ -5,23 +5,22 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <openssl/x509.h>
-#include <openssl/pem.h>
-#include <openssl/bio.h>
-#include <openssl/err.h>
-#include <openssl/rsa.h>
-#include <openssl/evp.h>
-#include <openssl/ssl.h>
-#include <sstream>
 #include <limits>
 #include <logger.hpp>
+#include <openssl/bio.h>
+#include <openssl/err.h>
+#include <openssl/evp.h>
+#include <openssl/pem.h>
+#include <openssl/rsa.h>
+#include <openssl/ssl.h>
+#include <openssl/x509.h>
+#include <sstream>
 #include <sys/stat.h>
 
 namespace ETLPlus::SSL {
 
 SSLManager::SSLManager(const SSLConfig &config)
-    : config_(config), sslContext_(boost::asio::ssl::context::tlsv12_server) {
-}
+    : config_(config), sslContext_(boost::asio::ssl::context::tlsv12_server) {}
 
 SSLManager::SSLResult SSLManager::initialize() {
   SSLResult result;
@@ -71,9 +70,7 @@ SSLManager::SSLResult SSLManager::initialize() {
   }
 }
 
-boost::asio::ssl::context &SSLManager::getSSLContext() {
-  return sslContext_;
-}
+boost::asio::ssl::context &SSLManager::getSSLContext() { return sslContext_; }
 
 SSLManager::SSLResult SSLManager::loadCertificates() {
   SSLResult result;
@@ -92,7 +89,7 @@ SSLManager::SSLResult SSLManager::loadCertificates() {
 
     // Check certificate permissions
     auto permResult = checkCertificatePermissions(config_.certificatePath,
-                                                 config_.privateKeyPath);
+                                                  config_.privateKeyPath);
     if (!permResult.success) {
       return permResult;
     }
@@ -102,14 +99,15 @@ SSLManager::SSLResult SSLManager::loadCertificates() {
 
     // Load private key
     sslContext_.use_private_key_file(config_.privateKeyPath,
-                                    boost::asio::ssl::context::pem);
+                                     boost::asio::ssl::context::pem);
 
     // Load CA certificate if specified
     if (!config_.caCertificatePath.empty()) {
       if (std::filesystem::exists(config_.caCertificatePath)) {
         sslContext_.load_verify_file(config_.caCertificatePath);
       } else {
-        result.addWarning("CA certificate file not found: " + config_.caCertificatePath);
+        result.addWarning("CA certificate file not found: " +
+                          config_.caCertificatePath);
       }
     }
 
@@ -150,7 +148,7 @@ SSLManager::SSLResult SSLManager::validateConfiguration() {
   for (const auto &version : insecureVersions) {
     if (config_.minimumTLSVersion == version) {
       result.setError("Insecure TLS version not allowed: " + version +
-                     " - use TLSv1.2 or TLSv1.3 for security");
+                      " - use TLSv1.2 or TLSv1.3 for security");
       return result;
     }
   }
@@ -166,13 +164,14 @@ SSLManager::SSLResult SSLManager::validateConfiguration() {
 
   if (!validVersion) {
     result.setError("Invalid TLS version: " + config_.minimumTLSVersion +
-                   " - supported versions are TLSv1.2 and TLSv1.3");
+                    " - supported versions are TLSv1.2 and TLSv1.3");
   }
 
   return result;
 }
 
-SSLManager::SSLResult SSLManager::generateSelfSignedCertificate(const std::string &outputDir) {
+SSLManager::SSLResult
+SSLManager::generateSelfSignedCertificate(const std::string &outputDir) {
   SSLResult result;
 
   try {
@@ -191,7 +190,8 @@ SSLManager::SSLResult SSLManager::generateSelfSignedCertificate(const std::strin
     std::string certPathStr = certPath.string();
     std::string keyPathStr = keyPath.string();
 
-    Logger::getInstance().info("SSLManager", "Generating self-signed certificate in: " + outputDir);
+    Logger::getInstance().info(
+        "SSLManager", "Generating self-signed certificate in: " + outputDir);
 
     // Declare ALL variables at the beginning to avoid goto issues
     EVP_PKEY *pkey = nullptr;
@@ -207,7 +207,8 @@ SSLManager::SSLResult SSLManager::generateSelfSignedCertificate(const std::strin
     // Create EVP_PKEY context for RSA key generation
     ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
     if (!ctx) {
-      result.setError("Failed to create EVP_PKEY context for RSA key generation");
+      result.setError(
+          "Failed to create EVP_PKEY context for RSA key generation");
       goto cleanup;
     }
 
@@ -228,7 +229,8 @@ SSLManager::SSLResult SSLManager::generateSelfSignedCertificate(const std::strin
       goto cleanup;
     }
 
-    Logger::getInstance().info("SSLManager", "RSA key pair generated successfully");
+    Logger::getInstance().info("SSLManager",
+                               "RSA key pair generated successfully");
 
     // Create X.509 certificate
     x509 = X509_new();
@@ -258,11 +260,16 @@ SSLManager::SSLResult SSLManager::generateSelfSignedCertificate(const std::strin
 
     // Set certificate subject
     name = X509_get_subject_name(x509);
-    X509_NAME_add_entry_by_txt(name, "C", MBSTRING_ASC, (unsigned char*)"US", -1, -1, 0);
-    X509_NAME_add_entry_by_txt(name, "ST", MBSTRING_ASC, (unsigned char*)"State", -1, -1, 0);
-    X509_NAME_add_entry_by_txt(name, "L", MBSTRING_ASC, (unsigned char*)"City", -1, -1, 0);
-    X509_NAME_add_entry_by_txt(name, "O", MBSTRING_ASC, (unsigned char*)"Organization", -1, -1, 0);
-    X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, (unsigned char*)"localhost", -1, -1, 0);
+    X509_NAME_add_entry_by_txt(name, "C", MBSTRING_ASC, (unsigned char *)"US",
+                               -1, -1, 0);
+    X509_NAME_add_entry_by_txt(name, "ST", MBSTRING_ASC,
+                               (unsigned char *)"State", -1, -1, 0);
+    X509_NAME_add_entry_by_txt(name, "L", MBSTRING_ASC, (unsigned char *)"City",
+                               -1, -1, 0);
+    X509_NAME_add_entry_by_txt(name, "O", MBSTRING_ASC,
+                               (unsigned char *)"Organization", -1, -1, 0);
+    X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
+                               (unsigned char *)"localhost", -1, -1, 0);
 
     // Set issuer (self-signed)
     X509_set_issuer_name(x509, name);
@@ -273,12 +280,14 @@ SSLManager::SSLResult SSLManager::generateSelfSignedCertificate(const std::strin
       goto cleanup;
     }
 
-    Logger::getInstance().info("SSLManager", "X.509 certificate created and signed successfully");
+    Logger::getInstance().info(
+        "SSLManager", "X.509 certificate created and signed successfully");
 
     // Write private key to file with secure permissions
     keyFile = fopen(keyPathStr.c_str(), "wb");
     if (!keyFile) {
-      result.setError("Failed to open private key file for writing: " + keyPathStr);
+      result.setError("Failed to open private key file for writing: " +
+                      keyPathStr);
       goto cleanup;
     }
 
@@ -294,17 +303,20 @@ SSLManager::SSLResult SSLManager::generateSelfSignedCertificate(const std::strin
       goto cleanup;
     }
 
-    if (PEM_write_bio_PrivateKey(keyBio, pkey, nullptr, nullptr, 0, nullptr, nullptr) != 1) {
+    if (PEM_write_bio_PrivateKey(keyBio, pkey, nullptr, nullptr, 0, nullptr,
+                                 nullptr) != 1) {
       result.setError("Failed to write private key to file");
       goto cleanup;
     }
 
-    Logger::getInstance().info("SSLManager", "Private key written to: " + keyPathStr);
+    Logger::getInstance().info("SSLManager",
+                               "Private key written to: " + keyPathStr);
 
     // Write certificate to file
     certFile = fopen(certPathStr.c_str(), "wb");
     if (!certFile) {
-      result.setError("Failed to open certificate file for writing: " + certPathStr);
+      result.setError("Failed to open certificate file for writing: " +
+                      certPathStr);
       goto cleanup;
     }
 
@@ -319,30 +331,42 @@ SSLManager::SSLResult SSLManager::generateSelfSignedCertificate(const std::strin
       goto cleanup;
     }
 
-    Logger::getInstance().info("SSLManager", "Certificate written to: " + certPathStr);
+    Logger::getInstance().info("SSLManager",
+                               "Certificate written to: " + certPathStr);
 
     result.addWarning("Generated self-signed certificate for development only");
     result.addWarning("Use proper CA-signed certificates in production");
 
-    Logger::getInstance().info("SSLManager", "Self-signed certificate generation completed successfully");
+    Logger::getInstance().info(
+        "SSLManager",
+        "Self-signed certificate generation completed successfully");
 
-cleanup:
+  cleanup:
     // Clean up resources
-    if (certBio) BIO_free(certBio);
-    if (keyBio) BIO_free(keyBio);
-    if (certFile) fclose(certFile);
-    if (keyFile) fclose(keyFile);
-    if (x509) X509_free(x509);
-    if (ctx) EVP_PKEY_CTX_free(ctx);
-    if (pkey) EVP_PKEY_free(pkey);
+    if (certBio)
+      BIO_free(certBio);
+    if (keyBio)
+      BIO_free(keyBio);
+    if (certFile)
+      fclose(certFile);
+    if (keyFile)
+      fclose(keyFile);
+    if (x509)
+      X509_free(x509);
+    if (ctx)
+      EVP_PKEY_CTX_free(ctx);
+    if (pkey)
+      EVP_PKEY_free(pkey);
 
     return result;
 
   } catch (const std::filesystem::filesystem_error &e) {
-    result.setError("Filesystem error during certificate generation: " + std::string(e.what()));
+    result.setError("Filesystem error during certificate generation: " +
+                    std::string(e.what()));
     return result;
   } catch (const std::exception &e) {
-    result.setError("Failed to generate self-signed certificate: " + std::string(e.what()));
+    result.setError("Failed to generate self-signed certificate: " +
+                    std::string(e.what()));
     return result;
   }
 }
@@ -352,11 +376,11 @@ std::unordered_map<std::string, std::string> SSLManager::getSecurityHeaders() {
 
   if (config_.enableHSTS) {
     std::string hstsValue = "max-age=" + config_.hstsMaxAge;
-    
+
     if (config_.hstsIncludeSubDomains) {
       hstsValue += "; includeSubDomains";
     }
-    
+
     if (config_.hstsPreload) {
       // Safely parse HSTS max-age with validation
       long long maxAge = 0;
@@ -369,30 +393,42 @@ std::unordered_map<std::string, std::string> SSLManager::getSecurityHeaders() {
 
         // Validate that the entire string was consumed
         if (pos != config_.hstsMaxAge.length()) {
-          Logger::getInstance().warn("SSLManager", "Invalid HSTS max-age format: '" + config_.hstsMaxAge + "' - contains non-numeric characters");
+          Logger::getInstance().warn("SSLManager",
+                                     "Invalid HSTS max-age format: '" +
+                                         config_.hstsMaxAge +
+                                         "' - contains non-numeric characters");
         } else if (maxAge < 0) {
-          Logger::getInstance().warn("SSLManager", "Invalid HSTS max-age: '" + config_.hstsMaxAge + "' - negative values not allowed");
+          Logger::getInstance().warn(
+              "SSLManager", "Invalid HSTS max-age: '" + config_.hstsMaxAge +
+                                "' - negative values not allowed");
         } else if (maxAge > std::numeric_limits<long>::max()) {
-          Logger::getInstance().warn("SSLManager", "HSTS max-age too large: '" + config_.hstsMaxAge + "' - clamping to maximum safe value");
+          Logger::getInstance().warn(
+              "SSLManager", "HSTS max-age too large: '" + config_.hstsMaxAge +
+                                "' - clamping to maximum safe value");
           maxAge = std::numeric_limits<long>::max();
           parseSuccess = true;
         } else {
           parseSuccess = true;
         }
-      } catch (const std::invalid_argument& e) {
-        Logger::getInstance().warn("SSLManager", "Invalid HSTS max-age format: '" + config_.hstsMaxAge + "' - not a valid number");
-      } catch (const std::out_of_range& e) {
-        Logger::getInstance().warn("SSLManager", "HSTS max-age out of range: '" + config_.hstsMaxAge + "' - using default value");
+      } catch (const std::invalid_argument &e) {
+        Logger::getInstance().warn(
+            "SSLManager", "Invalid HSTS max-age format: '" +
+                              config_.hstsMaxAge + "' - not a valid number");
+      } catch (const std::out_of_range &e) {
+        Logger::getInstance().warn(
+            "SSLManager", "HSTS max-age out of range: '" + config_.hstsMaxAge +
+                              "' - using default value");
       }
 
       // Only add preload if parsing succeeded and requirements are met
       if (parseSuccess && maxAge >= 31536000 && config_.hstsIncludeSubDomains) {
         hstsValue += "; preload";
       } else if (!parseSuccess) {
-        Logger::getInstance().warn("SSLManager", "Skipping HSTS preload due to invalid max-age value");
+        Logger::getInstance().warn(
+            "SSLManager", "Skipping HSTS preload due to invalid max-age value");
       }
     }
-    
+
     headers["Strict-Transport-Security"] = hstsValue;
   }
 
@@ -417,7 +453,8 @@ std::unordered_map<std::string, std::string> SSLManager::getCertificateInfo() {
 
   try {
     // Get certificate fingerprint
-    std::string fingerprint = getCertificateFingerprint(config_.certificatePath);
+    std::string fingerprint =
+        getCertificateFingerprint(config_.certificatePath);
     if (!fingerprint.empty()) {
       info["fingerprint"] = fingerprint;
     }
@@ -446,7 +483,7 @@ SSLManager::SSLResult SSLManager::reloadCertificates() {
     // Reload certificates
     sslContext_.use_certificate_chain_file(config_.certificatePath);
     sslContext_.use_private_key_file(config_.privateKeyPath,
-                                    boost::asio::ssl::context::pem);
+                                     boost::asio::ssl::context::pem);
 
     return result;
 
@@ -471,21 +508,24 @@ SSLManager::SSLResult SSLManager::configureTLSVersion() {
       minVersion = TLS1_3_VERSION;
     }
 
-    // Set minimum TLS version on existing context (preserves all other configuration)
-    int ret = SSL_CTX_set_min_proto_version(sslContext_.native_handle(), minVersion);
+    // Set minimum TLS version on existing context (preserves all other
+    // configuration)
+    int ret =
+        SSL_CTX_set_min_proto_version(sslContext_.native_handle(), minVersion);
     if (ret != 1) {
       unsigned long err = ERR_get_error();
       char errBuf[256];
       ERR_error_string_n(err, errBuf, sizeof(errBuf));
-      result.setError("Failed to set minimum TLS version '" + config_.minimumTLSVersion +
-                     "': " + errBuf);
+      result.setError("Failed to set minimum TLS version '" +
+                      config_.minimumTLSVersion + "': " + errBuf);
       return result;
     }
 
     return result;
 
   } catch (const std::exception &e) {
-    result.setError("Failed to configure TLS version: " + std::string(e.what()));
+    result.setError("Failed to configure TLS version: " +
+                    std::string(e.what()));
     return result;
   }
 }
@@ -495,7 +535,8 @@ SSLManager::SSLResult SSLManager::configureCipherSuites() {
 
   try {
     // Configure cipher suites
-    int ret = SSL_CTX_set_cipher_list(sslContext_.native_handle(), config_.cipherSuites.c_str());
+    int ret = SSL_CTX_set_cipher_list(sslContext_.native_handle(),
+                                      config_.cipherSuites.c_str());
 
     if (ret == 0) {
       // Get OpenSSL error details
@@ -503,8 +544,8 @@ SSLManager::SSLResult SSLManager::configureCipherSuites() {
       char errBuf[256];
       ERR_error_string_n(err, errBuf, sizeof(errBuf));
 
-      std::string errorMsg = "Failed to set cipher suites '" + config_.cipherSuites +
-                           "': " + errBuf;
+      std::string errorMsg = "Failed to set cipher suites '" +
+                             config_.cipherSuites + "': " + errBuf;
       std::cerr << "SSL Error: " << errorMsg << std::endl;
 
       result.setError(errorMsg);
@@ -514,7 +555,8 @@ SSLManager::SSLResult SSLManager::configureCipherSuites() {
     return result;
 
   } catch (const std::exception &e) {
-    result.setError("Failed to configure cipher suites: " + std::string(e.what()));
+    result.setError("Failed to configure cipher suites: " +
+                    std::string(e.what()));
     return result;
   }
 }
@@ -524,8 +566,9 @@ SSLManager::SSLResult SSLManager::configureVerification() {
 
   try {
     if (config_.verifyPeer) {
-      sslContext_.set_verify_mode(boost::asio::ssl::verify_peer |
-                                 boost::asio::ssl::verify_fail_if_no_peer_cert);
+      sslContext_.set_verify_mode(
+          boost::asio::ssl::verify_peer |
+          boost::asio::ssl::verify_fail_if_no_peer_cert);
     } else {
       sslContext_.set_verify_mode(boost::asio::ssl::verify_none);
     }
@@ -537,7 +580,8 @@ SSLManager::SSLResult SSLManager::configureVerification() {
     return result;
 
   } catch (const std::exception &e) {
-    result.setError("Failed to configure verification: " + std::string(e.what()));
+    result.setError("Failed to configure verification: " +
+                    std::string(e.what()));
     return result;
   }
 }
@@ -548,24 +592,28 @@ SSLManager::SSLResult SSLManager::configureSessionCaching() {
   try {
     if (config_.enableSessionCaching) {
       SSL_CTX_set_session_cache_mode(sslContext_.native_handle(),
-                                    SSL_SESS_CACHE_SERVER);
+                                     SSL_SESS_CACHE_SERVER);
       SSL_CTX_set_timeout(sslContext_.native_handle(), config_.sessionTimeout);
     } else {
       SSL_CTX_set_session_cache_mode(sslContext_.native_handle(),
-                                    SSL_SESS_CACHE_OFF);
+                                     SSL_SESS_CACHE_OFF);
     }
 
     return result;
 
   } catch (const std::exception &e) {
-    result.setError("Failed to configure session caching: " + std::string(e.what()));
+    result.setError("Failed to configure session caching: " +
+                    std::string(e.what()));
     return result;
   }
 }
 
-boost::asio::ssl::context::method SSLManager::getTLSMethod(const std::string &version) {
-  if (version == "TLSv1.2") return boost::asio::ssl::context::tlsv12;
-  if (version == "TLSv1.3") return boost::asio::ssl::context::tlsv13;
+boost::asio::ssl::context::method
+SSLManager::getTLSMethod(const std::string &version) {
+  if (version == "TLSv1.2")
+    return boost::asio::ssl::context::tlsv12;
+  if (version == "TLSv1.3")
+    return boost::asio::ssl::context::tlsv13;
 
   // Default to TLS 1.3 for maximum security
   return boost::asio::ssl::context::tlsv13;
@@ -574,12 +622,14 @@ boost::asio::ssl::context::method SSLManager::getTLSMethod(const std::string &ve
 std::string SSLManager::getCertificateFingerprint(const std::string &certPath) {
   try {
     FILE *fp = fopen(certPath.c_str(), "r");
-    if (!fp) return "";
+    if (!fp)
+      return "";
 
     X509 *cert = PEM_read_X509(fp, nullptr, nullptr, nullptr);
     fclose(fp);
 
-    if (!cert) return "";
+    if (!cert)
+      return "";
 
     unsigned char buffer[64];
     unsigned int len;
@@ -592,7 +642,8 @@ std::string SSLManager::getCertificateFingerprint(const std::string &certPath) {
 
     std::stringstream ss;
     for (unsigned int i = 0; i < len; ++i) {
-      if (i > 0) ss << ":";
+      if (i > 0)
+        ss << ":";
       ss << std::hex << std::setw(2) << std::setfill('0') << (int)buffer[i];
     }
 
@@ -607,12 +658,14 @@ std::string SSLManager::getCertificateFingerprint(const std::string &certPath) {
 bool SSLManager::validateCertificateDates(const std::string &certPath) const {
   try {
     FILE *fp = fopen(certPath.c_str(), "r");
-    if (!fp) return false;
+    if (!fp)
+      return false;
 
     X509 *cert = PEM_read_X509(fp, nullptr, nullptr, nullptr);
     fclose(fp);
 
-    if (!cert) return false;
+    if (!cert)
+      return false;
 
     // Check if certificate is not yet valid
     if (X509_cmp_current_time(X509_get_notBefore(cert)) > 0) {
@@ -634,31 +687,43 @@ bool SSLManager::validateCertificateDates(const std::string &certPath) const {
   }
 }
 
-SSLManager::SSLResult SSLManager::checkCertificatePermissions(const std::string &certPath,
-                                                             const std::string &keyPath) const {
+SSLManager::SSLResult
+SSLManager::checkCertificatePermissions(const std::string &certPath,
+                                        const std::string &keyPath) const {
   SSLResult result;
 
   try {
     // Check certificate file permissions (should be readable by owner only)
-    std::filesystem::perms certPerms = std::filesystem::status(certPath).permissions();
-    if ((certPerms & (std::filesystem::perms::group_read | std::filesystem::perms::group_write |
-                      std::filesystem::perms::others_read | std::filesystem::perms::others_write)) != std::filesystem::perms::none ||
-        (certPerms & std::filesystem::perms::owner_read) == std::filesystem::perms::none) {
+    std::filesystem::perms certPerms =
+        std::filesystem::status(certPath).permissions();
+    if ((certPerms & (std::filesystem::perms::group_read |
+                      std::filesystem::perms::group_write |
+                      std::filesystem::perms::others_read |
+                      std::filesystem::perms::others_write)) !=
+            std::filesystem::perms::none ||
+        (certPerms & std::filesystem::perms::owner_read) ==
+            std::filesystem::perms::none) {
       result.addWarning("Certificate file permissions are too permissive");
     }
 
     // Check private key file permissions (should be readable by owner only)
-    std::filesystem::perms keyPerms = std::filesystem::status(keyPath).permissions();
-    if ((keyPerms & (std::filesystem::perms::group_read | std::filesystem::perms::group_write |
-                     std::filesystem::perms::others_read | std::filesystem::perms::others_write)) != std::filesystem::perms::none ||
-        (keyPerms & std::filesystem::perms::owner_read) == std::filesystem::perms::none) {
+    std::filesystem::perms keyPerms =
+        std::filesystem::status(keyPath).permissions();
+    if ((keyPerms & (std::filesystem::perms::group_read |
+                     std::filesystem::perms::group_write |
+                     std::filesystem::perms::others_read |
+                     std::filesystem::perms::others_write)) !=
+            std::filesystem::perms::none ||
+        (keyPerms & std::filesystem::perms::owner_read) ==
+            std::filesystem::perms::none) {
       result.addWarning("Private key file permissions are too permissive");
     }
 
     return result;
 
   } catch (const std::exception &e) {
-    result.setError("Failed to check certificate permissions: " + std::string(e.what()));
+    result.setError("Failed to check certificate permissions: " +
+                    std::string(e.what()));
     return result;
   }
 }

@@ -119,7 +119,8 @@ if(NOT JSONCPP_FOUND)
     endif()
 else()
     message(STATUS "Found jsoncpp via pkg-config: ${JSONCPP_LIBRARIES}")
-    if(JSONCPP_LIBRARIES MATCHES "jsoncpp")
+    # Only override for macOS/Homebrew, not for Linux/pkg-config
+    if(JSONCPP_LIBRARIES MATCHES "jsoncpp" AND CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         set(JSONCPP_LIBRARIES "/opt/homebrew/Cellar/jsoncpp/1.9.6/lib/libjsoncpp.dylib")
         message(STATUS "Using jsoncpp library path: ${JSONCPP_LIBRARIES}")
     endif()
@@ -216,6 +217,9 @@ endif()
 # Expose JWT feature flag
 add_compile_definitions(ETL_ENABLE_JWT=$<BOOL:${JWT_CPP_FOUND}>)
 
+# Expose Redis feature flag
+add_compile_definitions(ETL_ENABLE_REDIS=$<BOOL:${HIREDIS_FOUND}>)
+
 # Try to find hiredis (Redis C client library)
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
@@ -284,7 +288,7 @@ set(COMMON_SOURCES
     src/config_manager.cpp
     src/database_manager.cpp
     src/database_connection_pool.cpp
-    src/redis_cache.cpp
+    $<$<BOOL:${HIREDIS_FOUND}>:src/redis_cache.cpp>
     src/cache_manager.cpp
     src/database_schema.cpp
     src/user_repository.cpp

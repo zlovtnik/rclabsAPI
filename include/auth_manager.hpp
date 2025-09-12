@@ -1,7 +1,7 @@
 #pragma once
 
-#include "user.hpp"
 #include "session_model.hpp"
+#include "user.hpp"
 #include <memory>
 #include <optional>
 #include <string>
@@ -23,8 +23,9 @@ public:
   // User management
   bool createUser(const std::string &username, const std::string &email,
                   const std::string &password);
-  bool authenticateUser(std::string_view username) const;
-  bool authenticateUser(std::string_view username, std::string_view password) const;
+  bool userExists(std::string_view username) const;
+  bool authenticateUser(std::string_view username,
+                        std::string_view password) const;
   bool updateUser(const std::string &userId, const User &updatedUser);
   bool deleteUser(const std::string &userId);
   std::shared_ptr<User> getUser(const std::string &userId) const;
@@ -65,6 +66,7 @@ private:
                            std::string_view salt) const;
   std::string generateSalt() const;
   std::string generateSessionId() const;
-  bool verifyPassword(std::string_view password, std::string_view hashedPassword) const;
+  bool verifyPassword(std::string_view password,
+                      std::string_view hashedPassword) const;
   bool constantTimeCompare(std::string_view a, std::string_view b) const;
 };

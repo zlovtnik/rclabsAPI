@@ -27,7 +27,7 @@ public:
 
   // Rule management
   void addTransformationRule(const TransformationRule &rule);
-  void removeTransformationRule(const std::string &ruleId);
+  void removeTransformationRule(const std::string &sourceField);
   void clearRules();
 
   // Data transformation

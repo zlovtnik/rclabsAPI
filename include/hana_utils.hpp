@@ -147,7 +147,7 @@ private:
 
 public:
   template <typename... Args>
-  explicit HanaFactory(Args&&... prototypes)
+  explicit HanaFactory(Args &&...prototypes)
       : prototypes_(std::forward<Args>(prototypes)...) {
     // Compile-time check that all prototype types implement clone()
     (assert_cloneable<Derived>(), ...);
