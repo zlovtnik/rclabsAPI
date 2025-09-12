@@ -26,6 +26,10 @@ namespace ETLPlus::Auth {
  */
 class JWTKeyManager {
 public:
+  JWTKeyManager(const JWTKeyManager&) = delete;
+  JWTKeyManager& operator=(const JWTKeyManager&) = delete;
+  JWTKeyManager(JWTKeyManager&&) = delete;
+  JWTKeyManager& operator=(JWTKeyManager&&) = delete;
   /**
    * @brief JWT algorithm types
    */
@@ -56,8 +60,8 @@ public:
 
     KeyConfig()
         : algorithm(Algorithm::HS256), keyId("default"),
-          rotationInterval(std::chrono::hours(24 * 30)), // 30 days
-          enableRotation(true), issuer("etl-backend") {}
+          rotationInterval(std::chrono::hours(24 * 30)),
+          enableRotation(false), issuer("") {}
   };
 
   /**
