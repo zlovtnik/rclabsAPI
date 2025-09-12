@@ -27,9 +27,9 @@ BLUE = \033[0;34m
 CYAN = \033[0;36m
 NC = \033[0m
 
-.PHONY: all configure compile clean rebuild run help status ninja-info build-info
+.PHONY: all configure compile clean rebuild run help status ninja-info build-info format format-check
 
-all: build-info compile
+all: build-info format compile
 
 help:
 	@echo "ETL Plus Build System"
@@ -41,13 +41,15 @@ help:
 	@echo "  CPU Cores: $(CPU_COUNT)"
 	@echo ""
 	@echo "$(CYAN)Commands:$(NC)"
-	@echo "  make          - Build the project"
-	@echo "  make clean    - Clean build files"
-	@echo "  make rebuild  - Clean and rebuild"
-	@echo "  make run      - Run the application"
-	@echo "  make status   - Show project status"
-	@echo "  make help     - Show this help"
-	@echo "  make ninja-info - Check Ninja availability"
+	@echo "  make              - Build the project (with formatting)"
+	@echo "  make format       - Run clang-format on all source files"
+	@echo "  make format-check - Check if files need formatting"
+	@echo "  make clean        - Clean build files"
+	@echo "  make rebuild      - Clean and rebuild"
+	@echo "  make run          - Run the application"
+	@echo "  make status       - Show project status"
+	@echo "  make help         - Show this help"
+	@echo "  make ninja-info   - Check Ninja availability"
 
 build-info:
 	@echo "$(CYAN)ETL Plus Build System$(NC)"
@@ -56,6 +58,29 @@ build-info:
 		echo "$(GREEN)✓ Ninja detected - using fast parallel builds$(NC)"; \
 	else \
 		echo "$(YELLOW)⚠ Using Make - consider installing Ninja for faster builds$(NC)"; \
+	fi
+
+format:
+	@echo "$(BLUE)Running clang-format on all source files...$(NC)"
+	@if which clang-format > /dev/null 2>&1; then \
+		find . -name "*.cpp" -o -name "*.hpp" | xargs clang-format -i; \
+		echo "$(GREEN)✓ Code formatting complete!$(NC)"; \
+	else \
+		echo "$(YELLOW)⚠ clang-format not found - skipping formatting$(NC)"; \
+		echo "Install with: brew install clang-format (macOS) or apt-get install clang-format (Ubuntu)"; \
+	fi
+
+format-check:
+	@echo "$(BLUE)Checking code formatting...$(NC)"
+	@if which clang-format > /dev/null 2>&1; then \
+		if find . -name "*.cpp" -o -name "*.hpp" | xargs clang-format --dry-run --Werror > /dev/null 2>&1; then \
+			echo "$(GREEN)✓ All files are properly formatted$(NC)"; \
+		else \
+			echo "$(RED)✗ Some files need formatting. Run 'make format' to fix.$(NC)"; \
+			exit 1; \
+		fi; \
+	else \
+		echo "$(YELLOW)⚠ clang-format not found - skipping format check$(NC)"; \
 	fi
 
 ninja-info:
@@ -81,14 +106,14 @@ configure: $(BUILD_DIR)
 		echo "$(YELLOW)✓ Configured for Make build system$(NC)"; \
 	fi
 
-compile: configure
+compile: format configure
 	@echo "$(BLUE)Building $(PROJECT_NAME) with $(BUILD_SYSTEM)...$(NC)"
 	@echo "$(CYAN)Using $(CPU_COUNT) parallel jobs$(NC)"
 	@cd $(BUILD_DIR) && $(BUILD_COMMAND)
 	@echo "$(GREEN)✓ Build complete!$(NC)"
 
 # Fast incremental build (skip configure if already done)
-fast:
+fast: format
 	@if [ ! -f $(BUILD_DIR)/CMakeCache.txt ]; then \
 		echo "$(YELLOW)No previous configuration found, running full configure...$(NC)"; \
 		$(MAKE) configure; \
@@ -105,7 +130,7 @@ clean:
 rebuild: clean compile
 
 # Release build
-release:
+release: format
 	@echo "$(BLUE)Building Release version...$(NC)"
 	@mkdir -p $(BUILD_DIR)
 	@cd $(BUILD_DIR) && cmake $(GENERATOR) -DCMAKE_BUILD_TYPE=Release ..

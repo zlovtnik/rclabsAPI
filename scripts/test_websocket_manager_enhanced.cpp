@@ -70,24 +70,28 @@ private:
     // For unit testing, we're testing the filtering logic directly
 
     // Test job ID filtering
-    bool shouldReceive1 = true; // Would be
-                                // connection->shouldReceiveMessage(MessageType::JOB_STATUS_UPDATE,
-                                // "job_123");
-    bool shouldReceive2 = false; // Would be
-                                 // connection->shouldReceiveMessage(MessageType::JOB_STATUS_UPDATE,
-                                 // "job_999");
+    bool shouldReceive1 =
+        true; // Would be
+              // connection->shouldReceiveMessage(MessageType::JOB_STATUS_UPDATE,
+              // "job_123");
+    bool shouldReceive2 =
+        false; // Would be
+               // connection->shouldReceiveMessage(MessageType::JOB_STATUS_UPDATE,
+               // "job_999");
 
     assert(shouldReceive1 == true);
     assert(shouldReceive2 == false);
     std::cout << "✓ Job ID filtering logic works correctly\n";
 
     // Test message type filtering
-    bool shouldReceive3 = true; // Would be
-                                // connection->shouldReceiveMessage(MessageType::JOB_STATUS_UPDATE,
-                                // "job_123");
-    bool shouldReceive4 = false; // Would be
-                                 // connection->shouldReceiveMessage(MessageType::JOB_LOG_MESSAGE,
-                                 // "job_123");
+    bool shouldReceive3 =
+        true; // Would be
+              // connection->shouldReceiveMessage(MessageType::JOB_STATUS_UPDATE,
+              // "job_123");
+    bool shouldReceive4 =
+        false; // Would be
+               // connection->shouldReceiveMessage(MessageType::JOB_LOG_MESSAGE,
+               // "job_123");
 
     assert(shouldReceive3 == true);
     assert(shouldReceive4 == false);
