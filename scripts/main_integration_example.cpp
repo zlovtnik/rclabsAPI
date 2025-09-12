@@ -14,8 +14,7 @@
 // Initialize Notification Service
 LOG_INFO("Main", "Initializing notification service...");
 auto notificationService =
-std::make_shared<NotificationServiceImpl>(std::shared_ptr<Logger>(&logger,
-[](Logger*){}));
+    std::make_shared<NotificationServiceImpl>(&logger);
 
 // Load notification configuration
 auto notificationConfig = NotificationConfig::fromConfig(config);
@@ -89,7 +88,8 @@ LOG_INFO("Main", "Job monitor service started successfully");
  */
 
 /**
- * @brief Example snippets showing how other components can trigger notifications.
+ * @brief Example snippets showing how other components can trigger
+ * notifications.
  *
  * This function contains commented example calls illustrating typical usages of
  * the NotificationService from different parts of the system:
@@ -97,7 +97,8 @@ LOG_INFO("Main", "Job monitor service started successfully");
  * - Performing resource checks (memory/CPU) from monitoring components.
  * - Sending system error alerts from any component.
  * - Constructing and sending a custom NotificationMessage with fields such as
- *   id, type, priority, subject, message, timestamps, retry counts, and methods.
+ *   id, type, priority, subject, message, timestamps, retry counts, and
+ * methods.
  *
  * The examples are illustrative and intentionally commented out; the function
  * itself performs no runtime actions.
@@ -105,16 +106,14 @@ LOG_INFO("Main", "Job monitor service started successfully");
 
 void exampleNotificationUsage() {
   // From ETLJobManager when a job fails:
-  // notificationService->sendJobFailureAlert("job_123", "Database connection
-  // failed");
+  // notificationService->sendJobFailureAlert("job_123", "Database connection failed");
 
   // From a monitoring component checking system resources:
   // notificationService->checkMemoryUsage(getCurrentMemoryUsage());
   // notificationService->checkCpuUsage(getCurrentCpuUsage());
 
   // From any component when a critical error occurs:
-  // notificationService->sendSystemErrorAlert("DatabaseManager", "Connection
-  // pool exhausted");
+  // notificationService->sendSystemErrorAlert("DatabaseManager", "Connection pool exhausted");
 
   // Custom notifications for business logic:
   // NotificationMessage custom;

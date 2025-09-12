@@ -38,11 +38,11 @@ public:
   // operations are protected by mutex_
 
   /**
- * @brief Deleted copy constructor to make RedisCache non-copyable.
- *
- * RedisCache manages exclusive resources (connection context and synchronization primitives)
- * and must not be copied.
- */
+   * @brief Deleted copy constructor to make RedisCache non-copyable.
+   *
+   * RedisCache manages exclusive resources (connection context and
+   * synchronization primitives) and must not be copied.
+   */
   RedisCache(const RedisCache &) = delete;
   RedisCache &operator=(const RedisCache &) = delete;
   RedisCache(RedisCache &&) = delete;

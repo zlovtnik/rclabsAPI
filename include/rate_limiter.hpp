@@ -24,41 +24,46 @@ class RateLimiter {
 public:
   RateLimiter();
   /**
- * @brief Default destructor.
- *
- * Performs normal destruction of the RateLimiter instance. As the class manages no RAII resources
- * that require custom teardown beyond member destructors, the default destructor is sufficient.
- */
-~RateLimiter() = default;
+   * @brief Default destructor.
+   *
+   * Performs normal destruction of the RateLimiter instance. As the class
+   * manages no RAII resources that require custom teardown beyond member
+   * destructors, the default destructor is sufficient.
+   */
+  ~RateLimiter() = default;
 
   /**
- * @brief Deletes the copy constructor to prevent copying of RateLimiter instances.
- *
- * Making the class non-copyable avoids accidental duplication of internal state
- * (including mutexes and client tracking), ensuring a single authoritative instance.
- */
+   * @brief Deletes the copy constructor to prevent copying of RateLimiter
+   * instances.
+   *
+   * Making the class non-copyable avoids accidental duplication of internal
+   * state (including mutexes and client tracking), ensuring a single
+   * authoritative instance.
+   */
   RateLimiter(const RateLimiter &) = delete;
   /**
- * @brief Deleted copy-assignment operator to prevent copying.
- *
- * The copy-assignment operator is explicitly deleted to make RateLimiter non-copyable.
- * This ensures internal state (client counters, rules, mutex) cannot be duplicated.
- */
-RateLimiter &operator=(const RateLimiter &) = delete;
+   * @brief Deleted copy-assignment operator to prevent copying.
+   *
+   * The copy-assignment operator is explicitly deleted to make RateLimiter
+   * non-copyable. This ensures internal state (client counters, rules, mutex)
+   * cannot be duplicated.
+   */
+  RateLimiter &operator=(const RateLimiter &) = delete;
   /**
- * @brief Deleted move constructor; RateLimiter instances cannot be moved.
- *
- * Prevents transfer of internal state (mutexes, client counters, rules) by disabling move semantics.
- * Use the default-constructed instance and explicit initialization methods rather than moving.
- */
-RateLimiter(RateLimiter &&) = delete;
+   * @brief Deleted move constructor; RateLimiter instances cannot be moved.
+   *
+   * Prevents transfer of internal state (mutexes, client counters, rules) by
+   * disabling move semantics. Use the default-constructed instance and explicit
+   * initialization methods rather than moving.
+   */
+  RateLimiter(RateLimiter &&) = delete;
   /**
- * @brief Deleted move assignment operator.
- *
- * Disables move-assignment to ensure RateLimiter instances are neither movable
- * nor copyable; use by-value transfer of ownership is not supported.
- */
-RateLimiter &operator=(RateLimiter &&) = delete;
+   * @brief Deleted move assignment operator.
+   *
+   * Disables move-assignment to ensure RateLimiter instances are neither
+   * movable nor copyable; use by-value transfer of ownership is not supported.
+   */
+  RateLimiter &operator=(RateLimiter &&) = delete;
 
   // Initialize with default rules
   void initializeDefaultRules();

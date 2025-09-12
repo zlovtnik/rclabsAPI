@@ -14,19 +14,19 @@ private:
 
 public:
   /**
- * @brief Constructs a TestLogHandler with the given identifier.
- *
- * @param id Unique identifier for this handler instance (used in tests).
- */
-explicit TestLogHandler(const std::string &id) : id_(id) {}
+   * @brief Constructs a TestLogHandler with the given identifier.
+   *
+   * @param id Unique identifier for this handler instance (used in tests).
+   */
+  explicit TestLogHandler(const std::string &id) : id_(id) {}
 
   /**
    * @brief Handle a log entry by capturing it for later inspection.
    *
-   * Appends a copy of the provided LogEntry to the handler's internal, thread-safe
-   * captured log vector for use by tests. The method acquires an internal mutex
-   * to protect concurrent access and then sleeps for 100 microseconds to
-   * simulate handler processing latency.
+   * Appends a copy of the provided LogEntry to the handler's internal,
+   * thread-safe captured log vector for use by tests. The method acquires an
+   * internal mutex to protect concurrent access and then sleeps for 100
+   * microseconds to simulate handler processing latency.
    *
    * @param entry Log entry to capture.
    */
@@ -39,20 +39,23 @@ explicit TestLogHandler(const std::string &id) : id_(id) {}
   }
 
   /**
- * @brief Returns the handler's identifier.
- *
- * The identifier is the string supplied when the TestLogHandler was constructed.
- *
- * @return std::string The handler ID.
- */
-std::string getId() const override { return id_; }
+   * @brief Returns the handler's identifier.
+   *
+   * The identifier is the string supplied when the TestLogHandler was
+   * constructed.
+   *
+   * @return std::string The handler ID.
+   */
+  std::string getId() const override { return id_; }
 
   /**
    * @brief Indicates whether this test handler will process a given log entry.
    *
-   * For the test handler this always returns true so the handler accepts every entry.
+   * For the test handler this always returns true so the handler accepts every
+   * entry.
    *
-   * @param entry The log entry being considered (ignored by this implementation).
+   * @param entry The log entry being considered (ignored by this
+   * implementation).
    * @return true Always accepts the entry.
    */
   bool shouldHandle(const LogEntry &entry) const override {
@@ -84,8 +87,8 @@ std::string getId() const override { return id_; }
   /**
    * @brief Returns the number of log entries captured by the handler.
    *
-   * This method acquires the internal mutex to read the stored entries safely and is safe to call
-   * from multiple threads concurrently.
+   * This method acquires the internal mutex to read the stored entries safely
+   * and is safe to call from multiple threads concurrently.
    *
    * @return size_t The current count of captured log entries.
    */
@@ -97,9 +100,9 @@ std::string getId() const override { return id_; }
   /**
    * @brief Returns a snapshot of all logs captured by the handler.
    *
-   * The returned vector is a copy of the internal storage taken under the handler's
-   * mutex, providing a thread-safe snapshot of captured log entries at the time
-   * of the call.
+   * The returned vector is a copy of the internal storage taken under the
+   * handler's mutex, providing a thread-safe snapshot of captured log entries
+   * at the time of the call.
    *
    * @return std::vector<LogEntry> Copy of the captured logs.
    */
@@ -111,8 +114,9 @@ std::string getId() const override { return id_; }
   /**
    * @brief Clears all logs previously captured by the handler.
    *
-   * This operation removes every stored LogEntry from the handler's internal buffer.
-   * It is thread-safe: the internal mutex is held for the duration of the clear.
+   * This operation removes every stored LogEntry from the handler's internal
+   * buffer. It is thread-safe: the internal mutex is held for the duration of
+   * the clear.
    */
   void clearCapturedLogs() {
     std::lock_guard lock(logsMutex_);
@@ -123,10 +127,11 @@ std::string getId() const override { return id_; }
 /**
  * @brief Runs a unit test that verifies basic logging and handler delivery.
  *
- * This test registers a TestLogHandler with the CoreLogger, emits an info and an
- * error log for a test component, allows asynchronous processing to complete,
- * flushes pending logs, and asserts that the handler received at least two
- * entries. The test prints status messages and uses assertions to signal failure.
+ * This test registers a TestLogHandler with the CoreLogger, emits an info and
+ * an error log for a test component, allows asynchronous processing to
+ * complete, flushes pending logs, and asserts that the handler received at
+ * least two entries. The test prints status messages and uses assertions to
+ * signal failure.
  */
 void testBasicLogging() {
   std::cout << "Testing basic logging functionality..." << std::endl;
@@ -153,12 +158,13 @@ void testBasicLogging() {
 }
 
 /**
- * @brief Tests that job-scoped log APIs attach the correct job IDs to emitted entries.
+ * @brief Tests that job-scoped log APIs attach the correct job IDs to emitted
+ * entries.
  *
- * This test registers a TestLogHandler, emits job-specific info and error messages
- * using the logger's job-scoped APIs, flushes processing, and asserts that at
- * least two entries were captured and that the expected job IDs ("job123" and
- * "job456") appear in the captured logs.
+ * This test registers a TestLogHandler, emits job-specific info and error
+ * messages using the logger's job-scoped APIs, flushes processing, and asserts
+ * that at least two entries were captured and that the expected job IDs
+ * ("job123" and "job456") appear in the captured logs.
  */
 void testJobSpecificLogging() {
   std::cout << "Testing job-specific logging..." << std::endl;
@@ -288,20 +294,22 @@ void testConfiguration() {
 }
 
 /**
- * @brief Verifies component-based filtering prevents blacklisted components from being logged.
+ * @brief Verifies component-based filtering prevents blacklisted components
+ * from being logged.
  *
- * This test registers a TestLogHandler with the CoreLogger, applies a component filter
- * in blacklist mode containing "BlockedComponent", emits one log from an allowed
- * component and one from the blocked component, then asserts that only the allowed
- * entry was captured. The test clears the component filter before returning.
+ * This test registers a TestLogHandler with the CoreLogger, applies a component
+ * filter in blacklist mode containing "BlockedComponent", emits one log from an
+ * allowed component and one from the blocked component, then asserts that only
+ * the allowed entry was captured. The test clears the component filter before
+ * returning.
  *
  * Side effects:
  * - Registers a TestLogHandler with the CoreLogger.
  * - Modifies the CoreLogger component filter (set and cleared).
  * - Emits log messages via the CoreLogger.
  *
- * The test blocks briefly to allow asynchronous processing and calls CoreLogger::flush()
- * to ensure entries are processed before assertions.
+ * The test blocks briefly to allow asynchronous processing and calls
+ * CoreLogger::flush() to ensure entries are processed before assertions.
  */
 void testFiltering() {
   std::cout << "Testing filtering functionality..." << std::endl;
@@ -352,8 +360,10 @@ void testFiltering() {
  *
  * Notes:
  * - Registers a TestLogHandler and resets metrics before emitting messages.
- * - Waits and calls flush to allow asynchronous processing before reading metrics.
- * - Uses assertions to verify at least 10 total messages, >=3 errors, and >=2 warnings.
+ * - Waits and calls flush to allow asynchronous processing before reading
+ * metrics.
+ * - Uses assertions to verify at least 10 total messages, >=3 errors, and >=2
+ * warnings.
  */
 void testMetrics() {
   std::cout << "Testing metrics collection..." << std::endl;
@@ -391,17 +401,19 @@ void testMetrics() {
 }
 
 /**
- * @brief Tests that the logger processes messages correctly when asynchronous mode is enabled.
+ * @brief Tests that the logger processes messages correctly when asynchronous
+ * mode is enabled.
  *
- * This test registers a TestLogHandler, enables async logging, emits a burst of 100 info messages,
- * waits for processing, flushes pending work, and asserts that at least the emitted number of logs
- * have been captured by the handler.
+ * This test registers a TestLogHandler, enables async logging, emits a burst of
+ * 100 info messages, waits for processing, flushes pending work, and asserts
+ * that at least the emitted number of logs have been captured by the handler.
  *
  * Side effects:
  * - Enables asynchronous logging on the global CoreLogger instance.
  * - Registers a TestLogHandler (does not unregister it).
  *
- * The test uses an assertion to fail if fewer than the expected number of logs are processed.
+ * The test uses an assertion to fail if fewer than the expected number of logs
+ * are processed.
  */
 void testAsyncLogging() {
   std::cout << "Testing asynchronous logging..." << std::endl;
@@ -432,11 +444,13 @@ void testAsyncLogging() {
 }
 
 /**
- * @brief Verifies that the legacy Logger interface remains compatible with the current CoreLogger.
+ * @brief Verifies that the legacy Logger interface remains compatible with the
+ * current CoreLogger.
  *
- * Exercises the old Logger API by configuring it, emitting standard and job-scoped log messages,
- * recording a metric and a performance measurement, and flushing pending output. Intended for use
- * in the test suite; it mutates global logger state and produces console output.
+ * Exercises the old Logger API by configuring it, emitting standard and
+ * job-scoped log messages, recording a metric and a performance measurement,
+ * and flushing pending output. Intended for use in the test suite; it mutates
+ * global logger state and produces console output.
  */
 void testBackwardCompatibility() {
   std::cout << "Testing backward compatibility..." << std::endl;

@@ -48,20 +48,22 @@ private:
   std::shared_ptr<NotificationService> notificationService_;
 
   /**
-   * @brief Prepare the test fixtures and dependencies used by the error-handling tests.
+   * @brief Prepare the test fixtures and dependencies used by the
+   * error-handling tests.
    *
-   * Configures logging and global configuration, constructs lightweight instances of the
-   * DatabaseManager, DataTransformer, ETLJobManager, and WebSocketManager, installs an
-   * inline no-op TestNotificationService, and creates the JobMonitorService under test.
+   * Configures logging and global configuration, constructs lightweight
+   * instances of the DatabaseManager, DataTransformer, ETLJobManager, and
+   * WebSocketManager, installs an inline no-op TestNotificationService, and
+   * creates the JobMonitorService under test.
    *
    * @details
    * - Sets logger level to DEBUG and enables console output.
    * - Loads "config.json" through ConfigManager.
-   * - Initializes etlManager_, wsManager_, notificationService_, and jobMonitorService_
-   *   members with concrete test-friendly objects.
+   * - Initializes etlManager_, wsManager_, notificationService_, and
+   * jobMonitorService_ members with concrete test-friendly objects.
    *
-   * @note The TestNotificationService is a minimal stub that accepts sends and reports
-   *       as running; it intentionally performs no real notification I/O.
+   * @note The TestNotificationService is a minimal stub that accepts sends and
+   * reports as running; it intentionally performs no real notification I/O.
    */
   void setupTestEnvironment() {
     // Configure logger
@@ -93,17 +95,18 @@ private:
   }
 
   /**
-   * @brief Unit test that verifies default and customizable service recovery settings.
+   * @brief Unit test that verifies default and customizable service recovery
+   * settings.
    *
-   * Verifies that job_monitoring_recovery::ServiceRecoveryConfig exposes the expected
-   * defaults (graceful degradation, auto-recovery, attempt limits, delays, backoff,
-   * event queue size, health-check settings) and that those fields can be modified
-   * and retain new values.
+   * Verifies that job_monitoring_recovery::ServiceRecoveryConfig exposes the
+   * expected defaults (graceful degradation, auto-recovery, attempt limits,
+   * delays, backoff, event queue size, health-check settings) and that those
+   * fields can be modified and retain new values.
    *
    * Side effects:
    * - Prints progress messages to stdout.
-   * - Uses assert() to validate expectations; a failed assertion will terminate the
-   *   process (via abort).
+   * - Uses assert() to validate expectations; a failed assertion will terminate
+   * the process (via abort).
    */
   void testServiceRecoveryConfig() {
     std::cout << "\n--- Test: Service Recovery Configuration ---" << std::endl;
@@ -147,11 +150,12 @@ private:
   }
 
   /**
-   * @brief Tests the ServiceRecoveryState behavior (initial values, recovery gating,
-   *        backoff delay calculation, and reset).
+   * @brief Tests the ServiceRecoveryState behavior (initial values, recovery
+   * gating, backoff delay calculation, and reset).
    *
    * Verifies that a default-constructed ServiceRecoveryState:
-   * - is healthy, not recovering, with zero recoveryAttempts and zero failedHealthChecks.
+   * - is healthy, not recovering, with zero recoveryAttempts and zero
+   * failedHealthChecks.
    *
    * Exercises shouldAttemptRecovery under these conditions:
    * - first attempt allowed,
@@ -237,12 +241,18 @@ private:
    * @brief Tests the ServiceCircuitBreaker state transitions and behavior.
    *
    * Exercises a ServiceCircuitBreaker through its lifecycle:
-   * - Verifies initial CLOSED state allows operations and is not in degraded mode.
-   * - Triggers consecutive failures to transition to OPEN and verifies operations are blocked and degraded mode enabled.
-   * - Waits for the configured timeout to observe transition to HALF_OPEN and that operations may be attempted.
-   * - Simulates successful operations to return the breaker to CLOSED and disable degraded mode.
+   * - Verifies initial CLOSED state allows operations and is not in degraded
+   * mode.
+   * - Triggers consecutive failures to transition to OPEN and verifies
+   * operations are blocked and degraded mode enabled.
+   * - Waits for the configured timeout to observe transition to HALF_OPEN and
+   * that operations may be attempted.
+   * - Simulates successful operations to return the breaker to CLOSED and
+   * disable degraded mode.
    *
-   * @note This test uses active waiting (std::this_thread::sleep_for) to allow the breaker timeout to elapse and employs assertions to validate behavior; it will abort on failed assertions.
+   * @note This test uses active waiting (std::this_thread::sleep_for) to allow
+   * the breaker timeout to elapse and employs assertions to validate behavior;
+   * it will abort on failed assertions.
    */
   void testServiceCircuitBreaker() {
     std::cout << "\n--- Test: Service Circuit Breaker ---" << std::endl;
@@ -297,12 +307,14 @@ private:
   }
 
   /**
-   * @brief Tests the JobMonitorService health monitoring, configuration, and recovery state.
+   * @brief Tests the JobMonitorService health monitoring, configuration, and
+   * recovery state.
    *
-   * Initializes the JobMonitorService with its dependencies, verifies the service starts healthy,
-   * applies and retrieves a recovery configuration with health-check parameters, performs a
-   * manual health check, and validates that the recovery state reflects a healthy service with
-   * zero failed health checks. Uses assertions to fail the test on unexpected behavior.
+   * Initializes the JobMonitorService with its dependencies, verifies the
+   * service starts healthy, applies and retrieves a recovery configuration with
+   * health-check parameters, performs a manual health check, and validates that
+   * the recovery state reflects a healthy service with zero failed health
+   * checks. Uses assertions to fail the test on unexpected behavior.
    */
   void testHealthMonitoring() {
     std::cout << "\n--- Test: Health Monitoring ---" << std::endl;
@@ -348,10 +360,12 @@ private:
    * @brief Tests graceful-degradation event queue behavior.
    *
    * Exercises DegradedModeEventQueue for JobStatusUpdate and WebSocketMessage:
-   * - Verifies that events can be enqueued and that size/empty reflect contents.
+   * - Verifies that events can be enqueued and that size/empty reflect
+   * contents.
    * - Confirms dequeueAll returns events in FIFO order and clears the queue.
    * - Verifies overflow handling: when more items than capacity are enqueued,
-   *   the oldest entries are dropped so the queue size never exceeds its capacity.
+   *   the oldest entries are dropped so the queue size never exceeds its
+   * capacity.
    *
    * This function uses assertions to validate expectations and prints brief
    * success messages for each sub-check.
@@ -415,17 +429,19 @@ private:
   }
 
   /**
-   * @brief Verifies event queueing behavior while the Job Monitor Service is in degraded mode.
+   * @brief Verifies event queueing behavior while the Job Monitor Service is in
+   * degraded mode.
    *
-   * This test initializes and starts the JobMonitorService with its collaborators,
-   * enables graceful degradation in the recovery configuration, and confirms that
-   * normal job-monitoring operations continue to function while degraded.
-   * It simulates job status changes and progress updates, asserts that the service
-   * is running and healthy, then stops the service.
+   * This test initializes and starts the JobMonitorService with its
+   * collaborators, enables graceful degradation in the recovery configuration,
+   * and confirms that normal job-monitoring operations continue to function
+   * while degraded. It simulates job status changes and progress updates,
+   * asserts that the service is running and healthy, then stops the service.
    *
    * Side effects:
    * - Initializes and starts jobMonitorService_.
-   * - Modifies the service recovery configuration (enables graceful degradation).
+   * - Modifies the service recovery configuration (enables graceful
+   * degradation).
    * - Calls lifecycle methods and job event handlers on jobMonitorService_.
    * - Stops jobMonitorService_ at the end of the test.
    */
@@ -464,16 +480,18 @@ private:
   /**
    * @brief Tests the job monitor's automatic and manual recovery behavior.
    *
-   * Verifies ServiceRecoveryState::shouldAttemptRecovery respects enableAutoRecovery,
-   * maxRecoveryAttempts and baseRecoveryDelay (including elapsed-time gating and
-   * backoff limits). Then initializes the JobMonitorService with the test
-   * auto-recovery configuration and asserts that a manual recovery attempt on an
-   * already-healthy service completes immediately and leaves the service healthy.
+   * Verifies ServiceRecoveryState::shouldAttemptRecovery respects
+   * enableAutoRecovery, maxRecoveryAttempts and baseRecoveryDelay (including
+   * elapsed-time gating and backoff limits). Then initializes the
+   * JobMonitorService with the test auto-recovery configuration and asserts
+   * that a manual recovery attempt on an already-healthy service completes
+   * immediately and leaves the service healthy.
    *
    * Side effects:
    * - Mutates a local ServiceRecoveryState instance during decision checks.
-   * - Initializes and mutates the test instance pointed to by jobMonitorService_,
-   *   including applying the recovery configuration and invoking attemptRecovery().
+   * - Initializes and mutates the test instance pointed to by
+   * jobMonitorService_, including applying the recovery configuration and
+   * invoking attemptRecovery().
    */
   void testAutoRecovery() {
     std::cout << "\n--- Test: Auto Recovery Mechanism ---" << std::endl;
@@ -525,9 +543,10 @@ private:
 /**
  * @brief Entry point for the JobMonitorService error-handling test harness.
  *
- * Runs the JobMonitorServiceErrorHandlingTest test sequence. Returns 0 when all tests complete
- * successfully; if a std::exception is thrown during test execution the exception message is
- * printed to stderr and the process returns 1.
+ * Runs the JobMonitorServiceErrorHandlingTest test sequence. Returns 0 when all
+ * tests complete successfully; if a std::exception is thrown during test
+ * execution the exception message is printed to stderr and the process
+ * returns 1.
  */
 int main() {
   try {

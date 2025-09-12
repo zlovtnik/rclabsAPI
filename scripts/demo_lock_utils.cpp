@@ -16,12 +16,13 @@ private:
 
 public:
   /**
-       * @brief Construct a BankAccount with the given identifier and starting balance.
-       *
-       * @param id Account identifier (string).
-       * @param initialBalance Starting balance for the account.
-       */
-      BankAccount(const std::string &id, double initialBalance)
+   * @brief Construct a BankAccount with the given identifier and starting
+   * balance.
+   *
+   * @param id Account identifier (string).
+   * @param initialBalance Starting balance for the account.
+   */
+  BankAccount(const std::string &id, double initialBalance)
       : balance_(initialBalance), accountId_(id) {}
 
   /**
@@ -58,8 +59,9 @@ public:
   /**
    * @brief Atomically adds funds to the account balance.
    *
-   * Acquires the account's timed mutex (up to 1 second) to protect the balance, simulates a short processing delay,
-   * increments the stored balance by the given amount, and prints the updated balance to stdout.
+   * Acquires the account's timed mutex (up to 1 second) to protect the balance,
+   * simulates a short processing delay, increments the stored balance by the
+   * given amount, and prints the updated balance to stdout.
    *
    * @param amount Amount to deposit; added to the account's balance.
    */
@@ -77,10 +79,10 @@ public:
   /**
    * @brief Returns the current account balance.
    *
-   * Attempts to acquire the account's balance mutex with a 500 ms timed lock and then
-   * returns the protected balance value. This const accessor uses a `const_cast` to
-   * obtain the non-const mutex so it may block (up to the timeout) while synchronizing
-   * access with other threads.
+   * Attempts to acquire the account's balance mutex with a 500 ms timed lock
+   * and then returns the protected balance value. This const accessor uses a
+   * `const_cast` to obtain the non-const mutex so it may block (up to the
+   * timeout) while synchronizing access with other threads.
    *
    * @return double Current balance.
    */
@@ -109,11 +111,13 @@ private:
 
 public:
   /**
-   * @brief Constructs a ConnectionPool and populates the pool with initial connections.
+   * @brief Constructs a ConnectionPool and populates the pool with initial
+   * connections.
    *
-   * Initializes the availableConnections_ container with five connection identifiers
-   * ("conn_0" through "conn_4"). Other members (config_ defaults and activeConnections_)
-   * remain at their default-initialized values.
+   * Initializes the availableConnections_ container with five connection
+   * identifiers
+   * ("conn_0" through "conn_4"). Other members (config_ defaults and
+   * activeConnections_) remain at their default-initialized values.
    */
   ConnectionPool() {
     // Initialize with some connections
@@ -158,8 +162,8 @@ public:
    * The method uses timed locks when accessing configuration (500 ms) and the
    * pool container (1000 ms).
    *
-   * @return std::string The acquired connection identifier, or an empty string if
-   * none are available.
+   * @return std::string The acquired connection identifier, or an empty string
+   * if none are available.
    */
   std::string acquireConnection() {
     // Read config (shared lock - multiple readers allowed)
@@ -206,15 +210,15 @@ public:
   }
 
   /**
- * @brief Returns the current number of active (in-use) connections.
- *
- * This is a snapshot read of an internal atomic counter and is safe to call
- * concurrently. The returned value may immediately become stale as connections
- * are acquired or released by other threads.
- *
- * @return int Current number of active connections.
- */
-int getActiveCount() const { return activeConnections_.load(); }
+   * @brief Returns the current number of active (in-use) connections.
+   *
+   * This is a snapshot read of an internal atomic counter and is safe to call
+   * concurrently. The returned value may immediately become stale as
+   * connections are acquired or released by other threads.
+   *
+   * @return int Current number of active connections.
+   */
+  int getActiveCount() const { return activeConnections_.load(); }
 };
 
 /**
@@ -270,9 +274,9 @@ void demonstrateLockTimeout() {
  *
  * Attempts two locking sequences on a pair of mutex types (configuration-level
  * and container-level) to show the effect of a global lock ordering rule:
- * the correct ordering (config then container) acquires both locks successfully,
- * while the reversed ordering triggers the deadlock detector and throws
- * DeadlockException.
+ * the correct ordering (config then container) acquires both locks
+ * successfully, while the reversed ordering triggers the deadlock detector and
+ * throws DeadlockException.
  *
  * The function prints status messages and catches DeadlockException for the
  * failing scenario to confirm the prevention behavior.
@@ -309,14 +313,13 @@ void demonstrateDeadlockPrevention() {
 /**
  * @brief Entry point for the Lock Utils demonstration program.
  *
- * Runs four demonstrations that exercise the locking utilities and instrumentation:
- * 1) Concurrent BankAccount deposits/withdrawals.
- * 2) ConnectionPool usage with proper lock ordering and a config update.
- * 3) Lock timeout behavior.
- * 4) Deadlock-prevention demonstration.
+ * Runs four demonstrations that exercise the locking utilities and
+ * instrumentation: 1) Concurrent BankAccount deposits/withdrawals. 2)
+ * ConnectionPool usage with proper lock ordering and a config update. 3) Lock
+ * timeout behavior. 4) Deadlock-prevention demonstration.
  *
- * Also enables LockMonitor and DeadlockDetector, prints runtime statistics gathered
- * by LockMonitor, and outputs progress/results to stdout.
+ * Also enables LockMonitor and DeadlockDetector, prints runtime statistics
+ * gathered by LockMonitor, and outputs progress/results to stdout.
  *
  * @return int Program exit status (returns 0 on successful completion).
  */

@@ -232,14 +232,17 @@ parseTimestamp(const std::string &timestampStr);
  * forms:
  * - double quote (") -> `\"`
  * - backslash (\) -> `\\`
- * - backspace, form feed, newline, carriage return, tab -> `\b`, `\f`, `\n`, `\r`, `\t`
- * - control characters with codepoint < 0x20 -> `\uXXXX` (4-digit, zero-padded hexadecimal)
+ * - backspace, form feed, newline, carriage return, tab -> `\b`, `\f`, `\n`,
+ * `\r`, `\t`
+ * - control characters with codepoint < 0x20 -> `\uXXXX` (4-digit, zero-padded
+ * hexadecimal)
  *
  * The function treats characters as unsigned when checking for control codes to
  * avoid sign-extension issues on platforms with signed `char`.
  *
  * @param str The input string to be escaped.
- * @return std::string The escaped string suitable for inclusion as a JSON string value.
+ * @return std::string The escaped string suitable for inclusion as a JSON
+ * string value.
  */
 inline std::string escapeJsonString(const std::string &str) {
   std::string result;
@@ -272,7 +275,7 @@ inline std::string escapeJsonString(const std::string &str) {
       if (static_cast<unsigned char>(c) < 0x20) {
         std::ostringstream oss;
         oss << "\\u" << std::setw(4) << std::setfill('0') << std::hex
-            << static_cast<unsigned int>(c);
+            << static_cast<unsigned int>(static_cast<unsigned char>(c));
         result += oss.str();
       } else {
         result += c;

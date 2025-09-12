@@ -10,10 +10,11 @@
 /**
  * @brief Exercises and reports cache warmup configuration values.
  *
- * Constructs a default and a modified CacheConfig, then prints their warmup-related
- * fields (enableWarmup, warmupBatchSize, warmupMaxKeys, warmupBatchTimeout,
- * and warmupTotalTimeout) to standard output. Intended as a simple runtime
- * verification/demo of configuration defaults and custom settings.
+ * Constructs a default and a modified CacheConfig, then prints their
+ * warmup-related fields (enableWarmup, warmupBatchSize, warmupMaxKeys,
+ * warmupBatchTimeout, and warmupTotalTimeout) to standard output. Intended as a
+ * simple runtime verification/demo of configuration defaults and custom
+ * settings.
  *
  * Side effects:
  * - Writes human-readable configuration details to stdout.
@@ -55,12 +56,14 @@ void testCacheWarmupConfiguration() {
 }
 
 /**
- * @brief Runs a basic test that constructs a CacheManager with warmup settings and reports its status.
+ * @brief Runs a basic test that constructs a CacheManager with warmup settings
+ * and reports its status.
  *
- * Creates a CacheConfig with warmup enabled (batch size = 3, max keys = 25), constructs a CacheManager
- * from that config, prints confirmation, and prints a message if the cache reports as disabled via
- * isCacheEnabled(). Intended as a small runtime check that warmup configuration can be applied and
- * that cache enablement can be queried.
+ * Creates a CacheConfig with warmup enabled (batch size = 3, max keys = 25),
+ * constructs a CacheManager from that config, prints confirmation, and prints a
+ * message if the cache reports as disabled via isCacheEnabled(). Intended as a
+ * small runtime check that warmup configuration can be applied and that cache
+ * enablement can be queried.
  */
 void testCacheManagerInitialization() {
   std::cout << "\n=== Testing Cache Manager Initialization ===" << std::endl;
@@ -85,10 +88,11 @@ void testCacheManagerInitialization() {
 /**
  * @brief Verifies that a CacheManager respects a disabled warmup configuration.
  *
- * Constructs a CacheConfig with warmup disabled, creates a CacheManager from it,
- * and reports that warmup is disabled. This test does not exercise the actual
- * warmup behavior (which requires mocking of external systems); it only checks
- * that the configuration value can be applied to the manager during construction.
+ * Constructs a CacheConfig with warmup disabled, creates a CacheManager from
+ * it, and reports that warmup is disabled. This test does not exercise the
+ * actual warmup behavior (which requires mocking of external systems); it only
+ * checks that the configuration value can be applied to the manager during
+ * construction.
  */
 void testCacheWarmupDisabled() {
   std::cout << "\n=== Testing Cache Warmup Disabled ===" << std::endl;
@@ -162,12 +166,14 @@ void testBatchProcessingLogic() {
 /**
  * @brief Entry point for the cache warmup test suite.
  *
- * Runs a sequence of test helper functions that exercise cache warmup configuration,
- * CacheManager initialization, disabled-warmup behavior, and batch processing logic.
- * Reports progress and results to stdout; on std::exception the error is printed to stderr
- * and the process exits with a non-zero code.
+ * Runs a sequence of test helper functions that exercise cache warmup
+ * configuration, CacheManager initialization, disabled-warmup behavior, and
+ * batch processing logic. Reports progress and results to stdout; on
+ * std::exception the error is printed to stderr and the process exits with a
+ * non-zero code.
  *
- * @return int Returns 0 on successful completion of all tests, or 1 if a std::exception is caught.
+ * @return int Returns 0 on successful completion of all tests, or 1 if a
+ * std::exception is caught.
  */
 int main() {
   std::cout << "Cache Warmup Configuration Test" << std::endl;

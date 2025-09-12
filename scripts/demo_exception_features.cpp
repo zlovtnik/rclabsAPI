@@ -6,14 +6,17 @@
 using namespace etl;
 
 /**
- * @brief Demonstrates wrapping a low-level exception inside a higher-level system exception and surfacing its context.
+ * @brief Demonstrates wrapping a low-level exception inside a higher-level
+ * system exception and surfacing its context.
  *
- * This demo simulates a database failure by throwing a SystemException for a database error,
- * catches it, builds an ErrorContext containing the original error message and code, and
- * rethrows a higher-level SystemException (internal error) that carries that context.
- * The outer catch prints the resulting exception as JSON and enumerates the context entries.
+ * This demo simulates a database failure by throwing a SystemException for a
+ * database error, catches it, builds an ErrorContext containing the original
+ * error message and code, and rethrows a higher-level SystemException (internal
+ * error) that carries that context. The outer catch prints the resulting
+ * exception as JSON and enumerates the context entries.
  *
- * Side effects: writes demo headers, the exception JSON, and context key/value pairs to stdout.
+ * Side effects: writes demo headers, the exception JSON, and context key/value
+ * pairs to stdout.
  */
 void demonstrateExceptionChaining() {
   try {
@@ -128,9 +131,10 @@ void demonstrateBasicExceptions() {
 /**
  * @brief Entry point for the ETL Plus Exception Handling System demo.
  *
- * Runs three demonstration scenarios that exercise exception chaining, retry logic,
- * and basic exception types, printing human-readable headers and JSON/text outputs
- * to stdout. After executing the demos, prints a completion message.
+ * Runs three demonstration scenarios that exercise exception chaining, retry
+ * logic, and basic exception types, printing human-readable headers and
+ * JSON/text outputs to stdout. After executing the demos, prints a completion
+ * message.
  *
  * @return int Exit status code (0 on successful completion).
  */

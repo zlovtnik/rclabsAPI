@@ -11,11 +11,13 @@ using tcp = boost::asio::ip::tcp;
 class ConnectionPoolManagerSimpleTest : public ::testing::Test {
 protected:
   /**
-   * @brief Test fixture setup: initializes timeout manager and default pool settings.
+   * @brief Test fixture setup: initializes timeout manager and default pool
+   * settings.
    *
-   * Called before each test. Constructs a TimeoutManager using the fixture's IO context
-   * and sets the default connection-pool configuration used by tests:
-   * minimum connections = 2, maximum connections = 5, idle timeout = 10 seconds.
+   * Called before each test. Constructs a TimeoutManager using the fixture's IO
+   * context and sets the default connection-pool configuration used by tests:
+   * minimum connections = 2, maximum connections = 5, idle timeout = 10
+   * seconds.
    */
   void SetUp() override {
     timeoutManager_ = std::make_shared<TimeoutManager>(ioc_);
@@ -47,12 +49,14 @@ protected:
   }
 
   /**
-   * @brief Constructs a ConnectionPoolManager for tests and stores it in poolManager_.
+   * @brief Constructs a ConnectionPoolManager for tests and stores it in
+   * poolManager_.
    *
-   * Creates a ConnectionPoolManager using the fixture's ioc_, minConnections_, maxConnections_,
-   * idleTimeout_, and timeoutManager_. The session handler and wsManager are passed as null
-   * because tests exercise pool behavior only. MonitorConfig is created with a null monitor
-   * and QueueConfig is initialized to capacity 100 with a 30-second idle queue timeout.
+   * Creates a ConnectionPoolManager using the fixture's ioc_, minConnections_,
+   * maxConnections_, idleTimeout_, and timeoutManager_. The session handler and
+   * wsManager are passed as null because tests exercise pool behavior only.
+   * MonitorConfig is created with a null monitor and QueueConfig is initialized
+   * to capacity 100 with a 30-second idle queue timeout.
    */
   void createPoolManager() {
     // Use null pointers for handler and wsManager since we're only testing pool
@@ -183,10 +187,11 @@ TEST_F(ConnectionPoolManagerSimpleTest, ReleaseNullSessionHandledGracefully) {
 /**
  * @brief Program entry point: initializes Google Test and runs all tests.
  *
- * Initializes the Google Test framework with the provided command-line arguments
- * and executes the test suite.
+ * Initializes the Google Test framework with the provided command-line
+ * arguments and executes the test suite.
  *
- * @return int Result code from RUN_ALL_TESTS() (0 on success, non-zero on failure).
+ * @return int Result code from RUN_ALL_TESTS() (0 on success, non-zero on
+ * failure).
  */
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);

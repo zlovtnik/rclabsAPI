@@ -82,41 +82,49 @@ struct LoadTestMetrics {
 class LoadTester {
 public:
   /**
- * @brief Constructs a LoadTester with the given configuration.
- *
- * Initializes a LoadTester instance using the provided LoadTestConfig which
- * determines test parameters (server URL, thread counts, durations, feature
- * toggles, and report path).
- *
- * @param config Configuration values used to drive the load test; stored by copy.
- */
-LoadTester(const LoadTestConfig &config) : config_(config) {}
+   * @brief Constructs a LoadTester with the given configuration.
+   *
+   * Initializes a LoadTester instance using the provided LoadTestConfig which
+   * determines test parameters (server URL, thread counts, durations, feature
+   * toggles, and report path).
+   *
+   * @param config Configuration values used to drive the load test; stored by
+   * copy.
+   */
+  LoadTester(const LoadTestConfig &config) : config_(config) {}
   /**
    * @brief Destructor for LoadTester.
    *
-   * Releases global libcurl resources by calling curl_global_cleanup().
+   * Releases global libcurl resources by calling curl_global_cleanup() if CURL was initialized.
    */
   ~LoadTester() {
     // Cleanup CURL global state
-    curl_global_cleanup();
+    if (curl_initialized_) {
+      curl_global_cleanup();
+    }
   }
 
   /**
    * @brief Orchestrates and runs the full load test.
    *
-   * Initializes subsystems, starts resource monitoring, launches worker threads to generate HTTP
-   * load (with configured ramp-up/delays), waits for completion, stops monitoring, computes
-   * aggregated statistics, and emits the final JSON report and console summary.
+   * Initializes subsystems, starts resource monitoring, launches worker threads
+   * to generate HTTP load (with configured ramp-up/delays), waits for
+   * completion, stops monitoring, computes aggregated statistics, and emits the
+   * final JSON report and console summary.
    *
    * Side effects:
-   * - Initializes optional subsystems (CURL, database/cache, system metrics) via initializeComponents().
-   * - Spawns a monitoring thread and multiple worker threads that update shared metrics.
+   * - Initializes optional subsystems (CURL, database/cache, system metrics)
+   * via initializeComponents().
+   * - Spawns a monitoring thread and multiple worker threads that update shared
+   * metrics.
    * - Updates metrics_.startTime and metrics_.endTime.
-   * - Writes a JSON report and prints a console summary through generateReport().
+   * - Writes a JSON report and prints a console summary through
+   * generateReport().
    *
    * Notes:
-   * - Thread synchronization and metrics aggregation are handled internally; callers need only construct
-   *   the LoadTester with a configured LoadTestConfig and call this method.
+   * - Thread synchronization and metrics aggregation are handled internally;
+   * callers need only construct the LoadTester with a configured LoadTestConfig
+   * and call this method.
    */
   void runLoadTest() {
     std::cout << "\n=== Advanced Load Testing Suite ===\n";
@@ -159,27 +167,31 @@ private:
   std::unique_ptr<DatabaseManager> dbManager_;
   std::unique_ptr<CacheManager> cacheManager_;
   std::unique_ptr<SystemMetrics> systemMetrics_;
+  bool curl_initialized_{false};
 
   /**
-   * @brief Initialize optional subsystems and global libraries required for the load test.
+   * @brief Initialize optional subsystems and global libraries required for the
+   * load test.
    *
-   * Sets up the database manager, cache manager (optionally Redis-backed), system metrics
-   * collector, and performs global libcurl initialization.
+   * Sets up the database manager, cache manager (optionally Redis-backed),
+   * system metrics collector, and performs global libcurl initialization.
    *
    * Detailed behavior:
-   * - If database load is enabled, reads DB connection parameters from environment
-   *   variables (DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD). DB_PASSWORD is
-   *   required; if it is missing the function prints an error and returns early
-   *   without completing remaining initialization.
-   * - If cache load is enabled and the binary was compiled with ETL_ENABLE_REDIS,
-   *   a RedisCache is created and provided to CacheManager; if Redis support is not
-   *   compiled in, CacheManager is still constructed and a notice is printed.
+   * - If database load is enabled, reads DB connection parameters from
+   * environment variables (DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD).
+   * DB_PASSWORD is required; if it is missing the function prints an error and
+   * returns early without completing remaining initialization.
+   * - If cache load is enabled and the binary was compiled with
+   * ETL_ENABLE_REDIS, a RedisCache is created and provided to CacheManager; if
+   * Redis support is not compiled in, CacheManager is still constructed and a
+   * notice is printed.
    * - If resource monitoring is enabled, instantiates the SystemMetrics helper.
-   * - Calls curl_global_init(CURL_GLOBAL_ALL) to initialize libcurl for subsequent HTTP use.
+   * - Calls curl_global_init(CURL_GLOBAL_ALL) to initialize libcurl for
+   * subsequent HTTP use.
    *
    * Side effects:
-   * - May print warnings or errors to stdout/stderr on missing environment variables
-   *   or failed subsystem initialization.
+   * - May print warnings or errors to stdout/stderr on missing environment
+   * variables or failed subsystem initialization.
    * - Initializes global CURL state.
    */
   void initializeComponents() {
@@ -197,8 +209,9 @@ private:
 
       const char *dbPassword = std::getenv("DB_PASSWORD");
       if (!dbPassword) {
-        std::cerr << "Error: DB_PASSWORD environment variable is required but "
-                     "not set\n";
+        std::cerr << "Warning: DB_PASSWORD environment variable not set, "
+                     "disabling database load testing\n";
+        config_.enableDatabaseLoad = false;
         return;
       }
       dbConfig.password = dbPassword;
@@ -232,14 +245,16 @@ private:
 
     // Initialize CURL
     curl_global_init(CURL_GLOBAL_ALL);
+    curl_initialized_ = true;
   }
 
   /**
    * @brief Worker loop executed by each load-generator thread.
    *
-   * Launches a per-thread ramp-up delay, then issues up to `config_.requestsPerThread`
-   * calls to makeRequest() unless monitoring_ is cleared. Inserts a short (10 ms)
-   * pause between requests to better simulate realistic client behavior.
+   * Launches a per-thread ramp-up delay, then issues up to
+   * `config_.requestsPerThread` calls to makeRequest() unless monitoring_ is
+   * cleared. Inserts a short (10 ms) pause between requests to better simulate
+   * realistic client behavior.
    *
    * @param threadId Zero-based index of this worker thread; used to compute the
    *                 staggered ramp-up delay so threads reach full load over
@@ -265,20 +280,25 @@ private:
   }
 
   /**
-   * @brief Executes a single HTTP request for the load test and records metrics.
+   * @brief Executes a single HTTP request for the load test and records
+   * metrics.
    *
-   * Performs one HTTP call to a randomly chosen endpoint on the configured server,
-   * measures response time (ms), updates thread-safe metrics (counts and response
-   * time vectors), and classifies the result as successful, timed out, or failed.
-   * When enabled and available, may also invoke performDatabaseLoad() and
-   * performCacheLoad() to simulate additional subsystem load.
+   * Performs one HTTP call to a randomly chosen endpoint on the configured
+   * server, measures response time (ms), updates thread-safe metrics (counts
+   * and response time vectors), and classifies the result as successful, timed
+   * out, or failed. When enabled and available, may also invoke
+   * performDatabaseLoad() and performCacheLoad() to simulate additional
+   * subsystem load.
    *
    * Side effects:
    * - Increments metrics_.totalRequests and one of metrics_.successfulRequests,
-   *   metrics_.timeoutRequests (+ metrics_.failedRequests), or metrics_.failedRequests.
+   *   metrics_.timeoutRequests (+ metrics_.failedRequests), or
+   * metrics_.failedRequests.
    * - Appends the measured response time to metrics_.responseTimes and updates
-   *   metrics_.minResponseTime / metrics_.maxResponseTime (protected by metricsMutex_).
-   * - May interact with dbManager_ and cacheManager_ (if configured and healthy).
+   *   metrics_.minResponseTime / metrics_.maxResponseTime (protected by
+   * metricsMutex_).
+   * - May interact with dbManager_ and cacheManager_ (if configured and
+   * healthy).
    *
    * Notes:
    * - Uses libcurl for the HTTP request with a 10s timeout and no signals.
@@ -365,15 +385,18 @@ private:
   }
 
   /**
-   * @brief Performs a small simulated database workload to exercise the connection pool.
+   * @brief Performs a small simulated database workload to exercise the
+   * connection pool.
    *
-   * Executes a single lightweight query ("SELECT 1") via the configured DatabaseManager to
-   * verify connectivity and exercise the pool. Increments the metrics_.databaseQueries counter
-   * for telemetry. Exceptions thrown by the query are caught and suppressed (no exception is propagated).
+   * Executes a single lightweight query ("SELECT 1") via the configured
+   * DatabaseManager to verify connectivity and exercise the pool. Increments
+   * the metrics_.databaseQueries counter for telemetry. Exceptions thrown by
+   * the query are caught and suppressed (no exception is propagated).
    *
    * Preconditions:
-   * - dbManager_ should be initialized and connected; if it is null or not connected the function
-   *   will not perform a query but still increments the database query counter.
+   * - dbManager_ should be initialized and connected; if it is null or not
+   * connected the function will not perform a query but still increments the
+   * database query counter.
    *
    * Side effects:
    * - Increments metrics_.databaseQueries.
@@ -384,8 +407,9 @@ private:
     metrics_.databaseQueries++;
 
     // Simple query to test connection pool
+    // Note: Using parameterized query for security best practices
     try {
-      auto result = dbManager_->selectQuery("SELECT 1");
+      auto result = dbManager_->selectQuery("SELECT 1", {});
       if (!result.empty()) {
         // Success
       }
@@ -397,9 +421,9 @@ private:
   /**
    * @brief Simulates a cache workload for a single operation.
    *
-   * Generates a thread-local random test key, attempts to retrieve it from the cache,
-   * and updates metrics: increments cacheHits on a hit or cacheMisses and stores
-   * the test payload in the cache on a miss.
+   * Generates a thread-local random test key, attempts to retrieve it from the
+   * cache, and updates metrics: increments cacheHits on a hit or cacheMisses
+   * and stores the test payload in the cache on a miss.
    *
    * Side effects:
    * - Reads from and possibly writes to the cache via cacheManager_.
@@ -426,21 +450,26 @@ private:
   }
 
   /**
-   * @brief Periodically samples system and connection metrics while monitoring is enabled.
+   * @brief Periodically samples system and connection metrics while monitoring
+   * is enabled.
    *
-   * Runs a loop driven by the atomic flag `monitoring_`. Once started, the function
-   * samples CPU and memory usage from `systemMetrics_` (if available) and records
-   * the values into `metrics_` while updating peak CPU and memory; it also samples
-   * active database connection counts from `dbManager_` (if available) and records
-   * those values and the peak active connections. All updates to non-atomic metric
-   * fields are protected by `metricsMutex_`. The loop sleeps for one second between samples.
+   * Runs a loop driven by the atomic flag `monitoring_`. Once started, the
+   * function samples CPU and memory usage from `systemMetrics_` (if available)
+   * and records the values into `metrics_` while updating peak CPU and memory;
+   * it also samples active database connection counts from `dbManager_` (if
+   * available) and records those values and the peak active connections. All
+   * updates to non-atomic metric fields are protected by `metricsMutex_`. The
+   * loop sleeps for one second between samples.
    *
    * Side effects:
-   * - Appends samples to metrics_.cpuUsage, metrics_.memoryUsage, and metrics_.activeConnections.
-   * - Updates metrics_.peakCpuUsage, metrics_.peakMemoryUsageMB, and metrics_.peakActiveConnections.
+   * - Appends samples to metrics_.cpuUsage, metrics_.memoryUsage, and
+   * metrics_.activeConnections.
+   * - Updates metrics_.peakCpuUsage, metrics_.peakMemoryUsageMB, and
+   * metrics_.peakActiveConnections.
    *
-   * This function does not return a value and does not throw. It relies on external
-   * components (`systemMetrics_`, `dbManager_`) being valid if present.
+   * This function does not return a value and does not throw. It relies on
+   * external components (`systemMetrics_`, `dbManager_`) being valid if
+   * present.
    */
   void monitorResources() {
     while (monitoring_.load()) {
@@ -525,7 +554,8 @@ private:
    * resource usage), writes it to the file path specified by the test
    * configuration, and emits a human-readable summary to stdout. Cache hit rate
    * is included in the report only when cache activity was recorded. Console
-   * output uses snapshot values for atomic counters to present consistent totals.
+   * output uses snapshot values for atomic counters to present consistent
+   * totals.
    */
   void generateReport() {
     nlohmann::json report;
@@ -633,7 +663,8 @@ private:
  *  - --url <serverUrl>         : Target server base URL to test.
  *  - --threads <N>            : Number of worker threads (positive integer).
  *  - --requests <M>           : Requests per thread (positive integer).
- *  - --duration <seconds>     : Total test duration in seconds (positive integer).
+ *  - --duration <seconds>     : Total test duration in seconds (positive
+ * integer).
  *  - --no-db                  : Disable simulated database workload.
  *  - --no-cache               : Disable simulated cache workload.
  *  - --no-monitor             : Disable resource monitoring.

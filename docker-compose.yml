@@ -23,15 +23,17 @@ services:
   redis:
     image: redis:7-alpine
     container_name: etl_redis
-    environment:
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
     volumes:
       - redis_data:/data
       - ./redis.conf:/etc/redis/redis.conf:ro
-    command: ["redis-server", "/etc/redis/redis.conf", "--requirepass", "${REDIS_PASSWORD}"]
+      - ./redis-entrypoint.sh:/usr/local/bin/redis-entrypoint.sh:ro
+      - redis_password:/run/secrets/redis_password:ro
+    entrypoint: ["/usr/local/bin/redis-entrypoint.sh"]
     restart: unless-stopped
+    secrets:
+      - redis_password
     healthcheck:
-      test: ["CMD-SHELL", 'if [ -n "$$REDIS_PASSWORD" ]; then redis-cli -a "$$REDIS_PASSWORD" ping; else redis-cli ping; fi']
+      test: ["CMD", "redis-cli", "-a", "/run/secrets/redis_password", "ping"]
       interval: 10s
       timeout: 3s
       retries: 3
@@ -75,3 +77,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+
+secrets:
+  redis_password:
+    file: ./redis_password.txt

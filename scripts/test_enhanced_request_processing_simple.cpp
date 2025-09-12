@@ -12,10 +12,12 @@
 class EnhancedRequestProcessingTest {
 public:
   /**
-   * @brief Verifies that ServerConfig correctly stores request queue parameters.
+   * @brief Verifies that ServerConfig correctly stores request queue
+   * parameters.
    *
-   * Creates a ServerConfig with specific queue settings (maxQueueSize and maxQueueWaitTime)
-   * and asserts those values are preserved on the resulting configuration object.
+   * Creates a ServerConfig with specific queue settings (maxQueueSize and
+   * maxQueueWaitTime) and asserts those values are preserved on the resulting
+   * configuration object.
    *
    * This is a unit test helper; it will abort the process if assertions fail.
    */
@@ -42,13 +44,15 @@ public:
   }
 
   /**
-   * @brief Tests server configuration parameters intended to exercise connection-pool exhaustion scenarios.
+   * @brief Tests server configuration parameters intended to exercise
+   * connection-pool exhaustion scenarios.
    *
-   * Creates a ServerConfig with a deliberately small connection pool and small queue settings, then
-   * validates that the produced configuration exposes the expected limits for maxConnections,
-   * maxQueueSize, and maxQueueWaitTime.
+   * Creates a ServerConfig with a deliberately small connection pool and small
+   * queue settings, then validates that the produced configuration exposes the
+   * expected limits for maxConnections, maxQueueSize, and maxQueueWaitTime.
    *
-   * The test uses assertions to verify the values and will terminate the process if any assertion fails.
+   * The test uses assertions to verify the values and will terminate the
+   * process if any assertion fails.
    */
   void testPoolExhaustionConfiguration() {
     std::cout << "Testing pool exhaustion configuration..." << std::endl;
@@ -77,10 +81,10 @@ public:
   /**
    * @brief Tests that ServerConfig supports memory-optimized settings.
    *
-   * Creates a ServerConfig with a small maxRequestBodySize and typical connection/queue
-   * parameters, then asserts that key memory-related fields match the expected values.
-   * Assertion failures indicate the configuration did not apply memory-optimization
-   * parameters correctly.
+   * Creates a ServerConfig with a small maxRequestBodySize and typical
+   * connection/queue parameters, then asserts that key memory-related fields
+   * match the expected values. Assertion failures indicate the configuration
+   * did not apply memory-optimization parameters correctly.
    */
   void testMemoryOptimizationConfiguration() {
     std::cout << "Testing memory optimization configuration..." << std::endl;
@@ -110,12 +114,14 @@ public:
    * @brief Validates ServerConfig validation, defaulting, and warning behavior.
    *
    * Exercises invalid, defaulting, and warning code paths of ServerConfig:
-   * - Constructs an invalid configuration (zero/negative queue values) and asserts validation fails
-   *   and that error messages mention `maxQueueSize` and `maxQueueWaitTime`.
-   * - Calls `applyDefaults()` on the invalid config and asserts defaults are applied (positive queue
-   *   size and wait time).
-   * - Constructs a configuration with excessively large queue settings, validates it, and asserts
-   *   the configuration is considered valid but produces warnings.
+   * - Constructs an invalid configuration (zero/negative queue values) and
+   * asserts validation fails and that error messages mention `maxQueueSize` and
+   * `maxQueueWaitTime`.
+   * - Calls `applyDefaults()` on the invalid config and asserts defaults are
+   * applied (positive queue size and wait time).
+   * - Constructs a configuration with excessively large queue settings,
+   * validates it, and asserts the configuration is considered valid but
+   * produces warnings.
    *
    * This test uses assertions to enforce expected outcomes.
    */
@@ -169,14 +175,17 @@ public:
   }
 
   /**
-   * @brief Tests ServerConfig settings intended for high-concurrency/thread-safety scenarios.
+   * @brief Tests ServerConfig settings intended for
+   * high-concurrency/thread-safety scenarios.
    *
-   * Constructs a ServerConfig with high min/max connection counts, a large request queue
-   * and extended timeouts, then asserts those fields match the expected values.
+   * Constructs a ServerConfig with high min/max connection counts, a large
+   * request queue and extended timeouts, then asserts those fields match the
+   * expected values.
    *
-   * The function uses assertions to validate: minConnections == 20, maxConnections == 100,
-   * maxQueueSize == 200 and maxQueueWaitTime == 45 seconds. Assertion failures will
-   * terminate the test; on success it prints a short success message to stdout.
+   * The function uses assertions to validate: minConnections == 20,
+   * maxConnections == 100, maxQueueSize == 200 and maxQueueWaitTime == 45
+   * seconds. Assertion failures will terminate the test; on success it prints a
+   * short success message to stdout.
    */
   void testThreadSafetyConfiguration() {
     std::cout << "Testing thread safety configuration..." << std::endl;
@@ -255,11 +264,13 @@ public:
    * @brief Run the suite of enhanced request processing configuration tests.
    *
    * Executes each test in sequence: queue configuration, pool exhaustion,
-   * memory optimization, configuration validation, thread-safety, and error-handling.
+   * memory optimization, configuration validation, thread-safety, and
+   * error-handling.
    *
    * @details
-   * Reports progress to stdout. If any test throws, this function calls cleanup()
-   * to perform teardown and then rethrows the exception to the caller.
+   * Reports progress to stdout. If any test throws, this function calls
+   * cleanup() to perform teardown and then rethrows the exception to the
+   * caller.
    */
   void runAllTests() {
     std::cout << "Running Enhanced Request Processing Configuration Tests..."
@@ -297,13 +308,14 @@ public:
 };
 
 /**
- * @brief Entry point for the enhanced request processing configuration test suite.
+ * @brief Entry point for the enhanced request processing configuration test
+ * suite.
  *
- * Runs the EnhancedRequestProcessingTest::runAllTests() sequence and maps outcomes to
- * process exit codes. On successful completion the process exits with 0. If any
- * std::exception is thrown the exception message is written to stderr and the
- * process exits with 1. Any other unexpected exception also results in an error
- * message to stderr and exit code 1.
+ * Runs the EnhancedRequestProcessingTest::runAllTests() sequence and maps
+ * outcomes to process exit codes. On successful completion the process exits
+ * with 0. If any std::exception is thrown the exception message is written to
+ * stderr and the process exits with 1. Any other unexpected exception also
+ * results in an error message to stderr and exit code 1.
  *
  * @return int 0 on success, 1 on failure.
  */

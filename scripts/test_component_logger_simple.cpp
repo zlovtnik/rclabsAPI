@@ -23,7 +23,8 @@ void ComponentLogger<Component>::log_debug(const char *component,
 
 template <typename Component>
 /**
- * @brief Output an informational log message for a component to standard output.
+ * @brief Output an informational log message for a component to standard
+ * output.
  *
  * Writes a formatted info-level message to stdout in the form:
  * `[INFO][<component>] <message>`.
@@ -75,7 +76,8 @@ template <typename Component>
  * @param message The message text to log.
  *
  * @example
- * ComponentLogger<MyComponent>::log_fatal("MyComponent", "unrecoverable error");
+ * ComponentLogger<MyComponent>::log_fatal("MyComponent", "unrecoverable
+ * error");
  *
  * Output format:
  * [FATAL][component] message
@@ -105,7 +107,8 @@ void ComponentLogger<Component>::log_info_job(const char *component,
 
 template <typename Component>
 /**
- * @brief Log an error-level message associated with a specific job for a component.
+ * @brief Log an error-level message associated with a specific job for a
+ * component.
  *
  * Writes a formatted error entry to standard output using the format:
  * `[ERROR][<component>][Job:<jobId>] <message>`
@@ -141,7 +144,8 @@ void ComponentLogger<Component>::log_debug_job(const char *component,
 
 template <typename Component>
 /**
- * @brief Log a warning message associated with a specific job to standard output.
+ * @brief Log a warning message associated with a specific job to standard
+ * output.
  *
  * Writes a formatted warning line to stdout in the form:
  * [WARN][<component>][Job:<jobId>] <message>
@@ -156,16 +160,7 @@ void ComponentLogger<Component>::log_warn_job(const char *component,
   std::cout << "[WARN][" << component << "][Job:" << jobId << "] " << message
             << std::endl;
 }
-} /**
- * @brief Test harness exercising the ComponentLogger template system.
- *
- * Runs a sequence of mock logging scenarios that validate compile-time
- * component name resolution, type-safe logging methods, job-scoped logging
- * variants, formatted logging, and a set of component alias loggers. All
- * output is written to standard output for manual or automated verification.
- *
- * @return int Returns 0 on successful completion of all test steps.
- */
+} // namespace etl
 
 int main() {
   std::cout << "=== ComponentLogger Template System Test ===" << std::endl;

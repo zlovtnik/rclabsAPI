@@ -6,16 +6,18 @@
 class ConfigManagerMonitoringTest : public ::testing::Test {
 protected:
   /**
-   * @brief Test fixture setup: prepares a temporary config environment and loads it.
+   * @brief Test fixture setup: prepares a temporary config environment and
+   * loads it.
    *
-   * Creates a temporary directory and writes a test configuration file (test_config.json),
-   * then obtains the ConfigManager singleton and loads the written config file so tests
-   * start with a known configuration state.
+   * Creates a temporary directory and writes a test configuration file
+   * (test_config.json), then obtains the ConfigManager singleton and loads the
+   * written config file so tests start with a known configuration state.
    *
    * Side effects:
    * - Creates the directory referenced by `testDir`.
    * - Writes `testConfigFile` into that directory.
-   * - Initializes `configManager` by loading the configuration into the ConfigManager singleton.
+   * - Initializes `configManager` by loading the configuration into the
+   * ConfigManager singleton.
    */
   void SetUp() override {
     // Create a temporary directory for test files
@@ -84,11 +86,13 @@ protected:
   }
 
   /**
-   * @brief Writes a deliberately invalid monitoring JSON configuration to the testConfigFile.
+   * @brief Writes a deliberately invalid monitoring JSON configuration to the
+   * testConfigFile.
    *
-   * The file contains invalid numeric values for websocket and job_tracking sections
-   * (e.g., negative port, zero/negative intervals and sizes) intended to trigger
-   * validation errors in tests that load and validate configuration data.
+   * The file contains invalid numeric values for websocket and job_tracking
+   * sections (e.g., negative port, zero/negative intervals and sizes) intended
+   * to trigger validation errors in tests that load and validate configuration
+   * data.
    */
   void createInvalidConfigFile() {
     std::ofstream file(testConfigFile);
@@ -585,7 +589,8 @@ TEST_F(ConfigManagerMonitoringTest,
 /**
  * @brief Entry point for the Google Test runner.
  *
- * Initializes Google Test with command-line arguments and runs all registered tests.
+ * Initializes Google Test with command-line arguments and runs all registered
+ * tests.
  *
  * @param argc Number of command-line arguments.
  * @param argv Array of command-line argument strings.

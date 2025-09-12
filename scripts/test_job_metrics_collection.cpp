@@ -12,12 +12,12 @@ using namespace ::testing;
 class SystemMetricsTest : public ::testing::Test {
 protected:
   /**
- * @brief Test fixture setup: create a fresh SystemMetrics instance.
- *
- * Called before each test to allocate and initialize a new SystemMetrics
- * object stored in the fixture's `metrics` member.
- */
-void SetUp() override { metrics = std::make_unique<SystemMetrics>(); }
+   * @brief Test fixture setup: create a fresh SystemMetrics instance.
+   *
+   * Called before each test to allocate and initialize a new SystemMetrics
+   * object stored in the fixture's `metrics` member.
+   */
+  void SetUp() override { metrics = std::make_unique<SystemMetrics>(); }
 
   /**
    * @brief Test fixture teardown: stop system metrics monitoring if active.

@@ -1,10 +1,12 @@
 #include <chrono>
 #include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <random>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -210,12 +212,25 @@ int main(int argc, char *argv[]) {
     std::filesystem::path reportsDir = writableDir / "security_reports";
     std::filesystem::create_directories(reportsDir);
 
-    // Generate unique filename with timestamp
+    // Generate unique filename with timestamp and random component
     auto now = std::chrono::system_clock::now();
     auto time_t = std::chrono::system_clock::to_time_t(now);
+    std::tm tm_buf;
+    std::tm *tm = localtime_r(&time_t, &tm_buf);
+    
+    // Generate random token for uniqueness
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, 15);
+    std::stringstream randomToken;
+    for (int i = 0; i < 8; ++i) {
+      randomToken << std::hex << dis(gen);
+    }
+    
     std::stringstream filename;
     filename << "security_audit_report_"
-             << std::put_time(std::localtime(&time_t), "%Y%m%d_%H%M%S")
+             << std::put_time(tm, "%Y%m%d_%H%M%S")
+             << "_" << randomToken.str()
              << ".txt";
 
     reportPath = reportsDir / filename.str();
@@ -225,6 +240,16 @@ int main(int argc, char *argv[]) {
     if (reportFile.is_open()) {
       reportFile << report;
       reportFile.close();
+      
+      // Set restrictive permissions (owner read/write only)
+      try {
+        std::filesystem::permissions(reportPath, 
+          std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
+          std::filesystem::perm_options::replace);
+      } catch (const std::filesystem::filesystem_error &perm_e) {
+        std::cerr << "Warning: Could not set file permissions: " << perm_e.what() << "\n";
+      }
+      
       reportSaved = true;
       std::cout << "Full security audit report saved to: "
                 << reportPath.string() << "\n";

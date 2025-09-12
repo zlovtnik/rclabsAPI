@@ -16,10 +16,13 @@ namespace http = boost::beast::http;
  * @param method HTTP method name ("GET", "POST", "PUT", "DELETE", "PATCH").
  *               Comparison is case-sensitive and unrecognized values leave the
  *               request method unset.
- * @param target Request target (path and optional query string), e.g. "/api/health".
+ * @param target Request target (path and optional query string), e.g.
+ * "/api/health".
  * @param body Optional request body; assigned to the request's string_body.
- * @param headers Optional list of header name/value pairs to set on the request.
- * @return http::request<http::string_body> Fully prepared request ready for use.
+ * @param headers Optional list of header name/value pairs to set on the
+ * request.
+ * @return http::request<http::string_body> Fully prepared request ready for
+ * use.
  */
 http::request<http::string_body> createTestRequest(
     const std::string &method, const std::string &target,
@@ -56,14 +59,16 @@ http::request<http::string_body> createTestRequest(
 /**
  * @brief Print a formatted summary of a validation result to standard output.
  *
- * Prints a human-readable report for a single test run: test header, overall validity,
- * HTTP method, extracted path, query parameters (if any), up to the first five headers,
- * validation errors (if any), and the full JSON representation produced by
+ * Prints a human-readable report for a single test run: test header, overall
+ * validity, HTTP method, extracted path, query parameters (if any), up to the
+ * first five headers, validation errors (if any), and the full JSON
+ * representation produced by
  * RequestValidator::ValidationResult::toJsonString().
  *
  * @param testName Descriptive name of the test displayed in the report header.
- * @param result Validation result produced by RequestValidator; its contents are read
- *               and rendered (including queryParams, headers, errors and toJsonString()).
+ * @param result Validation result produced by RequestValidator; its contents
+ * are read and rendered (including queryParams, headers, errors and
+ * toJsonString()).
  */
 void printValidationResult(const std::string &testName,
                            const RequestValidator::ValidationResult &result) {
@@ -106,9 +111,9 @@ void printValidationResult(const std::string &testName,
 /**
  * @brief Print a formatted summary of a security validation result to stdout.
  *
- * Prints a header with the provided test name, whether the request was considered secure,
- * the client IP and user agent, the rate-limit status, and any detected security issues.
- * Output is written to std::cout.
+ * Prints a header with the provided test name, whether the request was
+ * considered secure, the client IP and user agent, the rate-limit status, and
+ * any detected security issues. Output is written to std::cout.
  *
  * @param testName Short label for the test shown in the printed header.
  * @param result Security validation result produced by RequestValidator.
@@ -137,12 +142,12 @@ void printSecurityResult(
 /**
  * @brief Demo harness that exercises the RequestValidator and its utilities.
  *
- * Runs a sequence of validation and security test cases against a RequestValidator
- * instance configured with sample limits and protections (size, headers,
- * query params, XSS/SQL protections, and rate limiting). The demo builds and
- * validates example HTTP requests (valid and invalid), performs security
- * checks, simulates rate-limiting from a client IP, prints formatted results
- * and final statistics, and demonstrates path-parsing helper methods.
+ * Runs a sequence of validation and security test cases against a
+ * RequestValidator instance configured with sample limits and protections
+ * (size, headers, query params, XSS/SQL protections, and rate limiting). The
+ * demo builds and validates example HTTP requests (valid and invalid), performs
+ * security checks, simulates rate-limiting from a client IP, prints formatted
+ * results and final statistics, and demonstrates path-parsing helper methods.
  *
  * The function prints human-readable output to stdout describing each test's
  * outcome and the final summary; it does not modify external state beyond

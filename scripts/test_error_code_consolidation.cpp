@@ -4,13 +4,14 @@
 #include <iostream>
 
 /**
- * @brief Run checks that validate consolidation and migration of legacy error codes.
+ * @brief Run checks that validate consolidation and migration of legacy error
+ * codes.
  *
- * Exercises retrieval of metadata for a canonical error code, migrates example legacy
- * codes using etl::migration utilities, verifies multiple legacy codes map to the
- * expected etl::ErrorCode values (database, validation, network), and prints migration
- * information. Side effects: writes diagnostic output to stdout and uses `assert` to
- * abort on failed invariants.
+ * Exercises retrieval of metadata for a canonical error code, migrates example
+ * legacy codes using etl::migration utilities, verifies multiple legacy codes
+ * map to the expected etl::ErrorCode values (database, validation, network),
+ * and prints migration information. Side effects: writes diagnostic output to
+ * stdout and uses `assert` to abort on failed invariants.
  */
 void testErrorCodeConsolidation() {
   std::cout << "Testing Error Code Consolidation..." << std::endl;
@@ -85,12 +86,13 @@ void testErrorCodeConsolidation() {
 /**
  * @brief Exercises the new ETL exception types and their contextual data.
  *
- * This test function throws and catches etl::SystemException, etl::ValidationException,
- * and etl::BusinessException to validate construction, context extraction, and
- * helper accessors. For SystemException it populates an etl::ErrorContext and
- * inspects code, message, component, correlation id, and context key/value pairs.
- * For ValidationException it inspects the field and value. For BusinessException
- * it inspects the operation. Observations are written to stdout.
+ * This test function throws and catches etl::SystemException,
+ * etl::ValidationException, and etl::BusinessException to validate
+ * construction, context extraction, and helper accessors. For SystemException
+ * it populates an etl::ErrorContext and inspects code, message, component,
+ * correlation id, and context key/value pairs. For ValidationException it
+ * inspects the field and value. For BusinessException it inspects the
+ * operation. Observations are written to stdout.
  */
 void testNewExceptionSystem() {
   std::cout << "\nTesting New Exception System..." << std::endl;
@@ -147,10 +149,10 @@ void testNewExceptionSystem() {
 /**
  * @brief Estimates and validates reduction in error-code count after migration.
  *
- * Iterates a numeric range of potential new error-code values, counts entries whose
- * descriptions are not "Unknown error", compares that count to an approximate legacy
- * count (40), computes the percent reduction, prints a brief summary to stdout, and
- * asserts the reduction is at least 30%.
+ * Iterates a numeric range of potential new error-code values, counts entries
+ * whose descriptions are not "Unknown error", compares that count to an
+ * approximate legacy count (40), computes the percent reduction, prints a brief
+ * summary to stdout, and asserts the reduction is at least 30%.
  *
  * Side effects:
  * - Writes summary lines to std::cout.

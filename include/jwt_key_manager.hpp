@@ -27,34 +27,36 @@ namespace ETLPlus::Auth {
 class JWTKeyManager {
 public:
   /**
- * @brief Deleted copy constructor to make the manager non-copyable.
- *
- * Deleting the copy constructor prevents accidental copying of sensitive key
- * material and enforces a single authoritative instance responsible for key
- * lifecycle, rotation, and secure wiping.
- */
-JWTKeyManager(const JWTKeyManager &) = delete;
+   * @brief Deleted copy constructor to make the manager non-copyable.
+   *
+   * Deleting the copy constructor prevents accidental copying of sensitive key
+   * material and enforces a single authoritative instance responsible for key
+   * lifecycle, rotation, and secure wiping.
+   */
+  JWTKeyManager(const JWTKeyManager &) = delete;
   /**
- * @brief Deleted copy assignment operator — JWTKeyManager is non-copyable.
- *
- * Prevents copying of manager instances to ensure unique ownership of sensitive key material
- * and to avoid accidental duplication of internal state.
- */
-JWTKeyManager &operator=(const JWTKeyManager &) = delete;
+   * @brief Deleted copy assignment operator — JWTKeyManager is non-copyable.
+   *
+   * Prevents copying of manager instances to ensure unique ownership of
+   * sensitive key material and to avoid accidental duplication of internal
+   * state.
+   */
+  JWTKeyManager &operator=(const JWTKeyManager &) = delete;
   /**
- * @brief Deleted move constructor to prevent moving a JWTKeyManager.
- *
- * Ensures the manager is non-movable so ownership of sensitive key material and
- * internal synchronization state cannot be transferred implicitly.
- */
-JWTKeyManager(JWTKeyManager &&) = delete;
+   * @brief Deleted move constructor to prevent moving a JWTKeyManager.
+   *
+   * Ensures the manager is non-movable so ownership of sensitive key material
+   * and internal synchronization state cannot be transferred implicitly.
+   */
+  JWTKeyManager(JWTKeyManager &&) = delete;
   /**
- * @brief Deleted move-assignment operator.
- *
- * Prevents move-assignment of JWTKeyManager instances to enforce unique ownership
- * of sensitive key material and to preserve internal synchronization invariants.
- */
-JWTKeyManager &operator=(JWTKeyManager &&) = delete;
+   * @brief Deleted move-assignment operator.
+   *
+   * Prevents move-assignment of JWTKeyManager instances to enforce unique
+   * ownership of sensitive key material and to preserve internal
+   * synchronization invariants.
+   */
+  JWTKeyManager &operator=(JWTKeyManager &&) = delete;
   /**
    * @brief JWT algorithm types
    */
@@ -84,16 +86,17 @@ JWTKeyManager &operator=(JWTKeyManager &&) = delete;
     std::string issuer;
 
     /**
-           * @brief Default-initializes a KeyConfig with sensible defaults for JWT key management.
-           *
-           * Initializes:
-           * - algorithm to HS256
-           * - keyId to "default"
-           * - rotationInterval to 30 days
-           * - enableRotation to false
-           * - issuer to "etl-backend"
-           */
-          KeyConfig()
+     * @brief Default-initializes a KeyConfig with sensible defaults for JWT key
+     * management.
+     *
+     * Initializes:
+     * - algorithm to HS256
+     * - keyId to "default"
+     * - rotationInterval to 30 days
+     * - enableRotation to false
+     * - issuer to "etl-backend"
+     */
+    KeyConfig()
         : algorithm(Algorithm::HS256), keyId("default"),
           rotationInterval(std::chrono::hours(24 * 30)), enableRotation(false),
           issuer("etl-backend") {}

@@ -13,9 +13,9 @@ protected:
   /**
    * @brief Test fixture setup executed before each test.
    *
-   * Initializes the timeout manager bound to the fixture's IO context and sets the default
-   * connection-pool configuration used by tests: minimum and maximum connection counts and
-   * the idle timeout duration.
+   * Initializes the timeout manager bound to the fixture's IO context and sets
+   * the default connection-pool configuration used by tests: minimum and
+   * maximum connection counts and the idle timeout duration.
    */
   void SetUp() override {
     timeoutManager_ = std::make_shared<TimeoutManager>(ioc_);
@@ -27,11 +27,13 @@ protected:
   }
 
   /**
-   * @brief Tear down test fixture: cleanly stops the connection pool and IO thread.
+   * @brief Tear down test fixture: cleanly stops the connection pool and IO
+   * thread.
    *
-   * Called after each test. If a ConnectionPoolManager exists it will be shut down,
-   * the Boost.Asio io_context is stopped, and the IO thread (if joinable) is joined
-   * to ensure all asynchronous work has finished before the test exits.
+   * Called after each test. If a ConnectionPoolManager exists it will be shut
+   * down, the Boost.Asio io_context is stopped, and the IO thread (if joinable)
+   * is joined to ensure all asynchronous work has finished before the test
+   * exits.
    */
   void TearDown() override {
     if (poolManager_) {
@@ -44,12 +46,13 @@ protected:
   }
 
   /**
-   * @brief Create and configure the ConnectionPoolManager used by the test fixture.
+   * @brief Create and configure the ConnectionPoolManager used by the test
+   * fixture.
    *
    * Initializes poolManager_ with the fixture's io_context, configured min/max
    * connection limits and idle timeout, null placeholders for the handler and
-   * websocket manager, and the fixture's TimeoutManager. The created instance is
-   * stored in the member variable poolManager_.
+   * websocket manager, and the fixture's TimeoutManager. The created instance
+   * is stored in the member variable poolManager_.
    */
   void createPoolManager() {
     // Create null pointers for handler and wsManager since we're testing pool
@@ -63,26 +66,28 @@ protected:
   }
 
   /**
-   * @brief Starts the fixture's Boost.Asio io_context on a dedicated background thread.
+   * @brief Starts the fixture's Boost.Asio io_context on a dedicated background
+   * thread.
    *
-   * Launches a std::thread that calls io_context::run() and stores it in ioThread_.
-   * The thread will run until the io_context is stopped; callers are responsible for
-   * stopping the io_context and joining ioThread_ (e.g., in TearDown).
+   * Launches a std::thread that calls io_context::run() and stores it in
+   * ioThread_. The thread will run until the io_context is stopped; callers are
+   * responsible for stopping the io_context and joining ioThread_ (e.g., in
+   * TearDown).
    */
   void startIoContext() {
     ioThread_ = std::thread([this]() { ioc_.run(); });
   }
 
   /**
- * @brief Creates a TCP socket associated with the fixture's io_context.
- *
- * Returns a new boost::asio::ip::tcp::socket constructed with the test fixture's
- * io_context (ioc_). The socket is not connected; callers are responsible for
- * connecting or moving it as needed.
- *
- * @return tcp::socket A socket bound to ioc_.
- */
-tcp::socket createSocket() { return tcp::socket(ioc_); }
+   * @brief Creates a TCP socket associated with the fixture's io_context.
+   *
+   * Returns a new boost::asio::ip::tcp::socket constructed with the test
+   * fixture's io_context (ioc_). The socket is not connected; callers are
+   * responsible for connecting or moving it as needed.
+   *
+   * @return tcp::socket A socket bound to ioc_.
+   */
+  tcp::socket createSocket() { return tcp::socket(ioc_); }
 
   net::io_context ioc_;
   std::thread ioThread_;
@@ -461,13 +466,16 @@ TEST_F(ConnectionPoolManagerTest, IntegrationWithTimeoutManager) {
 }
 
 /**
- * @brief Test runner entry point that initializes and runs the Google Test suite.
+ * @brief Test runner entry point that initializes and runs the Google Test
+ * suite.
  *
- * Initializes Google Test with command-line arguments and executes all registered tests.
+ * Initializes Google Test with command-line arguments and executes all
+ * registered tests.
  *
  * @param argc Number of command-line arguments.
  * @param argv Command-line arguments.
- * @return int Exit code returned by RUN_ALL_TESTS() (0 on success, non-zero on failure).
+ * @return int Exit code returned by RUN_ALL_TESTS() (0 on success, non-zero on
+ * failure).
  */
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);

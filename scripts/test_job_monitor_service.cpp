@@ -15,21 +15,23 @@
 class MockNotificationService : public NotificationService {
 public:
   /**
- * @brief Virtual destructor for MockNotificationService.
- *
- * Ensures proper polymorphic destruction of MockNotificationService instances and
- * allows derived classes to clean up resources correctly.
- */
-virtual ~MockNotificationService() = default;
+   * @brief Virtual destructor for MockNotificationService.
+   *
+   * Ensures proper polymorphic destruction of MockNotificationService instances
+   * and allows derived classes to clean up resources correctly.
+   */
+  virtual ~MockNotificationService() = default;
 
   /**
    * @brief Mock implementation that records and reports a job failure alert.
    *
    * Logs a failure message to stdout and appends a FailureAlert entry to the
-   * MockNotificationService::failureAlerts vector for later inspection in tests.
+   * MockNotificationService::failureAlerts vector for later inspection in
+   * tests.
    *
    * @param jobId Identifier of the failed job.
-   * @param error Human-readable error description or message associated with the failure.
+   * @param error Human-readable error description or message associated with
+   * the failure.
    */
   virtual void sendJobFailureAlert(const std::string &jobId,
                                    const std::string &error) override {
@@ -56,14 +58,14 @@ virtual ~MockNotificationService() = default;
   }
 
   /**
- * @brief Always reports the mock notification service as running.
- *
- * Overrides NotificationService::isRunning to unconditionally return true so
- * tests treat the mock as operational regardless of internal state.
- *
- * @return true Always returns true.
- */
-bool isRunning() const override { return true; }
+   * @brief Always reports the mock notification service as running.
+   *
+   * Overrides NotificationService::isRunning to unconditionally return true so
+   * tests treat the mock as operational regardless of internal state.
+   *
+   * @return true Always returns true.
+   */
+  bool isRunning() const override { return true; }
 
   struct FailureAlert {
     std::string jobId;
@@ -82,12 +84,14 @@ bool isRunning() const override { return true; }
 class JobMonitorServiceTest {
 public:
   /**
-   * @brief Constructs the test harness and wires together all test dependencies.
+   * @brief Constructs the test harness and wires together all test
+   * dependencies.
    *
-   * Initializes logging, loads test configuration, and creates the core components
-   * used across the test suite: DatabaseManager, DataTransformer, ETLJobManager,
-   * WebSocketManager, a MockNotificationService, and the JobMonitorService under
-   * test. The logger is configured to write to "logs/test_job_monitor_service.log".
+   * Initializes logging, loads test configuration, and creates the core
+   * components used across the test suite: DatabaseManager, DataTransformer,
+   * ETLJobManager, WebSocketManager, a MockNotificationService, and the
+   * JobMonitorService under test. The logger is configured to write to
+   * "logs/test_job_monitor_service.log".
    */
   JobMonitorServiceTest() {
     // Configure logger
@@ -193,15 +197,20 @@ private:
   }
 
   /**
-   * @brief Runs unit tests for job status transition handling in the JobMonitorService.
+   * @brief Runs unit tests for job status transition handling in the
+   * JobMonitorService.
    *
-   * Executes a sequence of status-change scenarios and asserts that the JobMonitorService
-   * updates its internal tracking and monitoring data accordingly:
-   * - PENDING -> RUNNING: job becomes active and monitoring data is created/updated with RUNNING status.
-   * - RUNNING -> COMPLETED: job is removed from active tracking but its monitoring data remains with COMPLETED status.
+   * Executes a sequence of status-change scenarios and asserts that the
+   * JobMonitorService updates its internal tracking and monitoring data
+   * accordingly:
+   * - PENDING -> RUNNING: job becomes active and monitoring data is
+   * created/updated with RUNNING status.
+   * - RUNNING -> COMPLETED: job is removed from active tracking but its
+   * monitoring data remains with COMPLETED status.
    * - RUNNING -> FAILED: monitoring data reflects FAILED status.
    *
-   * Uses assertions to validate expected outcomes and prints pass messages for each subtest.
+   * Uses assertions to validate expected outcomes and prints pass messages for
+   * each subtest.
    */
   void testJobStatusChangeHandling() {
     std::cout << "\n--- Test: Job Status Change Handling ---" << std::endl;
@@ -252,14 +261,16 @@ private:
    * Executes a sequence of progress-update scenarios against the shared
    * JobMonitorService instance:
    * - Initializes a test job and transitions it to RUNNING.
-   * - Sends progress updates and verifies stored progress percentage and current step.
-   * - Sets a progress-update threshold and verifies that small changes below the
-   *   threshold are ignored.
+   * - Sends progress updates and verifies stored progress percentage and
+   * current step.
+   * - Sets a progress-update threshold and verifies that small changes below
+   * the threshold are ignored.
    * - Sends a larger update and verifies it is applied.
    *
    * The function uses assertions to validate expected state and prints brief
-   * pass/fail markers to stdout. It mutates the monitor service state (including
-   * the progress update threshold) and relies on the member `jobMonitorService`.
+   * pass/fail markers to stdout. It mutates the monitor service state
+   * (including the progress update threshold) and relies on the member
+   * `jobMonitorService`.
    */
   void testJobProgressUpdates() {
     std::cout << "\n--- Test: Job Progress Updates ---" << std::endl;
@@ -313,18 +324,21 @@ private:
    * JobMonitorService query APIs, and asserts expected results. Specifically:
    * - Transitions three jobs through PENDING/RUNNING/COMPLETED states.
    * - Verifies getAllActiveJobs returns the active/running jobs.
-   * - Verifies getJobsByStatus returns expected counts for RUNNING and COMPLETED.
+   * - Verifies getJobsByStatus returns expected counts for RUNNING and
+   * COMPLETED.
    * - Verifies getJobMonitoringData returns valid monitoring records for each
    *   created job.
    * - Verifies retrieval of a non-existent job returns a record whose jobId
    *   matches the requested id (handled as a non-populated/placeholder entry).
    *
    * Side effects:
-   * - Mutates the shared jobMonitorService state by invoking onJobStatusChanged.
+   * - Mutates the shared jobMonitorService state by invoking
+   * onJobStatusChanged.
    * - Uses assertions to fail the test when expectations are not met.
    *
    * Notes:
-   * - Relies on the test fixture's jobMonitorService instance being initialized.
+   * - Relies on the test fixture's jobMonitorService instance being
+   * initialized.
    */
   void testJobDataRetrieval() {
     std::cout << "\n--- Test: Job Data Retrieval ---" << std::endl;
@@ -375,12 +389,14 @@ private:
   }
 
   /**
-   * @brief Unit test verifying active-job tracking behavior in JobMonitorService.
+   * @brief Unit test verifying active-job tracking behavior in
+   * JobMonitorService.
    *
    * This test exercises the lifecycle of a single job ID to ensure the service
    * correctly tracks active jobs: initially not active, becomes active when the
    * status transitions to RUNNING, appears in the active job list and count,
-   * and is removed from active tracking when the status transitions to COMPLETED.
+   * and is removed from active tracking when the status transitions to
+   * COMPLETED.
    *
    * The test uses assertions to validate isJobActive, getActiveJobCount,
    * getActiveJobIds, and onJobStatusChanged behaviors for the tracked job ID.
@@ -513,13 +529,16 @@ private:
   }
 
   /**
-   * @brief Verifies integration between the JobMonitorService and the NotificationService.
+   * @brief Verifies integration between the JobMonitorService and the
+   * NotificationService.
    *
-   * Runs a sequence of checks that exercise failure notifications and the runtime
-   * enable/disable controls for notifications:
+   * Runs a sequence of checks that exercise failure notifications and the
+   * runtime enable/disable controls for notifications:
    * - Clears previously recorded alerts from the mock notification service.
-   * - Triggers a job status transition to FAILED and asserts a failure alert is recorded.
-   * - Disables notifications, triggers another failure, and asserts no new alert is recorded.
+   * - Triggers a job status transition to FAILED and asserts a failure alert is
+   * recorded.
+   * - Disables notifications, triggers another failure, and asserts no new
+   * alert is recorded.
    * - Re-enables notifications.
    *
    * Side effects:
@@ -576,9 +595,11 @@ private:
    *
    * Applies and verifies runtime configuration changes on the test instance of
    * JobMonitorService: adjusts the maximum number of recent logs retained,
-   * updates the progress-update threshold, and toggles notifications on and off.
+   * updates the progress-update threshold, and toggles notifications on and
+   * off.
    *
-   * This is a test helper that causes side effects on the member `jobMonitorService`.
+   * This is a test helper that causes side effects on the member
+   * `jobMonitorService`.
    */
   void testConfigurationSettings() {
     std::cout << "\n--- Test: Configuration Settings ---" << std::endl;
@@ -598,15 +619,19 @@ private:
   }
 
   /**
-   * @brief Runs unit tests that verify graceful handling of error and edge cases.
+   * @brief Runs unit tests that verify graceful handling of error and edge
+   * cases.
    *
-   * This test executes several error-condition scenarios against the JobMonitorService:
-   * - Invokes status and progress callbacks on a service instance that has not been started.
+   * This test executes several error-condition scenarios against the
+   * JobMonitorService:
+   * - Invokes status and progress callbacks on a service instance that has not
+   * been started.
    * - Calls the same callbacks with invalid (empty) job IDs.
    * - Supplies extreme progress values (below 0 and above 100).
    *
-   * The test asserts that these operations do not crash the process and are handled
-   * gracefully by the service (e.g., no uncaught exceptions, appropriate logging or no-ops).
+   * The test asserts that these operations do not crash the process and are
+   * handled gracefully by the service (e.g., no uncaught exceptions,
+   * appropriate logging or no-ops).
    *
    * Output: prints concise pass messages for each sub-check to stdout.
    */
@@ -644,10 +669,11 @@ private:
 /**
  * @brief Entry point that runs the Job Monitor Service test suite.
  *
- * Constructs the test harness, executes all tests via JobMonitorServiceTest::runAllTests(),
- * and reports the overall result. On success prints a confirmation and returns 0.
- * If a std::exception is thrown the exception message is printed and the process returns 1.
- * Any other uncaught exception also causes the process to return 1.
+ * Constructs the test harness, executes all tests via
+ * JobMonitorServiceTest::runAllTests(), and reports the overall result. On
+ * success prints a confirmation and returns 0. If a std::exception is thrown
+ * the exception message is printed and the process returns 1. Any other
+ * uncaught exception also causes the process to return 1.
  *
  * @return int 0 on success; 1 on failure (exception thrown).
  */

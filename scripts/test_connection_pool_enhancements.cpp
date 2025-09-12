@@ -13,70 +13,75 @@
 class MockTimeoutManager {
 public:
   /**
-                      * @brief Constructs a test-only MockTimeoutManager.
-                      *
-                      * Creates a mock timeout manager associated with the provided io_context for use in unit tests.
-                      * This mock does not schedule or run any timers.
-                      *
-                      * @param connTimeout Connection timeout duration used by the mock.
-                      * @param reqTimeout Request timeout duration used by the mock.
-                      */
-                     MockTimeoutManager(boost::asio::io_context &ioc,
+   * @brief Constructs a test-only MockTimeoutManager.
+   *
+   * Creates a mock timeout manager associated with the provided io_context for
+   * use in unit tests. This mock does not schedule or run any timers.
+   *
+   * @param connTimeout Connection timeout duration used by the mock.
+   * @param reqTimeout Request timeout duration used by the mock.
+   */
+  MockTimeoutManager(boost::asio::io_context &ioc,
                      std::chrono::seconds connTimeout,
                      std::chrono::seconds reqTimeout) {}
 
   /**
- * @brief Starts a connection timeout for the given pooled session.
- *
- * In the mock implementation this is a no-op. In production implementations this
- * would begin a timer that triggers connection timeout handling for the session
- * if the connection is not established within the configured timeout.
- *
- * @param session The pooled session for which to start the connection timeout.
- */
-void startConnectionTimeout(std::shared_ptr<PooledSession> session) {}
+   * @brief Starts a connection timeout for the given pooled session.
+   *
+   * In the mock implementation this is a no-op. In production implementations
+   * this would begin a timer that triggers connection timeout handling for the
+   * session if the connection is not established within the configured timeout.
+   *
+   * @param session The pooled session for which to start the connection
+   * timeout.
+   */
+  void startConnectionTimeout(std::shared_ptr<PooledSession> session) {}
   /**
- * @brief Start a request-level timeout for the given pooled session.
- *
- * Mock/no-op implementation used in tests. In the real timeout manager this
- * would schedule a timer that enforces the configured request timeout for the
- * provided session.
- *
- * @param session The pooled session to associate with the request timeout.
- */
-void startRequestTimeout(std::shared_ptr<PooledSession> session) {}
+   * @brief Start a request-level timeout for the given pooled session.
+   *
+   * Mock/no-op implementation used in tests. In the real timeout manager this
+   * would schedule a timer that enforces the configured request timeout for the
+   * provided session.
+   *
+   * @param session The pooled session to associate with the request timeout.
+   */
+  void startRequestTimeout(std::shared_ptr<PooledSession> session) {}
   /**
- * @brief Cancel any pending timeouts associated with the given pooled session.
- *
- * Cancels both connection and request timeout timers (if any) that are tracking the
- * lifetime or pending requests of the provided session.
- *
- * @param session Shared pointer to the PooledSession whose timeouts should be cancelled.
- */
-void cancelTimeouts(std::shared_ptr<PooledSession> session) {}
+   * @brief Cancel any pending timeouts associated with the given pooled
+   * session.
+   *
+   * Cancels both connection and request timeout timers (if any) that are
+   * tracking the lifetime or pending requests of the provided session.
+   *
+   * @param session Shared pointer to the PooledSession whose timeouts should be
+   * cancelled.
+   */
+  void cancelTimeouts(std::shared_ptr<PooledSession> session) {}
   /**
- * @brief Update the connection timeout duration.
- *
- * Sets the duration used by the timeout manager for connection-establishment timeouts.
- *
- * @param timeout Timeout duration for connections (in seconds).
- */
-void setConnectionTimeout(std::chrono::seconds timeout) {}
+   * @brief Update the connection timeout duration.
+   *
+   * Sets the duration used by the timeout manager for connection-establishment
+   * timeouts.
+   *
+   * @param timeout Timeout duration for connections (in seconds).
+   */
+  void setConnectionTimeout(std::chrono::seconds timeout) {}
   /**
- * @brief Set the request timeout duration used for request-level timers.
- *
- * Updates the duration (in seconds) that will be applied when starting request timeouts
- * for sessions managed by this timeout manager.
- *
- * @param timeout Timeout duration to use for future request timers.
- */
-void setRequestTimeout(std::chrono::seconds timeout) {}
+   * @brief Set the request timeout duration used for request-level timers.
+   *
+   * Updates the duration (in seconds) that will be applied when starting
+   * request timeouts for sessions managed by this timeout manager.
+   *
+   * @param timeout Timeout duration to use for future request timers.
+   */
+  void setRequestTimeout(std::chrono::seconds timeout) {}
   /**
- * @brief Cancel all active timers managed by this timeout manager.
- *
- * In this mock implementation the call is a no-op (does not modify any timers).
- */
-void cancelAllTimers() {}
+   * @brief Cancel all active timers managed by this timeout manager.
+   *
+   * In this mock implementation the call is a no-op (does not modify any
+   * timers).
+   */
+  void cancelAllTimers() {}
 };
 
 /**
@@ -96,8 +101,8 @@ public:
   /**
    * @brief Initialize test fixture resources.
    *
-   * Creates a new boost::asio::io_context and constructs a ConnectionPoolManager
-   * instance configured for the enhancement tests:
+   * Creates a new boost::asio::io_context and constructs a
+   * ConnectionPoolManager instance configured for the enhancement tests:
    * - minConnections = 2
    * - maxConnections = 5
    * - idleTimeout = 60s
@@ -105,8 +110,9 @@ public:
    * - maxQueueWaitTime = 5s
    *
    * The pool manager is created with nullptr for optional dependencies
-   * (handler, wsManager, timeoutManager) since they are not required by these tests.
-   * This method sets ioc_ and poolManager_ members used by subsequent test cases.
+   * (handler, wsManager, timeoutManager) since they are not required by these
+   * tests. This method sets ioc_ and poolManager_ members used by subsequent
+   * test cases.
    */
   void setup() {
     ioc_ = std::make_unique<boost::asio::io_context>();
@@ -126,14 +132,15 @@ public:
   }
 
   /**
-   * @brief Verifies queue and initial pool state configuration for the ConnectionPoolManager.
+   * @brief Verifies queue and initial pool state configuration for the
+   * ConnectionPoolManager.
    *
-   * Runs test setup, asserts configured limits (max connections and max queue size)
-   * and validates the initial runtime counters (active, idle, queued, and rejected
-   * request counts) are zero.
+   * Runs test setup, asserts configured limits (max connections and max queue
+   * size) and validates the initial runtime counters (active, idle, queued, and
+   * rejected request counts) are zero.
    *
-   * This is a void test helper that calls setup() and uses assertions to fail on
-   * mismatches.
+   * This is a void test helper that calls setup() and uses assertions to fail
+   * on mismatches.
    */
   void testQueueConfiguration() {
     std::cout << "Testing queue configuration..." << std::endl;
@@ -154,11 +161,13 @@ public:
   }
 
   /**
-   * @brief Verifies that the connection pool manager correctly tracks and resets statistics.
+   * @brief Verifies that the connection pool manager correctly tracks and
+   * resets statistics.
    *
-   * Runs setup(), asserts that initial counters (connection reuse, total connections created,
-   * and rejected request count) are zero, calls resetStatistics(), and re-checks that those
-   * counters return to zero. Uses assertions to fail the test on mismatch.
+   * Runs setup(), asserts that initial counters (connection reuse, total
+   * connections created, and rejected request count) are zero, calls
+   * resetStatistics(), and re-checks that those counters return to zero. Uses
+   * assertions to fail the test on mismatch.
    */
   void testStatisticsTracking() {
     std::cout << "Testing statistics tracking..." << std::endl;
@@ -183,8 +192,8 @@ public:
    * @brief Verifies the connection pool respects configured capacity limits.
    *
    * Calls setup() to initialize the test fixture and then asserts that the pool
-   * is not at maximum capacity and that configured minimum and maximum connection
-   * counts match the expected values (min = 2, max = 5).
+   * is not at maximum capacity and that configured minimum and maximum
+   * connection counts match the expected values (min = 2, max = 5).
    *
    * This test uses assert() for validation and will terminate the program if an
    * assertion fails.
@@ -205,12 +214,14 @@ public:
   }
 
   /**
-   * @brief Verifies that ConnectionPoolManager statistics can be read concurrently without races.
+   * @brief Verifies that ConnectionPoolManager statistics can be read
+   * concurrently without races.
    *
-   * Launches 10 asynchronous tasks that repeatedly read various pool statistics (active, idle,
-   * total connections, reuse count, queue size, rejected count) and assert basic invariants
-   * (total == active + idle; non-negativity for counters). The test requires all tasks to
-   * complete successfully; it uses assertions to fail on any detected inconsistency.
+   * Launches 10 asynchronous tasks that repeatedly read various pool statistics
+   * (active, idle, total connections, reuse count, queue size, rejected count)
+   * and assert basic invariants (total == active + idle; non-negativity for
+   * counters). The test requires all tasks to complete successfully; it uses
+   * assertions to fail on any detected inconsistency.
    */
   void testThreadSafeAccess() {
     std::cout << "Testing thread-safe access to pool statistics..."
@@ -267,11 +278,13 @@ public:
    * @brief Validates that ConnectionPoolManager rejects invalid configurations.
    *
    * Verifies two error cases:
-   * - minConnections > maxConnections should cause the constructor to throw std::invalid_argument.
-   * - a negative timeout value should cause the constructor to throw std::invalid_argument.
+   * - minConnections > maxConnections should cause the constructor to throw
+   * std::invalid_argument.
+   * - a negative timeout value should cause the constructor to throw
+   * std::invalid_argument.
    *
-   * The test prints progress messages and uses an assertion to fail if an expected
-   * exception is not thrown.
+   * The test prints progress messages and uses an assertion to fail if an
+   * expected exception is not thrown.
    */
   void testConfigurationValidation() {
     std::cout << "Testing configuration validation..." << std::endl;
@@ -312,8 +325,9 @@ public:
   /**
    * @brief Tests ConnectionPoolManager cleanup behaviors.
    *
-   * Runs setup(), exercises start/stop of the cleanup timer, calls cleanupIdleConnections()
-   * (expects a non-negative result), and verifies shutdown() completes without throwing.
+   * Runs setup(), exercises start/stop of the cleanup timer, calls
+   * cleanupIdleConnections() (expects a non-negative result), and verifies
+   * shutdown() completes without throwing.
    */
   void testCleanupOperations() {
     std::cout << "Testing cleanup operations..." << std::endl;
@@ -337,9 +351,9 @@ public:
   /**
    * @brief Clean up and release test resources.
    *
-   * Shuts down the ConnectionPoolManager if present, then resets the pool manager
-   * and the owned io_context, releasing their resources. Safe to call multiple
-   * times; subsequent calls have no effect once resources are cleared.
+   * Shuts down the ConnectionPoolManager if present, then resets the pool
+   * manager and the owned io_context, releasing their resources. Safe to call
+   * multiple times; subsequent calls have no effect once resources are cleared.
    */
   void cleanup() {
     if (poolManager_) {
@@ -352,11 +366,11 @@ public:
   /**
    * @brief Executes the full suite of connection pool enhancement tests.
    *
-   * Runs each test in sequence: queue configuration, statistics tracking, pool capacity
-   * limits, thread-safety, configuration validation, and cleanup operations. After
-   * each individual test the test fixture is cleaned up. Progress and results are
-   * written to standard output. If any test throws, the fixture is cleaned up and
-   * the exception is rethrown.
+   * Runs each test in sequence: queue configuration, statistics tracking, pool
+   * capacity limits, thread-safety, configuration validation, and cleanup
+   * operations. After each individual test the test fixture is cleaned up.
+   * Progress and results are written to standard output. If any test throws,
+   * the fixture is cleaned up and the exception is rethrown.
    */
   void runAllTests() {
     std::cout << "Running Connection Pool Enhancement Tests..." << std::endl;

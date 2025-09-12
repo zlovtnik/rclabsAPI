@@ -168,7 +168,8 @@ void testErrorCodes() {
 }
 
 /**
- * @brief Runs tests that verify exception serialization to log and JSON formats.
+ * @brief Runs tests that verify exception serialization to log and JSON
+ * formats.
  *
  * Constructs a ValidationException with a specific error code, message, field,
  * and value, adds an extra context entry, and then asserts that:
@@ -210,14 +211,15 @@ void testSerialization() {
 }
 
 /**
- * @brief Runs unit tests for exception type predicates and template-based casting.
+ * @brief Runs unit tests for exception type predicates and template-based
+ * casting.
  *
  * Executes a set of assertions that verify:
- * - The runtime type predicates (`isValidationError`, `isSystemError`, `isBusinessError`)
- *   correctly identify ValidationException, SystemException, BusinessException and non-ETL
- *   exceptions (e.g., std::runtime_error).
- * - The template helper `asException<T>` returns a non-null pointer for a matching type and
- *   null for mismatched types.
+ * - The runtime type predicates (`isValidationError`, `isSystemError`,
+ * `isBusinessError`) correctly identify ValidationException, SystemException,
+ * BusinessException and non-ETL exceptions (e.g., std::runtime_error).
+ * - The template helper `asException<T>` returns a non-null pointer for a
+ * matching type and null for mismatched types.
  *
  * Side effects:
  * - Prints progress and result messages to stdout.
@@ -260,11 +262,13 @@ void testTypeChecking() {
 }
 
 /**
- * @brief Verifies exception inheritance and polymorphic behavior for ETL exceptions.
+ * @brief Verifies exception inheritance and polymorphic behavior for ETL
+ * exceptions.
  *
  * Runs assertions to confirm that ValidationException, SystemException, and
  * BusinessException instances:
- * - Can be caught by reference as ETLException and preserve their error code and message.
+ * - Can be caught by reference as ETLException and preserve their error code
+ * and message.
  * - Can be caught as std::exception and expose the expected what() message.
  *
  * Intended for use in the test suite; failures are reported via assert().

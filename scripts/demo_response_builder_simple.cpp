@@ -38,14 +38,14 @@ public:
     std::string body;
 
     /**
- * @brief Construct a Response with the given HTTP status.
- *
- * Initializes a Response setting its status to the provided value. Headers
- * and body are left empty.
- *
- * @param s Initial response status.
- */
-Response(Status s) : status(s) {}
+     * @brief Construct a Response with the given HTTP status.
+     *
+     * Initializes a Response setting its status to the provided value. Headers
+     * and body are left empty.
+     *
+     * @param s Initial response status.
+     */
+    Response(Status s) : status(s) {}
   };
 
   struct Config {
@@ -65,23 +65,23 @@ private:
 
 public:
   /**
-       * @brief Construct a SimpleResponseBuilder with default configuration.
-       *
-       * Initializes internal config_ to a default-constructed Config and sets
-       * currentContentType_ from config_.defaultContentType.
-       */
-      SimpleResponseBuilder()
+   * @brief Construct a SimpleResponseBuilder with default configuration.
+   *
+   * Initializes internal config_ to a default-constructed Config and sets
+   * currentContentType_ from config_.defaultContentType.
+   */
+  SimpleResponseBuilder()
       : config_({}), currentContentType_(config_.defaultContentType) {}
   /**
-         * @brief Constructs a SimpleResponseBuilder with a provided configuration.
-         *
-         * Initializes the builder by taking ownership of the given Config (moved)
-         * and setting the builder's current content type to the config's
-         * defaultContentType.
-         *
-         * @param config Configuration for the builder (moved into the instance).
-         */
-        explicit SimpleResponseBuilder(Config config)
+   * @brief Constructs a SimpleResponseBuilder with a provided configuration.
+   *
+   * Initializes the builder by taking ownership of the given Config (moved)
+   * and setting the builder's current content type to the config's
+   * defaultContentType.
+   *
+   * @param config Configuration for the builder (moved into the instance).
+   */
+  explicit SimpleResponseBuilder(Config config)
       : config_(std::move(config)),
         currentContentType_(config_.defaultContentType) {}
 
@@ -92,7 +92,8 @@ public:
    * to allow fluent chaining of calls.
    *
    * @param status Response status to use for the next Response.
-   * @return SimpleResponseBuilder& Reference to this builder for method chaining.
+   * @return SimpleResponseBuilder& Reference to this builder for method
+   * chaining.
    */
   SimpleResponseBuilder &setStatus(Status status) {
     currentStatus_ = status;
@@ -122,7 +123,8 @@ public:
    *
    * @param name Header name (e.g., "Content-Type" or "X-Custom-Header").
    * @param value Header value.
-   * @return SimpleResponseBuilder& Reference to this builder to allow method chaining.
+   * @return SimpleResponseBuilder& Reference to this builder to allow method
+   * chaining.
    */
   SimpleResponseBuilder &setHeader(const std::string &name,
                                    const std::string &value) {
@@ -138,7 +140,8 @@ public:
    * headers) according to the builder's response helpers.
    *
    * @param requestId Identifier to associate with the next response.
-   * @return SimpleResponseBuilder& Reference to this builder for method chaining.
+   * @return SimpleResponseBuilder& Reference to this builder for method
+   * chaining.
    */
   SimpleResponseBuilder &setRequestId(const std::string &requestId) {
     currentRequestId_ = requestId;
@@ -162,11 +165,13 @@ public:
   /**
    * @brief Build a successful (200 OK) response with a JSON body.
    *
-   * Marks the response as HTTP 200 OK, sets the Content-Type to `application/json`,
-   * and constructs a Response containing the provided serialized JSON payload.
+   * Marks the response as HTTP 200 OK, sets the Content-Type to
+   * `application/json`, and constructs a Response containing the provided
+   * serialized JSON payload.
    *
    * @param jsonData A pre-serialized JSON string to use as the response body.
-   * @return Response The constructed response with status, headers and body set.
+   * @return Response The constructed response with status, headers and body
+   * set.
    */
   Response successJson(const std::string &jsonData) {
     currentStatus_ = Status::OK;
@@ -225,17 +230,21 @@ public:
    * - "status": "error"
    * - "error": the provided message (JSON-escaped)
    * - "code": numeric HTTP status code
-   * Optionally includes "timestamp" and "request_id" when enabled in the builder
-   * configuration.
+   * Optionally includes "timestamp" and "request_id" when enabled in the
+   * builder configuration.
    *
    * This call updates the builder's current status and content type, and then
-   * delegates to the core response construction which applies default and custom
-   * headers. The builder's mutable state is reset after the response is built.
+   * delegates to the core response construction which applies default and
+   * custom headers. The builder's mutable state is reset after the response is
+   * built.
    *
-   * @param status HTTP status to use for the response (e.g., Status::BAD_REQUEST).
-   * @param message Human-readable error message; will be JSON-escaped in the body.
+   * @param status HTTP status to use for the response (e.g.,
+   * Status::BAD_REQUEST).
+   * @param message Human-readable error message; will be JSON-escaped in the
+   * body.
    * @return Response A Response whose body is the JSON error object and whose
-   *         headers/content-type are set according to the builder configuration.
+   *         headers/content-type are set according to the builder
+   * configuration.
    */
   Response error(Status status, const std::string &message) {
     currentStatus_ = status;
@@ -261,11 +270,11 @@ public:
   /**
    * @brief Build a 400 Bad Request JSON error response.
    *
-   * Constructs an error response with HTTP status 400 (Bad Request). The returned
-   * Response has Content-Type application/json and a body containing an error
-   * object (fields: "status":"error", "error":<escaped message>, "code":400).
-   * Timestamp and request ID are included in the body when enabled in the builder
-   * configuration.
+   * Constructs an error response with HTTP status 400 (Bad Request). The
+   * returned Response has Content-Type application/json and a body containing
+   * an error object (fields: "status":"error", "error":<escaped message>,
+   * "code":400). Timestamp and request ID are included in the body when enabled
+   * in the builder configuration.
    *
    * @param message Human-readable error message (will be JSON-escaped).
    * @return Response Prepared error response with status BAD_REQUEST.
@@ -277,13 +286,15 @@ public:
   /**
    * @brief Build a 401 Unauthorized error response.
    *
-   * Constructs a JSON-formatted error Response with HTTP-like status UNAUTHORIZED (401).
-   * The response body contains an error object with the provided message and the numeric
-   * status code; standard headers (Server, Content-Type, security headers, etc.) are applied
-   * by the builder.
+   * Constructs a JSON-formatted error Response with HTTP-like status
+   * UNAUTHORIZED (401). The response body contains an error object with the
+   * provided message and the numeric status code; standard headers (Server,
+   * Content-Type, security headers, etc.) are applied by the builder.
    *
-   * @param message Human-readable error message to include in the response body. Defaults to "Unauthorized".
-   * @return Response A Response with status UNAUTHORIZED and a JSON error payload.
+   * @param message Human-readable error message to include in the response
+   * body. Defaults to "Unauthorized".
+   * @return Response A Response with status UNAUTHORIZED and a JSON error
+   * payload.
    */
   Response unauthorized(const std::string &message = "Unauthorized") {
     return error(Status::UNAUTHORIZED, message);
@@ -292,11 +303,13 @@ public:
   /**
    * @brief Create a 403 Forbidden error response.
    *
-   * Constructs a Response with status set to Forbidden (403) and a JSON error body containing
-   * the provided message.
+   * Constructs a Response with status set to Forbidden (403) and a JSON error
+   * body containing the provided message.
    *
-   * @param message Human-readable error message to include in the response body (default: "Forbidden").
-   * @return Response Error response with status = Status::FORBIDDEN and a JSON-formatted body.
+   * @param message Human-readable error message to include in the response body
+   * (default: "Forbidden").
+   * @return Response Error response with status = Status::FORBIDDEN and a
+   * JSON-formatted body.
    */
   Response forbidden(const std::string &message = "Forbidden") {
     return error(Status::FORBIDDEN, message);
@@ -308,25 +321,29 @@ public:
    * Constructs an error response with HTTP status NOT_FOUND and a JSON body
    * containing an error message of the form "`<resource> not found`".
    *
-   * @param resource Name of the missing resource; used verbatim in the error message.
-   *                 Defaults to "Resource".
+   * @param resource Name of the missing resource; used verbatim in the error
+   * message. Defaults to "Resource".
    * @return Response Response object with status NOT_FOUND, appropriate headers
-   *         (including Content-Type set to application/json) and the error body.
+   *         (including Content-Type set to application/json) and the error
+   * body.
    */
   Response notFound(const std::string &resource = "Resource") {
     return error(Status::NOT_FOUND, resource + " not found");
   }
 
   /**
-   * @brief Build a 405 Method Not Allowed response and include the standard Allow header.
+   * @brief Build a 405 Method Not Allowed response and include the standard
+   * Allow header.
    *
    * Sets the "Allow" header to "GET, POST, PUT, DELETE, OPTIONS" and returns a
    * response with HTTP status 405 and a JSON-formatted error message indicating
    * that the given HTTP method is not allowed for the specified endpoint.
    *
    * @param method The HTTP method that was attempted (e.g., "DELETE").
-   * @param endpoint The request path or endpoint for which the method is not allowed (e.g., "/api/users").
-   * @return Response A Response object with status Method Not Allowed (405), the Allow header set, and an error body.
+   * @param endpoint The request path or endpoint for which the method is not
+   * allowed (e.g., "/api/users").
+   * @return Response A Response object with status Method Not Allowed (405),
+   * the Allow header set, and an error body.
    */
   Response methodNotAllowed(const std::string &method,
                             const std::string &endpoint) {
@@ -341,10 +358,10 @@ public:
    * Constructs an error response with status TOO_MANY_REQUESTS and sets a
    * "Retry-After" header advising a 60-second wait.
    *
-   * @param message Human-readable error message included in the JSON error body.
-   *                Defaults to "Rate limit exceeded".
-   * @return Response Response object with status 429, the JSON error body, and the
-   *                  "Retry-After: 60" header.
+   * @param message Human-readable error message included in the JSON error
+   * body. Defaults to "Rate limit exceeded".
+   * @return Response Response object with status 429, the JSON error body, and
+   * the "Retry-After: 60" header.
    */
   Response tooManyRequests(const std::string &message = "Rate limit exceeded") {
     setHeader("Retry-After", "60");
@@ -356,11 +373,13 @@ public:
    *
    * Builds an error response with HTTP status 500 and a JSON body containing
    * an error message and numeric code. The provided message is escaped for JSON
-   * and inserted into the response body; if omitted, a generic "Internal server error"
-   * message is used.
+   * and inserted into the response body; if omitted, a generic "Internal server
+   * error" message is used.
    *
-   * @param message Human-readable error message to include in the response body.
-   * @return Response Response with status INTERNAL_SERVER_ERROR and a JSON error body.
+   * @param message Human-readable error message to include in the response
+   * body.
+   * @return Response Response with status INTERNAL_SERVER_ERROR and a JSON
+   * error body.
    */
   Response
   internalServerError(const std::string &message = "Internal server error") {
@@ -371,11 +390,14 @@ public:
    * @brief Construct a 400 Bad Request response describing validation failures.
    *
    * @details Produces a JSON body of the form:
-   * {"status":"error","error":"Validation failed","validation":{"errors":[...]}},
-   * where each string from @p errors is JSON-escaped and placed in the errors array.
+   * {"status":"error","error":"Validation
+   * failed","validation":{"errors":[...]}}, where each string from @p errors is
+   * JSON-escaped and placed in the errors array.
    *
-   * @param errors Vector of human-readable validation messages to include in the response.
-   * @return Response Response with status BAD_REQUEST and Content-Type set to application/json; other default headers are applied by the builder.
+   * @param errors Vector of human-readable validation messages to include in
+   * the response.
+   * @return Response Response with status BAD_REQUEST and Content-Type set to
+   * application/json; other default headers are applied by the builder.
    */
   Response validationError(const std::vector<std::string> &errors) {
     currentStatus_ = Status::BAD_REQUEST;
@@ -399,14 +421,18 @@ public:
   /**
    * @brief Build a JSON health-check response.
    *
-   * Constructs a JSON body with a "status" field ("healthy" or "unhealthy"), always includes a
-   * "timestamp" (current UTC ISO 8601), and includes a "details" field when a non-empty detail
-   * string is supplied. Sets the HTTP status to 200 OK when healthy is true, otherwise
-   * 503 Service Unavailable. The response Content-Type is set to application/json.
+   * Constructs a JSON body with a "status" field ("healthy" or "unhealthy"),
+   * always includes a "timestamp" (current UTC ISO 8601), and includes a
+   * "details" field when a non-empty detail string is supplied. Sets the HTTP
+   * status to 200 OK when healthy is true, otherwise 503 Service Unavailable.
+   * The response Content-Type is set to application/json.
    *
-   * @param healthy true to produce a healthy (200) response; false yields an unhealthy (503) response.
-   * @param details Optional human-readable details included in the JSON `details` field (escaped for JSON).
-   * @return Response The constructed response with status, headers, and JSON body.
+   * @param healthy true to produce a healthy (200) response; false yields an
+   * unhealthy (503) response.
+   * @param details Optional human-readable details included in the JSON
+   * `details` field (escaped for JSON).
+   * @return Response The constructed response with status, headers, and JSON
+   * body.
    */
   Response healthCheck(bool healthy, const std::string &details = "") {
     currentStatus_ = healthy ? Status::OK : Status::SERVICE_UNAVAILABLE;
@@ -431,8 +457,10 @@ public:
    * Constructs a Response that redirects the client to the given location.
    *
    * @param location Target URL or path for the Location header.
-   * @param status HTTP status to use for the redirect (defaults to Status::FOUND).
-   * @return Response Response with the configured status, a `Location` header set to `location`, and an empty body.
+   * @param status HTTP status to use for the redirect (defaults to
+   * Status::FOUND).
+   * @return Response Response with the configured status, a `Location` header
+   * set to `location`, and an empty body.
    */
   Response redirect(const std::string &location,
                     Status status = Status::FOUND) {
@@ -445,16 +473,19 @@ private:
   /**
    * @brief Build a Response object from the builder's current state and body.
    *
-   * Constructs a Response with the builder's current status and the provided body,
-   * applies headers (Server and Content-Type), merges any previously set custom
-   * headers, and adds CORS headers (when enabled) and security headers. The
-   * builder's mutable state is reset before returning.
+   * Constructs a Response with the builder's current status and the provided
+   * body, applies headers (Server and Content-Type), merges any previously set
+   * custom headers, and adds CORS headers (when enabled) and security headers.
+   * The builder's mutable state is reset before returning.
    *
    * The header application order is:
    * 1. Default headers ("Server", "Content-Type")
-   * 2. Custom headers set via setHeader (these override defaults if names match)
-   * 3. CORS headers (if enabled) — these will overwrite any matching custom headers
-   * 4. Security headers (always applied) — these will overwrite any matching headers
+   * 2. Custom headers set via setHeader (these override defaults if names
+   * match)
+   * 3. CORS headers (if enabled) — these will overwrite any matching custom
+   * headers
+   * 4. Security headers (always applied) — these will overwrite any matching
+   * headers
    *
    * @param body Raw response body to place in Response.body.
    * @return Response The constructed response with status, headers, and body.
@@ -495,14 +526,16 @@ private:
   }
 
   /**
-   * @brief Converts a ContentType enum value to its corresponding MIME type string.
+   * @brief Converts a ContentType enum value to its corresponding MIME type
+   * string.
    *
    * Maps ContentType::JSON, ::XML, ::HTML, and ::TEXT to their standard
    * Content-Type header values. If an unknown enum value is provided, the
    * function falls back to "application/json".
    *
    * @param type The ContentType value to convert.
-   * @return std::string MIME type string suitable for an HTTP Content-Type header.
+   * @return std::string MIME type string suitable for an HTTP Content-Type
+   * header.
    */
   std::string contentTypeToString(ContentType type) const {
     switch (type) {
@@ -520,11 +553,13 @@ private:
   }
 
   /**
-   * @brief Escape special characters in a string so it is safe for embedding in JSON string values.
+   * @brief Escape special characters in a string so it is safe for embedding in
+   * JSON string values.
    *
-   * Replaces the characters `"`, `\`, newline, carriage return, and tab with their JSON escape
-   * sequences (`\"`, `\\`, `\n`, `\r`, `\t`). Other characters (including other control characters
-   * or non-ASCII Unicode) are left unchanged.
+   * Replaces the characters `"`, `\`, newline, carriage return, and tab with
+   * their JSON escape sequences (`\"`, `\\`, `\n`, `\r`, `\t`). Other
+   * characters (including other control characters or non-ASCII Unicode) are
+   * left unchanged.
    *
    * @param input The source string to escape.
    * @return std::string A new string with JSON-special characters escaped.
@@ -559,9 +594,9 @@ private:
   /**
    * @brief Returns the current UTC timestamp in ISO 8601 format.
    *
-   * Produces a string in the form `YYYY-MM-DDTHH:MM:SSZ` representing the current
-   * time in Coordinated Universal Time (UTC). The value is derived from the
-   * system clock and formatted to second precision.
+   * Produces a string in the form `YYYY-MM-DDTHH:MM:SSZ` representing the
+   * current time in Coordinated Universal Time (UTC). The value is derived from
+   * the system clock and formatted to second precision.
    *
    * @return std::string Current UTC timestamp as an ISO 8601 string.
    */
@@ -593,12 +628,14 @@ private:
 /**
  * @brief Print a human-readable representation of a Response to stdout.
  *
- * Prints a formatted block containing the test name, a separator line, the numeric
- * HTTP-like status code, all response headers, and the response body (or
+ * Prints a formatted block containing the test name, a separator line, the
+ * numeric HTTP-like status code, all response headers, and the response body
+ * (or
  * "(empty)" when the body is empty). Intended for demo and debugging output.
  *
  * @param testName Short label identifying the test or scenario.
- * @param response Response object whose status, headers, and body will be printed.
+ * @param response Response object whose status, headers, and body will be
+ * printed.
  *
  * Side effects: writes to std::cout.
  */

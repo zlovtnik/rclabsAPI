@@ -14,32 +14,33 @@ namespace http = boost::beast::http;
 class MockDatabaseManager : public DatabaseManager {
 public:
   /**
- * @brief Default constructor for the mock database manager used in tests.
- *
- * Creates a MockDatabaseManager that does not establish any real database
- * connection; isConnected() will always return true to simulate an available
- * database for test scenarios.
- */
-MockDatabaseManager() {}
+   * @brief Default constructor for the mock database manager used in tests.
+   *
+   * Creates a MockDatabaseManager that does not establish any real database
+   * connection; isConnected() will always return true to simulate an available
+   * database for test scenarios.
+   */
+  MockDatabaseManager() {}
   /**
- * @brief Always reports the database as connected.
- *
- * This mock implementation unconditionally returns true to simulate an available
- * database connection for tests.
- *
- * @return true Always returns true.
- */
-bool isConnected() const { return true; }
+   * @brief Always reports the database as connected.
+   *
+   * This mock implementation unconditionally returns true to simulate an
+   * available database connection for tests.
+   *
+   * @return true Always returns true.
+   */
+  bool isConnected() const { return true; }
 };
 
 class MockAuthManager : public AuthManager {
 public:
   /**
- * @brief Default constructor for MockAuthManager.
- *
- * Creates a no-op mock authentication manager used in tests; it does not perform any real authentication setup.
- */
-MockAuthManager() {}
+   * @brief Default constructor for MockAuthManager.
+   *
+   * Creates a no-op mock authentication manager used in tests; it does not
+   * perform any real authentication setup.
+   */
+  MockAuthManager() {}
 };
 
 class MockETLJobManager : public ETLJobManager {
@@ -60,13 +61,14 @@ public:
   }
 
   /**
- * @brief Indicates whether the ETL job manager is running.
- *
- * In this mock implementation, always returns true to simulate an active/running manager.
- *
- * @return true Always indicates the manager is running.
- */
-bool isRunning() const { return true; }
+   * @brief Indicates whether the ETL job manager is running.
+   *
+   * In this mock implementation, always returns true to simulate an
+   * active/running manager.
+   *
+   * @return true Always indicates the manager is running.
+   */
+  bool isRunning() const { return true; }
 
 private:
   /**
@@ -137,9 +139,9 @@ mockJobs_.push_back(job3);
 /**
  * @brief Unit test for the GET /api/jobs/{id}/status REST endpoint.
  *
- * Runs an integration-style unit test using mock managers (database, auth, ETL),
- * issues an HTTP GET request for job ID "job_001", and verifies the handler
- * returns a 200 OK JSON response containing the expected job fields.
+ * Runs an integration-style unit test using mock managers (database, auth,
+ * ETL), issues an HTTP GET request for job ID "job_001", and verifies the
+ * handler returns a 200 OK JSON response containing the expected job fields.
  *
  * The test asserts:
  * - HTTP status is 200 OK.
@@ -183,17 +185,17 @@ void testJobStatusEndpoint() {
 /**
  * @brief Unit test for the GET /api/jobs/{id}/metrics endpoint.
  *
- * Verifies that requesting metrics for a known mock job ("job_001") returns HTTP 200
- * with JSON content and contains expected metric fields and values:
+ * Verifies that requesting metrics for a known mock job ("job_001") returns
+ * HTTP 200 with JSON content and contains expected metric fields and values:
  * - jobId "job_001"
  * - recordsProcessed 1000
  * - recordsSuccessful 995
  * - recordsFailed 5
  * - presence of "processingRate" and "successRate"
  *
- * The test constructs a RequestHandler with mock database, auth, and ETL managers,
- * issues the GET request, and uses assertions to validate the response. Failing
- * assertions indicate a test failure.
+ * The test constructs a RequestHandler with mock database, auth, and ETL
+ * managers, issues the GET request, and uses assertions to validate the
+ * response. Failing assertions indicate a test failure.
  */
 void testJobMetricsEndpoint() {
   std::cout << "Testing GET /api/jobs/{id}/metrics endpoint..." << std::endl;
@@ -230,8 +232,8 @@ void testJobMetricsEndpoint() {
  * @brief Unit test for the /api/monitor/jobs REST endpoint.
  *
  * Exercises the monitor jobs endpoint using mock managers and a RequestHandler.
- * Verifies successful HTTP 200 responses with JSON content and correct filtering
- * and pagination behavior for these scenarios:
+ * Verifies successful HTTP 200 responses with JSON content and correct
+ * filtering and pagination behavior for these scenarios:
  * - no filters (expects total 3 jobs and presence of job_001, job_002, job_003)
  * - status filter (e.g., ?status=completed expects total 1 and only job_001)
  * - type filter (e.g., ?type=extract expects total 1 and job_002)
@@ -346,16 +348,17 @@ void testInvalidJobId() {
 /**
  * @brief Runs unit checks for monitoring parameter validation.
  *
- * Executes a set of assertions against InputValidator::validateMonitoringParams to verify
- * accepted and rejected monitoring query parameters used by the monitoring endpoints.
- * Tested cases:
+ * Executes a set of assertions against InputValidator::validateMonitoringParams
+ * to verify accepted and rejected monitoring query parameters used by the
+ * monitoring endpoints. Tested cases:
  * - A fully valid parameter set (status, type, limit, from, to) must validate.
- * - An invalid status value must produce a validation failure and an error entry for "status".
+ * - An invalid status value must produce a validation failure and an error
+ * entry for "status".
  * - A non-numeric limit must fail validation.
  * - A numeric limit outside the allowed range must fail validation.
  *
- * This function prints progress to stdout and uses assert for verifications; failed
- * assertions will terminate the test run.
+ * This function prints progress to stdout and uses assert for verifications;
+ * failed assertions will terminate the test run.
  */
 void testInputValidation() {
   std::cout << "Testing input validation for monitoring parameters..."
@@ -399,15 +402,18 @@ void testInputValidation() {
 }
 
 /**
- * @brief Unit test that verifies JSON response formatting for the job status endpoint.
+ * @brief Unit test that verifies JSON response formatting for the job status
+ * endpoint.
  *
- * Sets up mock managers and a RequestHandler, issues a GET to /api/jobs/job_001/status,
- * and asserts the response body is a JSON object (starts with '{' and ends with '}')
- * and contains the required fields: "jobId", "type", "status", "createdAt",
- * "recordsProcessed", and "executionTimeMs".
+ * Sets up mock managers and a RequestHandler, issues a GET to
+ * /api/jobs/job_001/status, and asserts the response body is a JSON object
+ * (starts with '{' and ends with '}') and contains the required fields:
+ * "jobId", "type", "status", "createdAt", "recordsProcessed", and
+ * "executionTimeMs".
  *
- * This test prints progress to stdout and uses assertions; a failing assertion will
- * terminate the test. It assumes the mock ETL manager contains a job with ID "job_001".
+ * This test prints progress to stdout and uses assertions; a failing assertion
+ * will terminate the test. It assumes the mock ETL manager contains a job with
+ * ID "job_001".
  */
 void testResponseFormatting() {
   std::cout << "Testing response formatting..." << std::endl;
@@ -451,7 +457,8 @@ void testResponseFormatting() {
  * Prints progress and a summary to stdout/stderr. Catches exceptions and
  * translates test failures into a non-zero exit code.
  *
- * @return int Returns 0 if all tests pass; returns 1 if a test throws an exception.
+ * @return int Returns 0 if all tests pass; returns 1 if a test throws an
+ * exception.
  */
 int main() {
   std::cout << "Running Enhanced REST API Endpoints Tests..." << std::endl;

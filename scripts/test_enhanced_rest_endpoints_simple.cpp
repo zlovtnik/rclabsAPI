@@ -8,9 +8,10 @@
 /**
  * @brief Run basic unit tests for helper validations and string utilities.
  *
- * Verifies that InputValidator::isValidJobId accepts valid job IDs (e.g. "job_123", "JOB_456")
- * and rejects invalid ones (empty string, strings containing '/'). Prints a start message
- * and a success message to stdout. Uses assertions and will abort the test run on failure.
+ * Verifies that InputValidator::isValidJobId accepts valid job IDs (e.g.
+ * "job_123", "JOB_456") and rejects invalid ones (empty string, strings
+ * containing '/'). Prints a start message and a success message to stdout. Uses
+ * assertions and will abort the test run on failure.
  */
 void testHelperFunctions() {
   std::cout << "Testing helper functions..." << std::endl;
@@ -27,11 +28,12 @@ void testHelperFunctions() {
 /**
  * @brief Runs unit tests for monitoring-parameter input validation.
  *
- * Executes a set of assertions that exercise InputValidator::validateMonitoringParams
- * with representative parameter maps: a valid set, an invalid status, a non-numeric
- * limit, and a limit value outside the allowed range. The function prints progress
- * messages to stdout and uses assertions to enforce expected outcomes; assertion
- * failures will terminate the test run.
+ * Executes a set of assertions that exercise
+ * InputValidator::validateMonitoringParams with representative parameter maps:
+ * a valid set, an invalid status, a non-numeric limit, and a limit value
+ * outside the allowed range. The function prints progress messages to stdout
+ * and uses assertions to enforce expected outcomes; assertion failures will
+ * terminate the test run.
  */
 void testInputValidation() {
   std::cout << "Testing input validation for monitoring parameters..."
@@ -82,7 +84,8 @@ void testInputValidation() {
  * - a parameters set with an invalid `metric_type` (expects invalid)
  * - a parameters set with an invalid `time_range` (expects invalid)
  *
- * Uses assertions to enforce expected outcomes; a failed assertion will abort the test run.
+ * Uses assertions to enforce expected outcomes; a failed assertion will abort
+ * the test run.
  */
 void testMetricsParamsValidation() {
   std::cout << "Testing metrics parameters validation..." << std::endl;
@@ -140,11 +143,14 @@ void testPathValidation() {
 /**
  * @brief Runs unit tests for job query parameter validation.
  *
- * Executes positive and negative assertions against InputValidator::validateJobQueryParams:
- * - verifies that a well-formed query map (status, limit, offset, job_id) is accepted,
+ * Executes positive and negative assertions against
+ * InputValidator::validateJobQueryParams:
+ * - verifies that a well-formed query map (status, limit, offset, job_id) is
+ * accepted,
  * - verifies that invalid status and non-numeric limit are rejected.
  *
- * The function prints progress to stdout and uses assert(), so failures will abort the test run.
+ * The function prints progress to stdout and uses assert(), so failures will
+ * abort the test run.
  */
 void testJobQueryValidation() {
   std::cout << "Testing job query parameters validation..." << std::endl;
@@ -258,9 +264,9 @@ void testAPIEndpointStructure() {
  * @brief Test runner for enhanced REST API endpoint validation.
  *
  * Executes the suite of validation unit tests (helper validations, parameter
- * validators, path/method/content-type checks and endpoint-specific validators),
- * prints progress and a summary to standard output, and reports failures to
- * standard error.
+ * validators, path/method/content-type checks and endpoint-specific
+ * validators), prints progress and a summary to standard output, and reports
+ * failures to standard error.
  *
  * On success the function prints a summary of implemented endpoints and returns
  * 0. If any test throws an exception or an assertion fails, the exception is

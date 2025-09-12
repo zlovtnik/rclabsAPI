@@ -11,12 +11,14 @@
 class ConcurrencyBenchmark {
 public:
   /**
-       * @brief Constructs a ConcurrencyBenchmark configured for a run.
-       *
-       * @param numThreads Number of concurrent worker threads to spawn for each benchmark.
-       * @param iterations Number of iterations each thread performs (total work = numThreads * iterations).
-       */
-      ConcurrencyBenchmark(size_t numThreads, size_t iterations)
+   * @brief Constructs a ConcurrencyBenchmark configured for a run.
+   *
+   * @param numThreads Number of concurrent worker threads to spawn for each
+   * benchmark.
+   * @param iterations Number of iterations each thread performs (total work =
+   * numThreads * iterations).
+   */
+  ConcurrencyBenchmark(size_t numThreads, size_t iterations)
       : numThreads_(numThreads), iterations_(iterations) {}
 
   /**
@@ -43,10 +45,11 @@ private:
   size_t iterations_;
 
   /**
-   * @brief Run a throughput benchmark using an OrderedMutex (etl_plus::StateMutex).
+   * @brief Run a throughput benchmark using an OrderedMutex
+   * (etl_plus::StateMutex).
    *
-   * Spawns numThreads_ threads; each thread performs iterations_ increments of a
-   * local counter while holding an etl_plus::ScopedTimedLock on the shared
+   * Spawns numThreads_ threads; each thread performs iterations_ increments of
+   * a local counter while holding an etl_plus::ScopedTimedLock on the shared
    * mutex. Measures wall-clock time with a high-resolution clock, prints the
    * total completed operations and elapsed milliseconds, and prints throughput
    * in operations/sec.
@@ -136,13 +139,14 @@ private:
   /**
    * @brief Benchmarks incrementing a std::atomic counter from multiple threads.
    *
-   * Runs numThreads_ threads, each performing iterations_ relaxed atomic increments,
-   * measures elapsed time with a high-resolution clock, and prints the final count
-   * and throughput (ops/sec) to standard output.
+   * Runs numThreads_ threads, each performing iterations_ relaxed atomic
+   * increments, measures elapsed time with a high-resolution clock, and prints
+   * the final count and throughput (ops/sec) to standard output.
    *
    * @details
    * The function measures end-to-end time including thread creation and join.
-   * Throughput calculation avoids division by zero by treating durations <1ms as 1ms.
+   * Throughput calculation avoids division by zero by treating durations <1ms
+   * as 1ms.
    */
   void benchmarkAtomic() {
     std::cout << "Benchmarking std::atomic...\n";
@@ -184,8 +188,10 @@ private:
    * operations and throughput (operations per second) to standard output.
    *
    * Notes:
-   * - Uses relaxed atomic operations (memory_order_relaxed) for increment and load.
-   * - Relies on the class members numThreads_ and iterations_ for workload size.
+   * - Uses relaxed atomic operations (memory_order_relaxed) for increment and
+   * load.
+   * - Relies on the class members numThreads_ and iterations_ for workload
+   * size.
    */
   void benchmarkLockFree() {
     std::cout << "Benchmarking lock-free data structure...\n";
@@ -227,11 +233,13 @@ private:
 };
 
 /**
- * @brief Program entry point; runs concurrency benchmarks across multiple thread counts.
+ * @brief Program entry point; runs concurrency benchmarks across multiple
+ * thread counts.
  *
- * Iterates over a set of predefined thread counts, constructs a ConcurrencyBenchmark
- * for each (distributing a fixed total number of iterations across threads),
- * executes the benchmarks, and prints separators between runs.
+ * Iterates over a set of predefined thread counts, constructs a
+ * ConcurrencyBenchmark for each (distributing a fixed total number of
+ * iterations across threads), executes the benchmarks, and prints separators
+ * between runs.
  *
  * @return int Exit status code (0 on success).
  */

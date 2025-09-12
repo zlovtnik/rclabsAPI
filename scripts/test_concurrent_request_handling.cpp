@@ -29,24 +29,26 @@ private:
 
 public:
   /**
-   * @brief Handles an incoming HTTP request for the concurrent-load test handler.
+   * @brief Handles an incoming HTTP request for the concurrent-load test
+   * handler.
    *
-   * Processes the request by recording start/end timestamps, incrementing/decrementing
-   * internal concurrent/request counters, simulating work with a small random delay
-   * (10–50 ms), and recording the per-request response time into an internal, thread-safe
-   * vector. Builds and returns an HTTP 200 JSON response containing a brief message,
-   * the total processed request count, and the observed concurrent count for that request.
+   * Processes the request by recording start/end timestamps,
+   * incrementing/decrementing internal concurrent/request counters, simulating
+   * work with a small random delay (10–50 ms), and recording the per-request
+   * response time into an internal, thread-safe vector. Builds and returns an
+   * HTTP 200 JSON response containing a brief message, the total processed
+   * request count, and the observed concurrent count for that request.
    *
-   * Thread-safety: updates to concurrency counters use atomics; response times are
-   * appended under a mutex to protect the vector.
+   * Thread-safety: updates to concurrency counters use atomics; response times
+   * are appended under a mutex to protect the vector.
    *
    * Side effects:
    * - Increments/decrements request and concurrency counters.
    * - Appends a measured response time to the handler's responseTimes_ vector.
    * - Performs a blocking sleep to simulate work.
    *
-   * @return http::response<http::string_body> HTTP 200 OK response with a JSON body
-   *         containing "message", "count", and "concurrent" fields.
+   * @return http::response<http::string_body> HTTP 200 OK response with a JSON
+   * body containing "message", "count", and "concurrent" fields.
    */
   http::response<http::string_body>
   handleRequest(http::request<http::string_body> &&req) override {
@@ -95,30 +97,34 @@ public:
   }
 
   /**
- * @brief Returns the total number of requests this handler has processed.
- *
- * This is a thread-safe snapshot of the request counter.
- *
- * @return int Total processed request count.
- */
-int getRequestCount() const { return requestCount_.load(); }
+   * @brief Returns the total number of requests this handler has processed.
+   *
+   * This is a thread-safe snapshot of the request counter.
+   *
+   * @return int Total processed request count.
+   */
+  int getRequestCount() const { return requestCount_.load(); }
   /**
- * @brief Returns the highest number of concurrent in-flight requests observed.
- *
- * This value is maintained atomically by the handler and represents the peak
- * number of concurrent requests seen since the last reset.
- *
- * @return int Peak concurrent request count.
- */
-int getMaxConcurrentRequests() const { return maxConcurrentRequests_.load(); }
+   * @brief Returns the highest number of concurrent in-flight requests
+   * observed.
+   *
+   * This value is maintained atomically by the handler and represents the peak
+   * number of concurrent requests seen since the last reset.
+   *
+   * @return int Peak concurrent request count.
+   */
+  int getMaxConcurrentRequests() const { return maxConcurrentRequests_.load(); }
 
   /**
-   * @brief Returns a snapshot of per-request processing durations recorded by the handler.
+   * @brief Returns a snapshot of per-request processing durations recorded by
+   * the handler.
    *
-   * The vector is a thread-safe copy captured under a mutex to avoid races with concurrent
-   * request handling. Each element is the measured elapsed time for a single handled request.
+   * The vector is a thread-safe copy captured under a mutex to avoid races with
+   * concurrent request handling. Each element is the measured elapsed time for
+   * a single handled request.
    *
-   * @return std::vector<std::chrono::milliseconds> A copy of the recorded response times.
+   * @return std::vector<std::chrono::milliseconds> A copy of the recorded
+   * response times.
    */
   std::vector<std::chrono::milliseconds> getResponseTimes() const {
     std::lock_guard<std::mutex> lock(responseMutex_);
@@ -128,10 +134,11 @@ int getMaxConcurrentRequests() const { return maxConcurrentRequests_.load(); }
   /**
    * @brief Reset all recorded request counters and timing data.
    *
-   * Clears the per-request timing history and sets the request, current-concurrency,
-   * and observed-maximum-concurrency counters back to zero. The operation is
-   * thread-safe: the response times vector is cleared while holding the internal
-   * mutex; atomic counters are updated without additional locking.
+   * Clears the per-request timing history and sets the request,
+   * current-concurrency, and observed-maximum-concurrency counters back to
+   * zero. The operation is thread-safe: the response times vector is cleared
+   * while holding the internal mutex; atomic counters are updated without
+   * additional locking.
    */
   void reset() {
     requestCount_ = 0;
@@ -142,20 +149,21 @@ int getMaxConcurrentRequests() const { return maxConcurrentRequests_.load(); }
   }
 
   /**
- * @brief Returns the job manager used by the handler.
- *
- * This test handler does not use a job manager; always returns `nullptr`.
- *
- * @return std::shared_ptr<ETLJobManager> Always `nullptr`.
- */
+   * @brief Returns the job manager used by the handler.
+   *
+   * This test handler does not use a job manager; always returns `nullptr`.
+   *
+   * @return std::shared_ptr<ETLJobManager> Always `nullptr`.
+   */
   std::shared_ptr<ETLJobManager> getJobManager() override { return nullptr; }
   /**
    * @brief Returns the job monitor service used by the handler.
    *
-   * This test handler does not provide a JobMonitorService; callers will receive
-   * a null shared_ptr.
+   * This test handler does not provide a JobMonitorService; callers will
+   * receive a null shared_ptr.
    *
-   * @return std::shared_ptr<JobMonitorService> Always `nullptr` for this handler.
+   * @return std::shared_ptr<JobMonitorService> Always `nullptr` for this
+   * handler.
    */
   std::shared_ptr<JobMonitorService> getJobMonitorService() override {
     return nullptr;
@@ -176,20 +184,22 @@ public:
   /**
    * @brief Constructs the test harness.
    *
-   * Initializes the test fixture by creating the shared ConcurrentTestHandler instance
-   * used by the server tests.
+   * Initializes the test fixture by creating the shared ConcurrentTestHandler
+   * instance used by the server tests.
    */
   ConcurrentRequestHandlingTest() {
     handler_ = std::make_shared<ConcurrentTestHandler>();
   }
 
   /**
-   * @brief Sets up an HttpServer with an "optimal" high-concurrency connection pool and validates its configuration.
+   * @brief Sets up an HttpServer with an "optimal" high-concurrency connection
+   * pool and validates its configuration.
    *
-   * Configures a ServerConfig tuned for high concurrency, constructs the server (stored in member `server_`),
-   * installs the shared `handler_`, and asserts that the connection pool manager is present and that
-   * its max-connections and max-queue-size match the configured values. Uses assertions for validation;
-   * any assertion failure will terminate the test.
+   * Configures a ServerConfig tuned for high concurrency, constructs the server
+   * (stored in member `server_`), installs the shared `handler_`, and asserts
+   * that the connection pool manager is present and that its max-connections
+   * and max-queue-size match the configured values. Uses assertions for
+   * validation; any assertion failure will terminate the test.
    */
   void testHighConcurrencyWithOptimalPool() {
     std::cout << "Testing high concurrency with optimal pool configuration..."
@@ -222,12 +232,15 @@ public:
   }
 
   /**
-   * @brief Sets up an HttpServer with a constrained connection pool and validates initial pool statistics.
+   * @brief Sets up an HttpServer with a constrained connection pool and
+   * validates initial pool statistics.
    *
-   * Configures a ServerConfig with limited max connections and a bounded request queue, creates an
-   * HttpServer bound to the test address/port, installs the ConcurrentTestHandler, and obtains the
-   * ConnectionPoolManager. Asserts that the pool manager exists and that its initial metrics for
-   * connection reuse, total created connections, and rejected requests are zero.
+   * Configures a ServerConfig with limited max connections and a bounded
+   * request queue, creates an HttpServer bound to the test address/port,
+   * installs the ConcurrentTestHandler, and obtains the ConnectionPoolManager.
+   * Asserts that the pool manager exists and that its initial metrics for
+   * connection reuse, total created connections, and rejected requests are
+   * zero.
    *
    * Side effects:
    * - Constructs and stores a server instance in `server_`.
@@ -268,15 +281,19 @@ public:
   }
 
   /**
-   * @brief Validates connection-pool queueing configuration and initial state by creating a small-pool server.
+   * @brief Validates connection-pool queueing configuration and initial state
+   * by creating a small-pool server.
    *
-   * Creates an HttpServer configured with a deliberately tiny connection pool (min 2, max 3)
-   * and a small request queue (maxQueueSize 10), installs the ConcurrentTestHandler, and
-   * asserts the pool manager reports the expected limits and an empty initial queue.
+   * Creates an HttpServer configured with a deliberately tiny connection pool
+   * (min 2, max 3) and a small request queue (maxQueueSize 10), installs the
+   * ConcurrentTestHandler, and asserts the pool manager reports the expected
+   * limits and an empty initial queue.
    *
    * Side effects:
-   * - Constructs the server instance and assigns the request handler (stored in `server_` and `handler_`).
-   * - Uses runtime assertions to validate pool configuration and initial statistics; a failed assertion will terminate the test run.
+   * - Constructs the server instance and assigns the request handler (stored in
+   * `server_` and `handler_`).
+   * - Uses runtime assertions to validate pool configuration and initial
+   * statistics; a failed assertion will terminate the test run.
    */
   void testRequestQueueingBehavior() {
     std::cout << "Testing request queuing behavior under load..." << std::endl;
@@ -314,16 +331,22 @@ public:
   }
 
   /**
-   * @brief Configure the server with highly restrictive connection-pool limits and validate error-handling-related settings.
+   * @brief Configure the server with highly restrictive connection-pool limits
+   * and validate error-handling-related settings.
    *
-   * Sets up an HttpServer using a minimal/maximal connection configuration and tiny queue/timeout limits intended to
-   * provoke queueing/rejection and exercise error-handling paths under load. The function creates the server instance,
-   * installs the test request handler, retrieves the ConnectionPoolManager, and asserts that the pool's maximum
-   * connections and queue size match the restrictive configuration. Progress is emitted to stdout.
+   * Sets up an HttpServer using a minimal/maximal connection configuration and
+   * tiny queue/timeout limits intended to provoke queueing/rejection and
+   * exercise error-handling paths under load. The function creates the server
+   * instance, installs the test request handler, retrieves the
+   * ConnectionPoolManager, and asserts that the pool's maximum connections and
+   * queue size match the restrictive configuration. Progress is emitted to
+   * stdout.
    *
    * Side effects:
-   * - Initializes server_ (unique_ptr<HttpServer>) and assigns its request handler to handler_.
-   * - Performs assertions that terminate the test process if the pool manager is missing or configuration differs.
+   * - Initializes server_ (unique_ptr<HttpServer>) and assigns its request
+   * handler to handler_.
+   * - Performs assertions that terminate the test process if the pool manager
+   * is missing or configuration differs.
    */
   void testErrorHandlingUnderLoad() {
     std::cout << "Testing error handling under high load..." << std::endl;
@@ -358,17 +381,21 @@ public:
   }
 
   /**
-   * @brief Verifies thread safety of the connection pool by exercising concurrent reads of its statistics.
+   * @brief Verifies thread safety of the connection pool by exercising
+   * concurrent reads of its statistics.
    *
-   * Starts an HttpServer configured for high concurrency, sets the test request handler, then spawns
-   * multiple asynchronous threads that repeatedly read various pool metrics (active, idle, total,
-   * reuse count, queue size, rejected count) and assert basic invariants (e.g., total == active + idle,
-   * non-negative counters). Waits for all workers to complete and asserts all succeeded.
+   * Starts an HttpServer configured for high concurrency, sets the test request
+   * handler, then spawns multiple asynchronous threads that repeatedly read
+   * various pool metrics (active, idle, total, reuse count, queue size,
+   * rejected count) and assert basic invariants (e.g., total == active + idle,
+   * non-negative counters). Waits for all workers to complete and asserts all
+   * succeeded.
    *
    * Side effects:
    * - Creates and assigns to the member server_.
    * - Calls server_->setRequestHandler(handler_).
-   * - Uses assertions to enforce invariants; a failing assertion will terminate the test.
+   * - Uses assertions to enforce invariants; a failing assertion will terminate
+   * the test.
    */
   void testThreadSafetyUnderConcurrentLoad() {
     std::cout << "Testing thread safety under concurrent load..." << std::endl;
@@ -439,12 +466,14 @@ public:
   }
 
   /**
-   * @brief Verifies that the connection pool exposes and resets performance metrics.
+   * @brief Verifies that the connection pool exposes and resets performance
+   * metrics.
    *
-   * Starts an HttpServer with a medium-sized configuration, installs the test handler,
-   * reads initial pool metrics (connection reuse count, total connections created,
-   * rejected request count) and asserts they are non-negative, then calls
-   * resetStatistics() and asserts those metrics are reset to zero.
+   * Starts an HttpServer with a medium-sized configuration, installs the test
+   * handler, reads initial pool metrics (connection reuse count, total
+   * connections created, rejected request count) and asserts they are
+   * non-negative, then calls resetStatistics() and asserts those metrics are
+   * reset to zero.
    *
    * Side effects:
    * - Assigns and starts server_ and configures its request handler.
@@ -483,12 +512,13 @@ public:
   }
 
   /**
-   * @brief Stop the test server if it's running and reset the test handler state.
+   * @brief Stop the test server if it's running and reset the test handler
+   * state.
    *
    * If an internal HttpServer instance exists and reports running, this method
-   * stops it and asserts that it is no longer running. After server shutdown (or
-   * if no server was running), the associated ConcurrentTestHandler, if present,
-   * is reset to clear counters and recorded response times.
+   * stops it and asserts that it is no longer running. After server shutdown
+   * (or if no server was running), the associated ConcurrentTestHandler, if
+   * present, is reset to clear counters and recorded response times.
    *
    * @note Uses an assertion to verify the server stopped successfully.
    */
@@ -519,8 +549,8 @@ public:
    * - testThreadSafetyUnderConcurrentLoad
    * - testPerformanceMetricsCollection
    *
-   * If any test throws, this function calls cleanup() and then rethrows the exception,
-   * allowing callers to handle test failures.
+   * If any test throws, this function calls cleanup() and then rethrows the
+   * exception, allowing callers to handle test failures.
    */
   void runAllTests() {
     std::cout << "Running Concurrent Request Handling Integration Tests..."
@@ -571,8 +601,9 @@ public:
 /**
  * @brief Entry point for the concurrent request handling test suite.
  *
- * Configures logging, constructs the test harness (ConcurrentRequestHandlingTest),
- * and runs the full suite of integration tests via runAllTests().
+ * Configures logging, constructs the test harness
+ * (ConcurrentRequestHandlingTest), and runs the full suite of integration tests
+ * via runAllTests().
  *
  * Exits with 0 on success. If a std::exception is thrown, prints the exception
  * message to stderr and returns 1. For any other unexpected exception, prints

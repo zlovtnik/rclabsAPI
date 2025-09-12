@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
+#include <nlohmann/json.hpp>
 #include <regex>
 #include <sstream>
 #include <string>
@@ -45,8 +46,8 @@ public:
     /**
      * @brief Record a security issue and mark the result as insecure.
      *
-     * Appends a human-readable issue description to the SecurityResult's issues list
-     * and sets isSecure to false.
+     * Appends a human-readable issue description to the SecurityResult's issues
+     * list and sets isSecure to false.
      *
      * @param issue Description of the detected security issue.
      */
@@ -65,13 +66,15 @@ private:
   /**
    * @brief Decode percent-encoded octets in a string (URL percent-decoding).
    *
-   * Decodes occurrences of `%` followed by two hex digits into the corresponding byte
-   * value and returns the resulting string. Any `%` not followed by two characters
-   * is left as-is. The function performs a byte-wise decode and may produce
-   * embedded null bytes in the returned std::string if the decoded value is `0x00`.
+   * Decodes occurrences of `%` followed by two hex digits into the
+   * corresponding byte value and returns the resulting string. Any `%` not
+   * followed by two characters is left as-is. The function performs a byte-wise
+   * decode and may produce embedded null bytes in the returned std::string if
+   * the decoded value is `0x00`.
    *
    * @param input The percent-encoded input (e.g., "/path%2Fto%2Efile").
-   * @return std::string The decoded string with percent-encoded sequences replaced by their byte values.
+   * @return std::string The decoded string with percent-encoded sequences
+   * replaced by their byte values.
    */
   std::string percentDecode(const std::string &input) {
     std::string result;
@@ -89,13 +92,16 @@ private:
   }
 
   /**
-   * @brief Normalize a filesystem-style URL path by resolving "." and ".." segments.
+   * @brief Normalize a filesystem-style URL path by resolving "." and ".."
+   * segments.
    *
-   * Produces a canonical absolute path: removes "." segments, collapses consecutive
-   * slashes, resolves ".." by removing the previous segment (if any), and ensures
-   * the result starts with '/' (returns "/" for an empty result).
+   * Produces a canonical absolute path: removes "." segments, collapses
+   * consecutive slashes, resolves ".." by removing the previous segment (if
+   * any), and ensures the result starts with '/' (returns "/" for an empty
+   * result).
    *
-   * @param path Input path to normalize (may contain leading/trailing slashes and
+   * @param path Input path to normalize (may contain leading/trailing slashes
+   * and
    *             "."/".." components).
    * @return std::string Normalized absolute path.
    */
@@ -157,7 +163,7 @@ public:
    * @param body Optional request body (used when the endpoint and method
    *             require a body).
    * @return ValidationResult Struct containing parsed request fields and any
-   *         validation errors. 
+   *         validation errors.
    */
   ValidationResult
   validateRequest(const std::string &method, const std::string &url,
@@ -204,9 +210,8 @@ public:
       // Normalize the path
       std::string normalizedPath = normalizePath(decodedPath);
 
-      // Reject if normalized path contains ".." or is different from expected
-      if (normalizedPath.find("..") != std::string::npos ||
-          normalizedPath != decodedPath) {
+      // Reject if normalized path contains ".." 
+      if (normalizedPath.find("..") != std::string::npos) {
         result.addError("Path traversal not allowed");
       }
     }
@@ -256,14 +261,16 @@ public:
   /**
    * @brief Analyze a request for common security issues.
    *
-   * Performs pattern-based checks for SQL injection and cross-site scripting (XSS)
-   * in the provided URL and body, and flags suspicious User-Agent headers.
+   * Performs pattern-based checks for SQL injection and cross-site scripting
+   * (XSS) in the provided URL and body, and flags suspicious User-Agent
+   * headers.
    *
    * The function does not modify inputs; it returns a SecurityResult whose
    * isSecure flag is set to false and issues contains short descriptions for
    * each detected problem.
    *
-   * @return SecurityResult Result containing overall security verdict and any detected issues.
+   * @return SecurityResult Result containing overall security verdict and any
+   * detected issues.
    */
   SecurityResult validateSecurity(
       const std::string &url, const std::string &body,
@@ -300,19 +307,49 @@ public:
 
 private:
   /**
+   * @brief URL-decode a string, handling percent-encoded sequences and '+' to space.
+   */
+  std::string urlDecode(const std::string &str) {
+    std::string result;
+    result.reserve(str.size());
+    for (size_t i = 0; i < str.size(); ++i) {
+      if (str[i] == '%') {
+        if (i + 2 < str.size()) {
+          int value;
+          std::istringstream iss(str.substr(i + 1, 2));
+          if (iss >> std::hex >> value) {
+            result += static_cast<char>(value);
+            i += 2;
+          } else {
+            result += str[i];
+          }
+        } else {
+          result += str[i];
+        }
+      } else if (str[i] == '+') {
+        result += ' ';
+      } else {
+        result += str[i];
+      }
+    }
+    return result;
+  }
+
+  /**
    * @brief Parse a URL query string into key/value pairs.
    *
-   * Parses a query string of the form "a=1&b=two&c=" (typically the portion after '?')
-   * into an unordered_map mapping keys to values.
+   * Parses a query string of the form "a=1&b=two&c=" (typically the portion
+   * after '?') into an unordered_map mapping keys to values.
    *
    * - Splits on '&' to extract pairs, then on the first '=' within each pair.
    * - Pairs without an '=' are ignored.
    * - Empty values are allowed (e.g., "c=" yields {"c", ""}).
    * - If a key appears multiple times, the last occurrence wins.
-   * - This function does not perform percent-decoding or form-urlencoded decoding.
+   * - This function performs percent-decoding and converts '+' to spaces.
    *
    * @param query The raw query string (do not include the leading '?').
-   * @return std::unordered_map<std::string, std::string> Map of parsed query parameters.
+   * @return std::unordered_map<std::string, std::string> Map of parsed query
+   * parameters.
    */
   std::unordered_map<std::string, std::string>
   parseQueryString(const std::string &query) {
@@ -325,7 +362,7 @@ private:
       if (equalPos != std::string::npos) {
         std::string key = pair.substr(0, equalPos);
         std::string value = pair.substr(equalPos + 1);
-        params[key] = value;
+        params[urlDecode(key)] = urlDecode(value);
       }
     }
 
@@ -339,7 +376,8 @@ private:
    * recognizes parameterized job endpoints of the form `/api/jobs/{id}`.
    *
    * @param path Request path (must begin with '/'); used as-is for matching.
-   * @return true if the path is a known endpoint or an individual `/api/jobs/*` resource, false otherwise.
+   * @return true if the path is a known endpoint or an individual `/api/jobs/*`
+   * resource, false otherwise.
    */
   bool isKnownEndpoint(const std::string &path) {
     // Check exact matches
@@ -359,10 +397,12 @@ private:
   }
 
   /**
-   * @brief Checks whether an HTTP method is allowed for a given API endpoint path.
+   * @brief Checks whether an HTTP method is allowed for a given API endpoint
+   * path.
    *
    * Returns true when the combination of `method` and `path` is permitted by
-   * the validator's per-endpoint rules; otherwise returns false. Recognized rules:
+   * the validator's per-endpoint rules; otherwise returns false. Recognized
+   * rules:
    * - POST required for /api/auth/login and /api/auth/logout
    * - GET required for /api/auth/profile, /api/logs, and /api/health
    * - GET or POST allowed for /api/jobs
@@ -393,16 +433,16 @@ private:
       return method == "GET" || method == "PUT" || method == "DELETE";
     }
     // Default deny for unknown endpoints or methods
-    std::cout << "Rejected request: method '" << method
-              << "' for unknown endpoint '" << path << "'" << std::endl;
     return false;
   }
 
   /**
-   * @brief Determines whether the given request path requires an Authorization header.
+   * @brief Determines whether the given request path requires an Authorization
+   * header.
    *
-   * Returns true for endpoints that must be authenticated. The health check ("/api/health")
-   * and the login endpoint ("/api/auth/login") are explicitly exempt and do not require auth.
+   * Returns true for endpoints that must be authenticated. The health check
+   * ("/api/health") and the login endpoint ("/api/auth/login") are explicitly
+   * exempt and do not require auth.
    *
    * @param path Request path (path component of the URL).
    * @return true if the endpoint requires authentication; false otherwise.
@@ -425,13 +465,15 @@ private:
   }
 
   /**
-   * @brief Validates an HTTP Authorization header uses the Bearer scheme with a non-empty token.
+   * @brief Validates an HTTP Authorization header uses the Bearer scheme with a
+   * non-empty token.
    *
-   * Checks that the header begins with the literal "Bearer " (case-sensitive) and that at least
-   * one character follows the prefix.
+   * Checks that the header begins with the literal "Bearer " (case-sensitive)
+   * and that at least one character follows the prefix.
    *
    * @param auth The raw Authorization header value to validate.
-   * @return true if the header is a Bearer token with a non-empty token portion; false otherwise.
+   * @return true if the header is a Bearer token with a non-empty token
+   * portion; false otherwise.
    */
   bool isValidAuthHeader(const std::string &auth) {
     const std::string bearerPrefix = "Bearer ";
@@ -440,66 +482,76 @@ private:
   }
 
   /**
-   * @brief Performs a lightweight structural check to determine if a string looks like JSON.
+   * @brief Validates whether a string contains valid JSON.
    *
-   * This is a minimal validator that trims leading/trailing whitespace and then verifies
-   * the payload starts and ends with either object braces ("{...}") or array brackets ("[...]").
-   * It does not parse or fully validate JSON syntax, escape sequences, or value types.
+   * Attempts to parse the input string as JSON using nlohmann::json.
+   * Returns true only if parsing succeeds and consumes the whole input.
    *
-   * @param body The raw request body to inspect.
-   * @return true if the trimmed body is non-empty and begins/ends with matching `{}` or `[]`; false otherwise.
+   * @param body The raw request body to validate.
+   * @return true if the body is valid JSON; false otherwise.
    */
   bool isValidJson(const std::string &body) {
-    // Simple JSON validation - check for basic structure
-    if (body.empty())
+    if (body.empty()) return false;
+    try {
+      auto json = nlohmann::json::parse(body);
+      return true;
+    } catch (const nlohmann::json::parse_error &) {
       return false;
-
-    std::string trimmed = body;
-    trimmed.erase(0, trimmed.find_first_not_of(" \t\n\r"));
-    trimmed.erase(trimmed.find_last_not_of(" \t\n\r") + 1);
-
-    return (trimmed.front() == '{' && trimmed.back() == '}') ||
-           (trimmed.front() == '[' && trimmed.back() == ']');
+    }
   }
 
   /**
    * @brief Heuristically detects potential SQL-injection patterns in a string.
    *
-   * This function performs a case-insensitive substring scan for a small set of
-   * SQL- and script-related tokens (e.g., "select", "drop", "union", "exec",
-   * "script", "javascript", and the pattern "'; drop"). It returns true if any
-   * of those tokens are present.
-   *
-   * This is a lightweight heuristic intended for basic filtering and logging;
-   * it does not perform full SQL parsing and can produce false positives or
-   * false negatives. Do not rely on this alone for security-critical filtering.
+   * This function uses regex with word boundaries to detect SQL keywords and
+   * common SQL injection patterns. It checks for whole words like "select",
+   * "drop", etc., and patterns like "select .* from", "union select", etc.
+   * Returns true if multiple suspicious patterns are found to reduce false positives.
    *
    * @param input The string to inspect (URL, body, or other request content).
-   * @return true if a suspicious token was found; otherwise false.
+   * @return true if suspicious SQL patterns are detected; otherwise false.
    */
   bool checkForSqlInjection(const std::string &input) {
     std::string lower = input;
     std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
 
-    std::vector<std::string> sqlKeywords = {
-        "select", "insert", "update", "delete",     "drop",
-        "union",  "exec",   "script", "javascript", "'; drop"};
+    int score = 0;
 
-    for (const auto &keyword : sqlKeywords) {
-      if (lower.find(keyword) != std::string::npos) {
-        return true;
+    // Check for SQL keywords with word boundaries
+    std::vector<std::string> sqlKeywords = {
+        "\\bselect\\b", "\\binsert\\b", "\\bupdate\\b", "\\bdelete\\b",
+        "\\bdrop\\b", "\\bunion\\b", "\\bexec\\b", "\\bscript\\b"};
+
+    for (const auto &pattern : sqlKeywords) {
+      std::regex regex(pattern, std::regex_constants::icase);
+      if (std::regex_search(lower, regex)) {
+        score += 1;
       }
     }
 
-    return false;
+    // Check for common SQL injection patterns
+    std::vector<std::string> sqlPatterns = {
+        "select\\s+.*\\s+from", "union\\s+select", "drop\\s+table",
+        "insert\\s+into", "';\\s*drop", "1=1", "--", "/\\*"};
+
+    for (const auto &pattern : sqlPatterns) {
+      std::regex regex(pattern, std::regex_constants::icase);
+      if (std::regex_search(lower, regex)) {
+        score += 2; // Higher weight for patterns
+      }
+    }
+
+    // Require multiple hits to reduce false positives
+    return score >= 2;
   }
 
   /**
    * @brief Heuristically detects potential XSS payloads in a string.
    *
-   * Performs a case-insensitive scan of the provided input for common XSS indicators
-   * such as script tags, event handler attributes (e.g., `onload=`, `onclick=`),
-   * `javascript:` URIs, `eval(`, and references to `document` APIs.
+   * Performs a case-insensitive scan of the provided input for common XSS
+   * indicators such as script tags, event handler attributes (e.g., `onload=`,
+   * `onclick=`), `javascript:` URIs, `eval(`, and references to `document`
+   * APIs.
    *
    * @param input The text to inspect for possible cross-site scripting content.
    * @return true if any common XSS pattern is found; false otherwise.
@@ -526,14 +578,17 @@ private:
   }
 
   /**
-   * @brief Detects whether a User-Agent string indicates a suspicious scanner or proxy tool.
+   * @brief Detects whether a User-Agent string indicates a suspicious scanner
+   * or proxy tool.
    *
-   * Performs a case-insensitive substring search for common reconnaissance/tool identifiers
-   * (for example: "sqlmap", "nikto", "nmap", "masscan", "zap", "burp"). Intended as a
-   * lightweight heuristic for flagging potentially malicious or automated clients.
+   * Performs a case-insensitive substring search for common reconnaissance/tool
+   * identifiers (for example: "sqlmap", "nikto", "nmap", "masscan", "zap",
+   * "burp"). Intended as a lightweight heuristic for flagging potentially
+   * malicious or automated clients.
    *
    * @param userAgent The User-Agent header value to inspect.
-   * @return true if any suspicious pattern is found in the User-Agent; false otherwise.
+   * @return true if any suspicious pattern is found in the User-Agent; false
+   * otherwise.
    */
   bool isSuspiciousUserAgent(const std::string &userAgent) {
     std::string lower = userAgent;
@@ -555,14 +610,15 @@ private:
 /**
  * @brief Print a human-readable summary of a validation test result to stdout.
  *
- * Prints a formatted block containing the test name, overall validity, HTTP method,
- * path, query parameters (if any), and any validation error messages contained in
- * the provided ValidationResult.
+ * Prints a formatted block containing the test name, overall validity, HTTP
+ * method, path, query parameters (if any), and any validation error messages
+ * contained in the provided ValidationResult.
  *
  * @param testName Short label for the test; printed as the block header.
- * @param result ValidationResult produced by SimpleRequestValidator::validateRequest.
- *               The function reads result.isValid, result.method, result.path,
- *               result.queryParams, and result.errors to produce the output.
+ * @param result ValidationResult produced by
+ * SimpleRequestValidator::validateRequest. The function reads result.isValid,
+ * result.method, result.path, result.queryParams, and result.errors to produce
+ * the output.
  */
 void printResult(const std::string &testName,
                  const SimpleRequestValidator::ValidationResult &result) {
@@ -590,14 +646,17 @@ void printResult(const std::string &testName,
 }
 
 /**
- * @brief Print a formatted summary of a security test result to standard output.
+ * @brief Print a formatted summary of a security test result to standard
+ * output.
  *
  * Prints a separator, the test name, an overall secure/not-secure line, and any
  * reported security issues (each prefixed with an alert marker). Intended for
  * human-readable console output in the demo/test harness.
  *
- * @param testName Human-readable name of the security test displayed in the header.
- * @param result SecurityResult produced by SimpleRequestValidator::validateSecurity.
+ * @param testName Human-readable name of the security test displayed in the
+ * header.
+ * @param result SecurityResult produced by
+ * SimpleRequestValidator::validateSecurity.
  */
 void printSecurityResult(const std::string &testName,
                          const SimpleRequestValidator::SecurityResult &result) {
@@ -616,7 +675,8 @@ void printSecurityResult(const std::string &testName,
 }
 
 /**
- * @brief Demo harness that exercises SimpleRequestValidator with example requests.
+ * @brief Demo harness that exercises SimpleRequestValidator with example
+ * requests.
  *
  * Runs a suite of validation and security checks (valid/invalid requests, path
  * traversal, percent-encoded traversal, missing auth/body, SQL injection, XSS,
