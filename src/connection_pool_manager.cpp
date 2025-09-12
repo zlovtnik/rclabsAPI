@@ -43,7 +43,9 @@ ConnectionPoolManager::acquireConnection(tcp::socket &&socket) {
   std::unique_lock<etl_plus::ContainerMutex> lock(poolMutex_);
 
   if (shutdownRequested_) {
-    // Send service unavailable response before throwing
+    // Capture shutdown state before releasing lock
+    lock.unlock();
+    // Send service unavailable response after releasing lock to avoid blocking
     try {
       sendErrorResponse(socket, "Service unavailable - server shutting down");
     } catch (...) {
@@ -307,6 +309,8 @@ size_t ConnectionPoolManager::cleanupIdleConnections() {
       ++cleanedUp;
       Logger::getInstance().log(LogLevel::DEBUG, "ConnectionPoolManager",
                                 "Cleaning up idle connection");
+      // Explicitly close the session to ensure proper cleanup
+      session->handleTimeout("CONNECTION");
     } else {
       // Connection is still within idle timeout, keep it
       newIdleQueue.push(session);
