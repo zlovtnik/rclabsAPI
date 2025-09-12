@@ -2,7 +2,10 @@
 #include "hana_exception_handling.hpp"
 #include "string_utils.hpp"
 #include <boost/beast/http.hpp>
+#include <boost/uuid/random_generator.hpp>
+#include <boost/uuid/uuid_io.hpp>
 #include <chrono>
+#include <ctime>
 #include <iomanip>
 #include <mutex>
 #include <optional>
@@ -88,12 +91,12 @@ HttpResponse
 ExceptionMapper::mapToResponse(const std::exception &exception,
                                const std::string &operationName) const {
   // Convert standard exception to ETLException
-  auto etlException = std::make_shared<etl::SystemException>(
+  etl::SystemException etlException(
       etl::ErrorCode::INTERNAL_ERROR,
       "Standard exception: " + std::string(exception.what()), "ExceptionMapper",
       etl::ErrorContext{{"original_type", typeid(exception).name()}});
 
-  return mapToResponse(*etlException, operationName);
+  return mapToResponse(etlException, operationName);
 }
 
 HttpResponse
@@ -197,34 +200,8 @@ void ExceptionMapper::logException(const etl::ETLException &exception,
 }
 
 std::string ExceptionMapper::generateCorrelationId() {
-  thread_local std::random_device rd;
-  thread_local std::mt19937 gen(rd());
-  thread_local std::uniform_int_distribution<> dis(0, 15);
-
-  std::ostringstream oss;
-  oss << std::hex;
-  for (int i = 0; i < 8; ++i) {
-    oss << dis(gen);
-  }
-  oss << "-";
-  for (int i = 0; i < 4; ++i) {
-    oss << dis(gen);
-  }
-  oss << "-4"; // Version 4 UUID
-  for (int i = 0; i < 3; ++i) {
-    oss << dis(gen);
-  }
-  oss << "-";
-  oss << (dis(gen) & 0x3 | 0x8); // Variant bits
-  for (int i = 0; i < 3; ++i) {
-    oss << dis(gen);
-  }
-  oss << "-";
-  for (int i = 0; i < 12; ++i) {
-    oss << dis(gen);
-  }
-
-  return oss.str();
+  static thread_local boost::uuids::random_generator_mt19937 gen;
+  return boost::uuids::to_string(gen());
 }
 
 void ExceptionMapper::setCurrentCorrelationId(
