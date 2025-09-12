@@ -129,7 +129,7 @@ endif()
 # Try to find libpqxx (PostgreSQL C++ client library)
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
-    pkg_check_modules(LIBPQXX QUIET libpqxx)
+    pkg_check_modules(LIBPQXX QUIET libpqxx>=7.0)
 endif()
 
 if(NOT LIBPQXX_FOUND)
@@ -217,9 +217,6 @@ endif()
 # Expose JWT feature flag
 add_compile_definitions(ETL_ENABLE_JWT=$<BOOL:${JWT_CPP_FOUND}>)
 
-# Expose Redis feature flag
-add_compile_definitions(ETL_ENABLE_REDIS=$<BOOL:${HIREDIS_FOUND}>)
-
 # Try to find hiredis (Redis C client library)
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
@@ -285,6 +282,8 @@ set(COMMON_SOURCES
     src/logger.cpp
     src/log_handler.cpp
     src/log_file_manager.cpp
+    src/log_aggregator.cpp
+    src/log_aggregation_config.cpp
     src/config_manager.cpp
     src/database_manager.cpp
     src/database_connection_pool.cpp
@@ -374,6 +373,9 @@ target_link_libraries(etl_common PUBLIC
     OpenSSL::Crypto
 )
 
+# Expose Redis feature flag (target-scoped)
+target_compile_definitions(etl_common PUBLIC ETL_ENABLE_REDIS=$<BOOL:${HIREDIS_FOUND}>)
+
 # Main executable - now much simpler
 add_executable(ETLPlusBackend 
     src/main.cpp
@@ -403,8 +405,20 @@ add_custom_target(copy_configs ALL
     COMMENT "Copying configuration files to build directory"
 )
 
-# Add a dependency so the executable depends on config files being copied
-add_dependencies(ETLPlusBackend copy_configs)
+# Add log aggregation test executable
+add_executable(test_log_aggregation
+    src/test_log_aggregation.cpp
+)
+
+target_include_directories(test_log_aggregation PRIVATE
+    include
+    ${Boost_INCLUDE_DIRS}
+)
+target_link_libraries(test_log_aggregation etl_common)
+
+set_target_properties(test_log_aggregation PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
 
 # Add commands to copy any additional config files if they exist
 file(GLOB CONFIG_FILES "${CMAKE_SOURCE_DIR}/config/*")

@@ -6,7 +6,11 @@
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iomanip>
+#if defined(__unix__) || defined(__APPLE__)
+#include <sys/mman.h>
+#endif
 #include <iostream>
 #include <random>
 #include <sstream>
@@ -38,10 +42,12 @@ AuthManager::AuthManager(std::shared_ptr<DatabaseManager> dbManager)
       }
     }
   }
-  
+
   if (jwtSecretKey.empty()) {
-    AUTH_LOG_ERROR("JWT_SECRET_KEY environment variable or JWT_SECRET_KEY_FILE must be set");
-    throw std::runtime_error("JWT_SECRET_KEY environment variable or JWT_SECRET_KEY_FILE must be set");
+    AUTH_LOG_ERROR("JWT_SECRET_KEY environment variable or JWT_SECRET_KEY_FILE "
+                   "must be set");
+    throw std::runtime_error("JWT_SECRET_KEY environment variable or "
+                             "JWT_SECRET_KEY_FILE must be set");
   }
   AUTH_LOG_DEBUG("JWT secret key loaded successfully.");
 
@@ -49,12 +55,33 @@ AuthManager::AuthManager(std::shared_ptr<DatabaseManager> dbManager)
     throw std::runtime_error(
         "JWT_SECRET_KEY must be at least 32 characters long for security");
   }
-  jwtSecretKey_ = jwtSecretKey;
+  jwtSecretKey_.assign(jwtSecretKey.begin(), jwtSecretKey.end());
+  // Securely zero the temporary string
+  std::fill(jwtSecretKey.begin(), jwtSecretKey.end(), '\0');
+  // Lock the secret in memory
+#if defined(__unix__) || defined(__APPLE__)
+  if (!jwtSecretKey_.empty() &&
+      mlock(jwtSecretKey_.data(), jwtSecretKey_.size()) != 0) {
+    AUTH_LOG_WARN("Failed to lock JWT secret in memory");
+  }
+#endif
 #endif
 
   // Note: Default admin user creation is now handled by database schema
   // initialization
   AUTH_LOG_DEBUG("Authentication manager initialization completed");
+}
+
+AuthManager::~AuthManager() {
+#if ETL_ENABLE_JWT
+  // Unlock and zero the JWT secret
+#if defined(__unix__) || defined(__APPLE__)
+  if (!jwtSecretKey_.empty()) {
+    munlock(jwtSecretKey_.data(), jwtSecretKey_.size());
+  }
+#endif
+  std::fill(jwtSecretKey_.begin(), jwtSecretKey_.end(), '\0');
+#endif
 }
 
 #if ETL_ENABLE_JWT
@@ -97,9 +124,7 @@ bool AuthManager::createUser(const std::string &username,
 bool AuthManager::userExists(std::string_view username) const {
   auto user = userRepo_->getUserByUsername(std::string(username));
   if (user && user->isActive) {
-    // For simplicity, we're not implementing proper password
-    // hashing/verification In a real implementation, you'd verify the hashed
-    // password
+    // This function only checks for user existence and active status
     AUTH_LOG_INFO("User exists: " + std::string(username));
     return true;
   }
@@ -128,8 +153,7 @@ bool AuthManager::authenticateUser(std::string_view username,
     return false;
   }
 
-  AUTH_LOG_INFO("Authenticated user: " + std::string(username) +
-                " with password");
+  AUTH_LOG_INFO("Authenticated user: " + std::string(username));
   return true;
 }
 
@@ -393,11 +417,14 @@ std::string AuthManager::generateJWTToken(const std::string &userId) {
             .set_subject(userId)
             .set_issued_at(now)
             .set_expires_at(expiry)
+            .set_audience("etl-api")
             .set_payload_claim("username",
                                jwt::claim(std::string(user->username)))
             .set_payload_claim("roles",
-                               jwt::claim(picojson::array(user->roles.begin(), user->roles.end())))
-            .sign(jwt::algorithm::hs256{jwtSecretKey_});
+                               jwt::claim(picojson::array(user->roles.begin(),
+                                                          user->roles.end())))
+            .sign(jwt::algorithm::hs256{
+                std::string(jwtSecretKey_.data(), jwtSecretKey_.size())});
 
     AUTH_LOG_INFO("Generated JWT token for user: " + userId);
     return token;
@@ -417,7 +444,8 @@ AuthManager::validateJWTToken(const std::string &token) {
     auto verifier = jwt::verify()
                         .with_issuer("etl-backend")
                         .with_audience("etl-api")
-                        .allow_algorithm(jwt::algorithm::hs256{jwtSecretKey_});
+                        .allow_algorithm(jwt::algorithm::hs256{std::string(
+                            jwtSecretKey_.data(), jwtSecretKey_.size())});
 
     verifier.verify(decoded);
 

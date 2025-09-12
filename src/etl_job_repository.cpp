@@ -109,10 +109,10 @@ std::optional<ETLJob> ETLJobRepository::getJobById(const std::string &jobId) {
                         "time_to_first_error_ms, throughput_mbps, "
                         "memory_efficiency, cpu_efficiency, "
                         "start_time, last_update_time, first_error_time FROM "
-                        "etl_jobs WHERE job_id = '" +
-                        jobId + "'";
+                        "etl_jobs WHERE job_id = $1";
+    std::vector<std::string> params = {jobId};
 
-    auto result = dbManager_->selectQuery(query);
+    auto result = dbManager_->selectQuery(query, params);
     if (result.size() <= 1) {
       return std::nullopt;
     }
@@ -187,10 +187,10 @@ std::vector<ETLJob> ETLJobRepository::getJobsByStatus(JobStatus status) {
                         "time_to_first_error_ms, throughput_mbps, "
                         "memory_efficiency, cpu_efficiency, "
                         "start_time, last_update_time, first_error_time FROM "
-                        "etl_jobs WHERE status = '" +
-                        statusStr + "' ORDER BY created_at DESC";
+                        "etl_jobs WHERE status = $1 ORDER BY created_at DESC";
+    std::vector<std::string> params = {statusStr};
 
-    auto result = dbManager_->selectQuery(query);
+    auto result = dbManager_->selectQuery(query, params);
     if (result.size() <= 1) {
       return jobs;
     }
@@ -274,8 +274,9 @@ bool ETLJobRepository::deleteJob(const std::string &jobId) {
   }
 
   try {
-    std::string query = "DELETE FROM etl_jobs WHERE job_id = '" + jobId + "'";
-    return dbManager_->executeQuery(query);
+    std::string query = "DELETE FROM etl_jobs WHERE job_id = $1";
+    std::vector<std::string> params = {jobId};
+    return dbManager_->executeQuery(query, params);
   } catch (const std::exception &e) {
     ETL_LOG_ERROR("Failed to delete job: " + std::string(e.what()));
     return false;
@@ -499,5 +500,5 @@ ETLJobRepository::stringToTimePoint(const std::string &str) {
   if (ss.fail()) {
     return std::chrono::system_clock::now();
   }
-  return std::chrono::system_clock::from_time_t(std::mktime(&tm));
+  return std::chrono::system_clock::from_time_t(timegm(&tm));
 }

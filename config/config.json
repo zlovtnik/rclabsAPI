@@ -32,7 +32,64 @@
     "enable_rotation": true,
     "component_filter": [],
     "include_metrics": false,
-    "flush_interval": 1000
+    "flush_interval": 1000,
+    "structured_logging": {
+      "enabled": true,
+      "default_component": "etlplus",
+      "aggregation": {
+        "enabled": true,
+        "destinations": [
+          {
+            "type": "FILE",
+            "name": "aggregated_logs",
+            "enabled": true,
+            "file_path": "logs/aggregated.json",
+            "rotate_files": true,
+            "max_file_size": 104857600,
+            "batch_size": 50,
+            "batch_timeout": 30,
+            "max_retries": 3,
+            "retry_delay": 5,
+            "allowed_levels": ["DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+            "allowed_components": []
+          },
+          {
+            "type": "ELASTICSEARCH",
+            "name": "elasticsearch",
+            "enabled": false,
+            "endpoint": "http://localhost:9200",
+            "index_pattern": "etlplus-logs-%Y.%m.%d",
+            "pipeline": "",
+            "auth_token": "",
+            "headers": {
+              "Authorization": "Bearer ${ELASTICSEARCH_TOKEN}"
+            },
+            "batch_size": 100,
+            "batch_timeout": 30,
+            "max_retries": 3,
+            "retry_delay": 5,
+            "allowed_levels": ["INFO", "WARN", "ERROR", "FATAL"],
+            "allowed_components": []
+          },
+          {
+            "type": "HTTP_ENDPOINT",
+            "name": "logstash",
+            "enabled": false,
+            "endpoint": "http://localhost:8080/logstash",
+            "auth_token": "",
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "batch_size": 50,
+            "batch_timeout": 30,
+            "max_retries": 3,
+            "retry_delay": 5,
+            "allowed_levels": ["INFO", "WARN", "ERROR", "FATAL"],
+            "allowed_components": []
+          }
+        ]
+      }
+    }
   },
   "monitoring": {
     "websocket": {

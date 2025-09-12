@@ -1,7 +1,9 @@
 #include "exception_handler.hpp"
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <cmath>
+#include <system_error>
 
 namespace ETLPlus {
 namespace ExceptionHandling {
@@ -152,37 +154,37 @@ ExceptionHandler::convertException(const std::exception &ex,
                                    const etl::ErrorContext &context) {
 
   // Check well-known exception types first for better accuracy
-  if (dynamic_cast<const std::bad_alloc*>(&ex)) {
-    return std::make_shared<etl::SystemException>(
-        etl::ErrorCode::MEMORY_ERROR,
-        "Memory allocation failed: " + std::string(ex.what()), "MemorySystem",
-        context);
+  if (dynamic_cast<const std::bad_alloc *>(&ex)) {
+    return std::make_shared<etl::SystemException>(etl::ErrorCode::MEMORY_ERROR,
+                                                  "Memory allocation failed: " +
+                                                      std::string(ex.what()),
+                                                  "MemorySystem", context);
   }
 
-  if (auto se = dynamic_cast<const std::system_error*>(&ex)) {
-    // Inspect system error code for more specific mapping
-    auto code = se->code();
-    if (code.category() == std::system_category()) {
-      if (code.value() == ETIMEDOUT || code.value() == ECONNABORTED) {
-        return std::make_shared<etl::SystemException>(
-            etl::ErrorCode::NETWORK_ERROR,
-            "Network timeout/connection error: " + std::string(ex.what()),
-            "NetworkSystem", context);
-      }
-      if (code.value() == ECONNREFUSED || code.value() == EHOSTUNREACH) {
-        return std::make_shared<etl::SystemException>(
-            etl::ErrorCode::NETWORK_ERROR,
-            "Connection refused/unreachable: " + std::string(ex.what()),
-            "NetworkSystem", context);
-      }
-      if (code.value() == ENOENT || code.value() == EACCES) {
-        return std::make_shared<etl::SystemException>(
-            etl::ErrorCode::FILE_ERROR,
-            "File access error: " + std::string(ex.what()), "FileSystem",
-            context);
-      }
+  if (auto se = dynamic_cast<const std::system_error *>(&ex)) {
+    const auto code = se->code();
+    const auto cond = code.default_error_condition();
+    if (cond == std::errc::timed_out || cond == std::errc::connection_aborted) {
+      return std::make_shared<etl::SystemException>(
+          etl::ErrorCode::NETWORK_ERROR,
+          "Network timeout/connection error: " + std::string(ex.what()),
+          "NetworkSystem", context);
     }
-    // Default system error mapping
+    if (cond == std::errc::connection_refused ||
+        cond == std::errc::host_unreachable ||
+        cond == std::errc::network_unreachable) {
+      return std::make_shared<etl::SystemException>(
+          etl::ErrorCode::NETWORK_ERROR,
+          "Connection refused/unreachable: " + std::string(ex.what()),
+          "NetworkSystem", context);
+    }
+    if (cond == std::errc::no_such_file_or_directory ||
+        cond == std::errc::permission_denied) {
+      return std::make_shared<etl::SystemException>(etl::ErrorCode::FILE_ERROR,
+                                                    "File access error: " +
+                                                        std::string(ex.what()),
+                                                    "FileSystem", context);
+    }
     return std::make_shared<etl::SystemException>(
         etl::ErrorCode::INTERNAL_ERROR,
         "System error: " + std::string(ex.what()), "System", context);
@@ -196,7 +198,6 @@ ExceptionHandler::convertException(const std::exception &ex,
 
   // Database-related errors
   if (lowerMessage.find("database") != std::string::npos ||
-      lowerMessage.find("connection") != std::string::npos ||
       lowerMessage.find("query") != std::string::npos ||
       lowerMessage.find("sql") != std::string::npos) {
     return std::make_shared<etl::SystemException>(
@@ -208,7 +209,8 @@ ExceptionHandler::convertException(const std::exception &ex,
   if (lowerMessage.find("network") != std::string::npos ||
       lowerMessage.find("socket") != std::string::npos ||
       lowerMessage.find("timeout") != std::string::npos ||
-      lowerMessage.find("refused") != std::string::npos) {
+      lowerMessage.find("refused") != std::string::npos ||
+      lowerMessage.find("connection") != std::string::npos) {
     return std::make_shared<etl::SystemException>(etl::ErrorCode::NETWORK_ERROR,
                                                   "Network error: " + message,
                                                   "NetworkSystem", context);
@@ -251,7 +253,8 @@ void ExceptionHandler::logException(const etl::ETLException &ex,
   if (!operationName.empty()) {
     logMessage = "[" + operationName + "] " + logMessage;
   }
-  // Log all exceptions as errors for now (simplified from severity-based logging)
+  // Log all exceptions as errors for now (simplified from severity-based
+  // logging)
   LOG_ERROR("ExceptionHandler", logMessage);
 }
 
@@ -307,11 +310,15 @@ void ExceptionHandler::handleUnknownException(
 
 std::chrono::milliseconds
 ExceptionHandler::calculateDelay(int attempt, const RetryConfig &config) {
-
-  auto delay = std::chrono::duration_cast<std::chrono::milliseconds>(
-      config.initialDelay * std::pow(config.backoffMultiplier, attempt - 1));
-
-  return std::min(delay, config.maxDelay);
+  const int k = std::max(1, attempt) - 1;
+  const long double factor =
+      std::pow(static_cast<long double>(config.backoffMultiplier),
+               static_cast<long double>(k));
+  const long double raw =
+      static_cast<long double>(config.initialDelay.count()) * factor;
+  const auto clamped = static_cast<long long>(std::min<long double>(
+      raw, static_cast<long double>(config.maxDelay.count())));
+  return std::chrono::milliseconds{clamped};
 }
 
 } // namespace ExceptionHandling

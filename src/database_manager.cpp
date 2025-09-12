@@ -151,6 +151,35 @@ bool DatabaseManager::executeQuery(const std::string &query) {
   }
 }
 
+bool DatabaseManager::executeQuery(const std::string &query,
+                                   const std::vector<std::string> &params) {
+  if (!isConnected()) {
+    DB_LOG_ERROR("Cannot execute parameterized query: database not connected");
+    return false;
+  }
+
+  DB_LOG_DEBUG("Executing parameterized query: " + query.substr(0, 100) +
+               (query.length() > 100 ? "..." : ""));
+
+  try {
+    auto conn = pImpl->connectionPool->acquireConnection();
+    pqxx::work txn(*conn);
+    pqxx::params pqxx_params;
+    for (const auto &param : params) {
+      pqxx_params.append(param);
+    }
+    txn.exec_params(query, pqxx_params);
+    txn.commit();
+    pImpl->connectionPool->releaseConnection(conn);
+    DB_LOG_DEBUG("Parameterized query executed successfully");
+    return true;
+  } catch (const std::exception &e) {
+    DB_LOG_ERROR("Parameterized query execution failed: " +
+                 std::string(e.what()));
+    return false;
+  }
+}
+
 std::vector<std::vector<std::string>>
 DatabaseManager::selectQuery(const std::string &query) {
   if (!isConnected()) {
@@ -197,6 +226,57 @@ DatabaseManager::selectQuery(const std::string &query) {
   }
 }
 
+std::vector<std::vector<std::string>>
+DatabaseManager::selectQuery(const std::string &query,
+                             const std::vector<std::string> &params) {
+  if (!isConnected()) {
+    DB_LOG_ERROR("Cannot execute select query: database not connected");
+    return {};
+  }
+
+  DB_LOG_DEBUG("Executing parameterized select query: " + query.substr(0, 100) +
+               (query.length() > 100 ? "..." : ""));
+
+  try {
+    auto conn = pImpl->connectionPool->acquireConnection();
+    pqxx::work txn(*conn);
+    pqxx::params pqxx_params;
+    for (const auto &param : params) {
+      pqxx_params.append(param);
+    }
+    pqxx::result result = txn.exec_params(query, pqxx_params);
+    txn.commit();
+    pImpl->connectionPool->releaseConnection(conn);
+
+    std::vector<std::vector<std::string>> rows;
+
+    // Add column headers
+    if (!result.empty()) {
+      std::vector<std::string> headers;
+      for (size_t col = 0; col < result.columns(); ++col) {
+        headers.push_back(result.column_name(col));
+      }
+      rows.push_back(headers);
+    }
+
+    // Add data rows
+    for (const auto &row : result) {
+      std::vector<std::string> dataRow;
+      for (const auto &field : row) {
+        dataRow.push_back(field.as<std::string>());
+      }
+      rows.push_back(dataRow);
+    }
+
+    DB_LOG_DEBUG("Parameterized select query completed, returning " +
+                 std::to_string(rows.size()) + " rows");
+    return rows;
+  } catch (const std::exception &e) {
+    DB_LOG_ERROR("Parameterized select query failed: " + std::string(e.what()));
+    return {};
+  }
+}
+
 bool DatabaseManager::beginTransaction() {
   if (!isConnected()) {
     DB_LOG_ERROR("Cannot begin transaction: database not connected");
@@ -204,9 +284,7 @@ bool DatabaseManager::beginTransaction() {
   }
 
   DB_LOG_DEBUG("Beginning PostgreSQL database transaction");
-  // TODO: Implement proper transaction management with connection pooling
-  // Note: Currently transactions are handled implicitly in executeQuery and selectQuery
-  return true;
+  return executeQuery("BEGIN");
 }
 
 bool DatabaseManager::commitTransaction() {
@@ -216,9 +294,7 @@ bool DatabaseManager::commitTransaction() {
   }
 
   DB_LOG_DEBUG("Committing PostgreSQL database transaction");
-  // TODO: Implement proper transaction management with connection pooling
-  // Note: Currently transactions are handled implicitly in executeQuery and selectQuery
-  return true;
+  return executeQuery("COMMIT");
 }
 
 bool DatabaseManager::rollbackTransaction() {
@@ -228,9 +304,7 @@ bool DatabaseManager::rollbackTransaction() {
   }
 
   DB_LOG_WARN("Rolling back PostgreSQL database transaction");
-  // TODO: Implement proper transaction management with connection pooling
-  // Note: Currently transactions are handled implicitly in executeQuery and selectQuery
-  return true;
+  return executeQuery("ROLLBACK");
 }
 
 void DatabaseManager::setMaxConnections(int maxConn) {

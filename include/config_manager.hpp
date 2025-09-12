@@ -5,6 +5,7 @@
 #include <functional>
 #include <memory>
 #include <nlohmann/json.hpp>
+#include <set>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -106,12 +107,22 @@ public:
                                     const ConfigChangeCallback &callback);
   void unregisterConfigChangeCallback(const std::string &section);
 
+  // Get raw JSON configuration
+  const nlohmann::json &getJsonConfig() const;
+
   // Configuration access with validation
   template <typename T>
-  T getValidatedValue(const std::string &key, const T &defaultValue,
-                      std::function<bool(const T &)> validator = nullptr) const;
+  T getValidatedValue(
+      const std::string &key, const T &defaultValue,
+      const std::function<bool(const T &)> &validator = nullptr) const;
 
 private:
+  /**
+   * @brief Default constructor.
+   *
+   * Private and defaulted to enforce the singleton pattern; use
+   * ConfigManager::getInstance() to obtain the single shared instance.
+   */
   ConfigManager() = default;
   std::unordered_map<std::string, std::string, TransparentStringHash,
                      std::equal_to<>>
@@ -120,10 +131,12 @@ private:
                      std::equal_to<>>
       changeCallbacks;
   std::string configFilePath;
+  nlohmann::json rawConfig_; // Store the raw JSON configuration
 
   bool parseConfigFile(const std::string &configPath);
   void flattenJson(const nlohmann::json &json, const std::string &prefix,
-                   int currentDepth = 0, int maxDepth = 100);
+                   int currentDepth, int maxDepth,
+                   std::unordered_set<const nlohmann::json *> &visited);
   LogLevel parseLogLevel(const std::string &levelStr) const;
   LogFormat parseLogFormat(const std::string &formatStr) const;
 
@@ -147,9 +160,31 @@ private:
 
 // Template method implementation
 template <typename T>
+/**
+ * @brief Retrieve a typed configuration value for a key with optional runtime
+ * validation.
+ *
+ * Retrieves the configuration value for @p key, using the overload-specific
+ * getter for the requested template type T (supported: std::string, int, bool,
+ * double). If the key is absent the provided @p defaultValue is returned. If a
+ * @p validator is supplied and returns false for the retrieved value, @p
+ * defaultValue is returned instead.
+ *
+ * @tparam T The requested return type. Only `std::string`, `int`, `bool`, and
+ * `double` are supported; requesting any other type triggers a compile-time
+ * error.
+ * @param key Configuration key to look up.
+ * @param defaultValue Value returned when the key is missing or validation
+ * fails.
+ * @param validator Optional predicate to validate the retrieved value; called
+ * only if the value was successfully retrieved. If `validator` returns false,
+ * @p defaultValue is returned.
+ * @return T The configuration value (or @p defaultValue when missing or
+ * invalid).
+ */
 T ConfigManager::getValidatedValue(
     const std::string &key, const T &defaultValue,
-    std::function<bool(const T &)> validator) const {
+    const std::function<bool(const T &)> &validator) const {
   T value;
 
   // Get value based on type

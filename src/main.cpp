@@ -13,6 +13,8 @@
 #include "database_manager.hpp"
 #include "etl_job_manager.hpp"
 #include "http_server.hpp"
+#include "log_aggregation_config.hpp"
+#include "log_aggregator.hpp"
 #include "logger.hpp"
 #include "request_handler.hpp"
 #include "websocket_manager.hpp"
@@ -49,6 +51,54 @@ int main() {
     std::cout << "Logger configured, starting application..." << std::endl;
 
     LOG_INFO("Main", "Starting ETL Plus Backend with enhanced logging...");
+
+    // Initialize structured logging and aggregation
+    LOG_INFO("Main", "Initializing structured logging and aggregation...");
+    try {
+      auto &structuredLogger = StructuredLogger::getInstance();
+
+      // Load structured logging configuration
+      // Load structured logging configuration
+      nlohmann::json fullConfig = config.getJsonConfig();
+      if (!fullConfig.contains("logging")) {
+        LOG_WARN("Main", "No 'logging' section found in configuration");
+        return 1;
+      }
+      auto structuredConfig =
+          LogAggregationConfigLoader::loadStructuredLoggingConfig(
+              fullConfig["logging"]);
+      auto aggregationConfig =
+          LogAggregationConfigLoader::loadAggregationConfig(
+              fullConfig["logging"]);
+
+      // Configure structured logging
+      structuredLogger.configureStructuredLogging(
+          structuredConfig.enabled, structuredConfig.default_component);
+
+      // Configure aggregation if enabled
+      if (aggregationConfig.enabled &&
+          !aggregationConfig.destinations.empty()) {
+        LOG_INFO("Main",
+                 "Enabling log aggregation with " +
+                     std::to_string(aggregationConfig.destinations.size()) +
+                     " destinations");
+
+        // Create aggregator with destinations
+        auto aggregator =
+            std::make_unique<LogAggregator>(aggregationConfig.destinations);
+        if (aggregator->initialize()) {
+          structuredLogger.setAggregationEnabled(true);
+          LOG_INFO("Main", "Log aggregation initialized successfully");
+        } else {
+          LOG_WARN("Main", "Failed to initialize log aggregation");
+        }
+      } else {
+        LOG_INFO("Main", "Log aggregation is disabled");
+      }
+    } catch (const std::exception &e) {
+      LOG_WARN("Main", "Failed to initialize structured logging: " +
+                           std::string(e.what()));
+    }
 
     // Set up signal handling
     signal(SIGINT, signalHandler);

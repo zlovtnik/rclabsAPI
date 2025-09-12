@@ -225,7 +225,25 @@ formatTimestamp(const std::chrono::system_clock::time_point &timePoint);
 std::chrono::system_clock::time_point
 parseTimestamp(const std::string &timestampStr);
 
-// Inline implementation of escapeJsonString
+/**
+ * @brief Escape a string so it is safe to embed in JSON string literals.
+ *
+ * Converts characters that must be escaped in JSON strings to their escaped
+ * forms:
+ * - double quote (") -> `\"`
+ * - backslash (\) -> `\\`
+ * - backspace, form feed, newline, carriage return, tab -> `\b`, `\f`, `\n`,
+ * `\r`, `\t`
+ * - control characters with codepoint < 0x20 -> `\uXXXX` (4-digit, zero-padded
+ * hexadecimal)
+ *
+ * The function treats characters as unsigned when checking for control codes to
+ * avoid sign-extension issues on platforms with signed `char`.
+ *
+ * @param str The input string to be escaped.
+ * @return std::string The escaped string suitable for inclusion as a JSON
+ * string value.
+ */
 inline std::string escapeJsonString(const std::string &str) {
   std::string result;
   result.reserve(str.length() + 20); // Reserve some extra space for escapes
@@ -254,13 +272,11 @@ inline std::string escapeJsonString(const std::string &str) {
       result += "\\t";
       break;
     default:
-      if (c < 0x20) {
-        result += "\\u";
-        result += "0000";
+      if (static_cast<unsigned char>(c) < 0x20) {
         std::ostringstream oss;
-        oss << std::hex << static_cast<int>(c);
-        std::string hex = oss.str();
-        result.replace(result.length() - hex.length(), hex.length(), hex);
+        oss << "\\u" << std::setw(4) << std::setfill('0') << std::hex
+            << static_cast<unsigned int>(static_cast<unsigned char>(c));
+        result += oss.str();
       } else {
         result += c;
       }

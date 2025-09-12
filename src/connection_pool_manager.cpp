@@ -5,6 +5,7 @@
 #include "timeout_manager.hpp"
 #include <algorithm>
 #include <iostream>
+#include <nlohmann/json.hpp>
 
 ConnectionPoolManager::ConnectionPoolManager(
     net::io_context &ioc, size_t minConnections, size_t maxConnections,
@@ -630,16 +631,19 @@ size_t ConnectionPoolManager::cleanupExpiredQueuedRequests() {
 void ConnectionPoolManager::sendErrorResponse(tcp::socket &socket,
                                               const std::string &errorMessage) {
   try {
+    // Build the JSON body with proper escaping
+    nlohmann::json errorJson = {{"error", errorMessage}};
+    std::string body = errorJson.dump();
+
     // Create a simple HTTP error response
     std::string response = "HTTP/1.1 503 Service Unavailable\r\n"
-                           "Content-Type: application/json\r\n"
+                           "Content-Type: application/json; charset=utf-8\r\n"
                            "Content-Length: " +
-                           std::to_string(errorMessage.length() + 13) +
+                           std::to_string(body.length()) +
                            "\r\n"
                            "Connection: close\r\n"
-                           "\r\n"
-                           "{\"error\":\"" +
-                           errorMessage + "\"}";
+                           "\r\n" +
+                           body;
 
     boost::system::error_code ec;
     boost::asio::write(socket, boost::asio::buffer(response), ec);

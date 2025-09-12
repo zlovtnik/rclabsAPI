@@ -27,28 +27,30 @@ std::string normalizeStatus(const std::string &status) {
 }
 
 // Static regex for ISO 8601 timestamps to avoid recompilation
-const std::regex kIso8601MsZ(R"(^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z?$)");
+const std::regex
+    kIso8601MsZ(R"(^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z?$)");
 
 // Parse UTC timestamp string to time_point
 static std::optional<std::chrono::system_clock::time_point>
-parseUtc(const std::string& ts) {
+parseUtc(const std::string &ts) {
   std::tm tm = {};
   std::istringstream ss(ts);
   ss >> std::get_time(&tm, "%Y-%m-%dT%H:%M:%S");
-  if (ss.fail()) return std::nullopt;
-  
+  if (ss.fail())
+    return std::nullopt;
+
   // Handle optional milliseconds
   if (ss.peek() == '.') {
     ss.get(); // consume '.'
     int ms;
     ss >> ms;
   }
-  
+
   // Handle optional 'Z'
   if (ss.peek() == 'Z') {
     ss.get();
   }
-  
+
   auto tp = std::chrono::system_clock::from_time_t(std::mktime(&tm));
   return tp;
 }
@@ -58,8 +60,7 @@ static bool isValidStatus(std::string_view s) {
   std::string v(s);
   std::transform(v.begin(), v.end(), v.begin(), ::tolower);
   static const std::unordered_set<std::string> ok = {
-    "pending","running","completed","failed","cancelled"
-  };
+      "pending", "running", "completed", "failed", "cancelled"};
   return ok.count(v) > 0;
 }
 } // namespace
@@ -497,8 +498,22 @@ InputValidator::ValidationResult InputValidator::validateRequestHeaders(
     const std::unordered_map<std::string, std::string> &headers) {
   ValidationResult result;
 
-  // Check for required headers
-  auto contentTypeIt = headers.find("content-type");
+  // Helper function for case-insensitive header lookup
+  auto findHeader = [&](const std::string &target)
+      -> std::unordered_map<std::string, std::string>::const_iterator {
+    for (auto it = headers.begin(); it != headers.end(); ++it) {
+      std::string lowerKey = it->first;
+      std::transform(lowerKey.begin(), lowerKey.end(), lowerKey.begin(),
+                     ::tolower);
+      if (lowerKey == target) {
+        return it;
+      }
+    }
+    return headers.end();
+  };
+
+  // Check for required headers (case-insensitive)
+  auto contentTypeIt = findHeader("content-type");
   if (contentTypeIt != headers.end()) {
     if (!isValidContentType(contentTypeIt->second)) {
       result.addError("content-type", "Unsupported content type",
@@ -695,10 +710,41 @@ bool InputValidator::containsXss(const std::string &input) {
   std::transform(lowerInput.begin(), lowerInput.end(), lowerInput.begin(),
                  ::tolower);
 
-  // Common XSS patterns
-  std::vector<std::string> xssPatterns = {
-      "<script",  "</script>",    "javascript:", "onload=", "onerror=",
-      "onclick=", "onmouseover=", "<iframe",     "eval(",   "alert("};
+  // Static set for O(1) lookups instead of linear search
+  static const std::unordered_set<std::string> xssPatterns = {
+      "<script",
+      "</script>",
+      "javascript:",
+      "onload=",
+      "onerror=",
+      "onclick=",
+      "onmouseover=",
+      "<iframe",
+      "eval(",
+      "alert(",
+      "vbscript:",
+      "data:text/html",
+      "data:text/javascript",
+      "%3cscript",
+      "%3c/script%3e",
+      "&#x3c;script",
+      "&#60;script",
+      "onfocus=",
+      "onblur=",
+      "onchange=",
+      "onsubmit=",
+      "onreset=",
+      "onselect=",
+      "onkeydown=",
+      "onkeypress=",
+      "onkeyup=",
+      "ondblclick=",
+      "onmousedown=",
+      "onmouseup=",
+      "onmousemove=",
+      "onmouseout=",
+      "onmouseenter=",
+      "onmouseleave="};
 
   for (const auto &pattern : xssPatterns) {
     if (lowerInput.find(pattern) != std::string::npos) {

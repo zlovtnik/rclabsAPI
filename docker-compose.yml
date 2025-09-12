@@ -20,6 +20,23 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: etl_redis
+    ports:
+      - "6379:6379"
+    command: ["sh", "-c", "redis-server --requirepass \"$$(cat /run/secrets/redis_password)\""]
+    volumes:
+      - redis_data:/data
+    secrets:
+      - redis_password
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "-c", "redis-cli -a \"$$(cat /run/secrets/redis_password)\" ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   etlplus-backend:
     build:
       context: .
@@ -36,12 +53,19 @@ services:
       - DATABASE_USER=${DATABASE_USER:-etl_user}
       - DATABASE_PASSWORD=${DATABASE_PASSWORD}
       - DATABASE_TYPE=postgresql
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD_FILE=/run/secrets/redis_password
       - JWT_SECRET=development-jwt-secret-key-for-local-testing
     volumes:
       - ./logs:/app/logs
       - ./config:/app/config:ro
+    secrets:
+      - redis_password
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
@@ -53,3 +77,8 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:
+
+secrets:
+  redis_password:
+    file: ./redis_password.txt

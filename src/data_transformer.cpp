@@ -1,9 +1,9 @@
 #include "data_transformer.hpp"
 #include <algorithm>
+#include <iomanip>
 #include <iostream>
 #include <regex>
 #include <sstream>
-#include <iomanip>
 
 // Helper function to format doubles without trailing zeros
 static std::string to_string_no_trailing_zeros(double v) {
@@ -15,7 +15,8 @@ static std::string to_string_no_trailing_zeros(double v) {
     // trim trailing zeros
     auto last = s.find_last_not_of('0');
     if (last != std::string::npos) {
-      if (s[last] == '.') last--;
+      if (s[last] == '.')
+        last--;
       s.erase(last + 1);
     }
   }
@@ -129,9 +130,13 @@ std::string DataTransformer::applyStringTransformation(
   } else if (type == "trim") {
     std::string result = value;
     auto start = result.find_first_not_of(" \t\n\r");
-    if (start == std::string::npos) return std::string{};
+    if (start == std::string::npos)
+      return std::string{};
     result.erase(0, start);
-    result.erase(result.find_last_not_of(" \t\n\r") + 1);
+    auto end = result.find_last_not_of(" \t\n\r");
+    if (end == std::string::npos)
+      return std::string{};
+    result.erase(end + 1);
     return result;
   }
   return value;
@@ -159,7 +164,7 @@ std::string DataTransformer::applyNumericTransformation(
     }
   } catch (const std::exception &e) {
     // Log the exception and return original value
-    std::cerr << "Numeric transformation failed for value '" << value 
+    std::cerr << "Numeric transformation failed for value '" << value
               << "' with type '" << type << "': " << e.what() << std::endl;
     return value;
   }

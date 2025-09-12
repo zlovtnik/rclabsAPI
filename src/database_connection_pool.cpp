@@ -80,37 +80,39 @@ std::shared_ptr<pqxx::connection> DatabaseConnectionPool::acquireConnection() {
     pooledConn = idleConnections_.front();
     idleConnections_.pop();
   } else if (activeConnections_.size() < config_.maxConnections) {
-    // Reserve a slot and release lock to create connection
-    // This prevents blocking other threads during slow connection creation
-    activeConnections_.emplace_back(nullptr); // Reserve slot
-
     // Release lock temporarily during connection creation
     lock.unlock();
 
     std::shared_ptr<pqxx::connection> conn;
     try {
       conn = createConnection();
+      if (conn) {
+        pooledConn = std::make_shared<PooledConnection>(conn);
+      }
     } catch (const std::exception &e) {
-      // Reacquire lock to remove reserved slot on failure
+      // Reacquire lock
       lock.lock();
-      activeConnections_.pop_back(); // Remove reserved slot
       DB_LOG_ERROR("Failed to create new connection: " + std::string(e.what()));
       throw etl::ETLException(etl::ErrorCode::DATABASE_ERROR,
                               "Failed to create new database connection");
     }
 
-    // Reacquire lock to finalize connection setup
+    // Reacquire lock to add connection
     lock.lock();
 
-    if (conn) {
-      pooledConn = std::make_shared<PooledConnection>(conn);
-      // Replace the reserved nullptr with actual connection
-      activeConnections_.back() = pooledConn;
+    // Re-check pool state after reacquiring lock
+    if (activeConnections_.size() >= config_.maxConnections) {
+      // Pool was filled by another thread
+      DB_LOG_DEBUG(
+          "Pool reached max connections while creating new connection");
+      // Connection will be destroyed when pooledConn goes out of scope
+      pooledConn.reset();
+    }
+
+    if (pooledConn) {
+      activeConnections_.push_back(pooledConn);
       metrics_.totalConnections++;
       metrics_.connectionsCreated++;
-    } else {
-      // Remove reserved slot if connection creation failed
-      activeConnections_.pop_back();
     }
   }
 
@@ -148,6 +150,8 @@ void DatabaseConnectionPool::releaseConnection(
   // Find the connection in active connections
   auto it = std::find_if(activeConnections_.begin(), activeConnections_.end(),
                          [&conn](const std::shared_ptr<PooledConnection> &pc) {
+                           if (!pc)
+                             return false;
                            return pc->connection == conn;
                          });
 
@@ -386,7 +390,8 @@ void DatabaseConnectionPool::performHealthCheck() {
     std::lock_guard<std::mutex> lock(poolMutex_);
 
     // Update idle connections
-    while (!idleConnections_.empty()) idleConnections_.pop();
+    while (!idleConnections_.empty())
+      idleConnections_.pop();
     for (auto &conn : healthyIdle) {
       idleConnections_.push(conn);
     }
@@ -396,14 +401,9 @@ void DatabaseConnectionPool::performHealthCheck() {
       unhealthyConn->isHealthy = false;
     }
 
-    // Update metrics
-    for (size_t i = 0; i < unhealthyCount; ++i) {
-      if (!healthyIdle.empty()) {
-        metrics_.connectionsDestroyed++;
-        metrics_.totalConnections--;
-        healthyIdle.pop_back();
-      }
-    }
+    // Update metrics for unhealthy connections
+    metrics_.connectionsDestroyed += unhealthyCount;
+    metrics_.totalConnections -= unhealthyCount;
   }
 
   {
@@ -459,8 +459,9 @@ void DatabaseConnectionPool::adjustPoolSize() {
       connectionsToCreate = config_.minConnections - totalCurrent;
     } else if (currentIdle > config_.minConnections &&
                totalCurrent > config_.minConnections) {
-      connectionsToRemove = std::min(currentIdle - config_.minConnections,
-                                     currentIdle + currentActive - config_.minConnections);
+      connectionsToRemove =
+          std::min(currentIdle - config_.minConnections,
+                   currentIdle + currentActive - config_.minConnections);
     }
   }
 

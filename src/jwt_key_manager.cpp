@@ -591,12 +591,12 @@ bool JWTKeyManager::saveKeyToFile(const std::string &key,
 
   file << key;
   file.flush(); // Ensure data is written to OS buffers
-  
+
   // fsync for durability (ensure data reaches disk)
   // Note: std::ofstream doesn't provide direct access to file descriptor
   // This is a best-effort durability improvement
   file.close();
-  
+
   return true;
 }
 
