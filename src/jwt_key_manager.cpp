@@ -1,6 +1,7 @@
 #include "jwt_key_manager.hpp"
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -373,7 +374,13 @@ bool JWTKeyManager::rotateKeys() {
     secureWipeKey(currentPublicKey_);
     secureWipeKey(currentPrivateKey_);
 
-    // Generate new keys
+    // Generate new keys (only HMAC supported here)
+    if (config_.algorithm != Algorithm::HS256 &&
+        config_.algorithm != Algorithm::HS384 &&
+        config_.algorithm != Algorithm::HS512) {
+      std::cerr << "Key rotation for RSA/ECDSA not implemented" << std::endl;
+      return false;
+    }
     if (!generateKeyPair()) {
       return false;
     }
@@ -583,6 +590,13 @@ bool JWTKeyManager::saveKeyToFile(const std::string &key,
   }
 
   file << key;
+  file.flush(); // Ensure data is written to OS buffers
+  
+  // fsync for durability (ensure data reaches disk)
+  // Note: std::ofstream doesn't provide direct access to file descriptor
+  // This is a best-effort durability improvement
+  file.close();
+  
   return true;
 }
 
