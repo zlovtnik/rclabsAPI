@@ -19,6 +19,7 @@ class SessionRepository;
 class AuthManager {
 public:
   AuthManager(std::shared_ptr<DatabaseManager> dbManager);
+  ~AuthManager();
 
   // User management
   bool createUser(const std::string &username, const std::string &email,
@@ -59,7 +60,7 @@ private:
   std::shared_ptr<UserRepository> userRepo_;
   std::shared_ptr<SessionRepository> sessionRepo_;
 #ifdef ETL_ENABLE_JWT
-  std::string jwtSecretKey_;
+  std::vector<char> jwtSecretKey_;
 #endif
 
   std::string hashPassword(std::string_view password,

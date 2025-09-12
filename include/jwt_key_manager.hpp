@@ -61,7 +61,7 @@ public:
     KeyConfig()
         : algorithm(Algorithm::HS256), keyId("default"),
           rotationInterval(std::chrono::hours(24 * 30)),
-          enableRotation(false), issuer("") {}
+          enableRotation(false), issuer("etl-backend") {}
   };
 
   /**

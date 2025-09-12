@@ -131,7 +131,9 @@ std::string DataTransformer::applyStringTransformation(
     auto start = result.find_first_not_of(" \t\n\r");
     if (start == std::string::npos) return std::string{};
     result.erase(0, start);
-    result.erase(result.find_last_not_of(" \t\n\r") + 1);
+    auto end = result.find_last_not_of(" \t\n\r");
+    if (end == std::string::npos) return std::string{};
+    result.erase(end + 1);
     return result;
   }
   return value;

@@ -254,13 +254,10 @@ inline std::string escapeJsonString(const std::string &str) {
       result += "\\t";
       break;
     default:
-      if (c < 0x20) {
-        result += "\\u";
-        result += "0000";
+      if (static_cast<unsigned char>(c) < 0x20) {
         std::ostringstream oss;
-        oss << std::hex << static_cast<int>(c);
-        std::string hex = oss.str();
-        result.replace(result.length() - hex.length(), hex.length(), hex);
+        oss << "\\u" << std::setw(4) << std::setfill('0') << std::hex << static_cast<unsigned int>(c);
+        result += oss.str();
       } else {
         result += c;
       }

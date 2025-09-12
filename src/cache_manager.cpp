@@ -451,14 +451,12 @@ void CacheManager::warmupCache(DatabaseManager *dbManager) {
   }
 
   try {
-    // Build SQL query using validated integer value
-    // Use stringstream for safe integer formatting
-    std::stringstream queryStream;
-    queryStream << "SELECT DISTINCT key_name, data_type FROM cache_access_log "
-                << "ORDER BY access_count DESC LIMIT " << safeMaxKeys;
-    std::string query = queryStream.str();
+    // Use parameterized query for safe integer binding
+    std::string query = "SELECT DISTINCT key_name, data_type FROM cache_access_log "
+                        "ORDER BY access_count DESC LIMIT $1";
+    std::vector<std::string> params = {std::to_string(safeMaxKeys)};
 
-    auto results = dbManager->selectQuery(query);
+    auto results = dbManager->selectQuery(query, params);
 
     if (results.empty()) {
       WS_LOG_INFO("No frequently accessed keys found for warmup");

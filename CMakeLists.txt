@@ -217,9 +217,6 @@ endif()
 # Expose JWT feature flag
 add_compile_definitions(ETL_ENABLE_JWT=$<BOOL:${JWT_CPP_FOUND}>)
 
-# Expose Redis feature flag
-add_compile_definitions(ETL_ENABLE_REDIS=$<BOOL:${HIREDIS_FOUND}>)
-
 # Try to find hiredis (Redis C client library)
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
@@ -279,6 +276,9 @@ else()
     endif()
     message(STATUS "Using hiredis library: ${HIREDIS_LIBRARIES}")
 endif()
+
+# Expose Redis feature flag
+add_compile_definitions(ETL_ENABLE_REDIS=$<BOOL:${HIREDIS_FOUND}>)
 
 # Create a shared library for common sources to avoid recompilation
 set(COMMON_SOURCES

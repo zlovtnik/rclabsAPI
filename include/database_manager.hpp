@@ -28,7 +28,9 @@ public:
 
   // Query operations
   bool executeQuery(const std::string &query);
+  bool executeQuery(const std::string &query, const std::vector<std::string> &params);
   std::vector<std::vector<std::string>> selectQuery(const std::string &query);
+  std::vector<std::vector<std::string>> selectQuery(const std::string &query, const std::vector<std::string> &params);
 
   // Transaction support
   bool beginTransaction();

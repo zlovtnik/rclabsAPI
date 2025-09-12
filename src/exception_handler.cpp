@@ -1,5 +1,6 @@
 #include "exception_handler.hpp"
 #include <algorithm>
+#include <cerrno>
 #include <cctype>
 #include <cmath>
 

@@ -401,7 +401,8 @@ bool ConfigManager::parseConfigFile(const std::string &configPath) {
     configData.clear();
 
     // Flatten JSON into dot-separated keys
-    flattenJson(jsonConfig, "", 0, 100);
+    std::set<const void*> visited;
+    flattenJson(jsonConfig, "", 0, 100, visited);
 
     return true;
   } catch (const std::exception &e) {
@@ -412,18 +413,27 @@ bool ConfigManager::parseConfigFile(const std::string &configPath) {
 
 void ConfigManager::flattenJson(const nlohmann::json &json,
                                 const std::string &prefix, int currentDepth,
-                                int maxDepth) {
+                                int maxDepth, std::set<const void*> &visited) {
   if (currentDepth >= maxDepth) {
     std::string key = prefix.empty() ? "deep_nested" : prefix + ".deep_nested";
     configData[key] = json.dump();
     return;
   }
 
+  // Check for circular reference
+  const void* jsonPtr = &json;
+  if (visited.find(jsonPtr) != visited.end()) {
+    std::string key = prefix.empty() ? "circular_ref" : prefix + ".circular_ref";
+    configData[key] = "circular reference detected";
+    return;
+  }
+  visited.insert(jsonPtr);
+
   for (auto it = json.begin(); it != json.end(); ++it) {
     std::string key = prefix.empty() ? it.key() : prefix + "." + it.key();
 
     if (it->is_object()) {
-      flattenJson(*it, key, currentDepth + 1, maxDepth);
+      flattenJson(*it, key, currentDepth + 1, maxDepth, visited);
     } else if (it->is_array()) {
       // For arrays, we'll store them as JSON strings for now
       // This handles cases like roles arrays
@@ -553,14 +563,6 @@ ConfigValidationResult JobTrackingConfig::validate() const {
     ss << "Job tracking progress_update_interval must be positive, got: "
        << progressUpdateInterval;
     result.addError(ss.str());
-  }
-
-  if (progressUpdateInterval < 1) {
-    std::stringstream ss;
-    ss << "Job tracking progress_update_interval is very low ("
-       << progressUpdateInterval
-       << " seconds), this may cause performance issues";
-    result.addWarning(ss.str());
   }
 
   if (progressUpdateInterval > 300) {

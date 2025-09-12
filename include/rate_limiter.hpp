@@ -25,6 +25,12 @@ public:
   RateLimiter();
   ~RateLimiter() = default;
 
+  // Delete copy and move operations
+  RateLimiter(const RateLimiter&) = delete;
+  RateLimiter& operator=(const RateLimiter&) = delete;
+  RateLimiter(RateLimiter&&) = delete;
+  RateLimiter& operator=(RateLimiter&&) = delete;
+
   // Initialize with default rules
   void initializeDefaultRules();
 

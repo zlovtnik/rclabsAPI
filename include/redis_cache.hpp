@@ -24,8 +24,7 @@ struct RedisConfig {
   std::chrono::seconds connectionTimeout = std::chrono::seconds(5);
   int maxRetries = 3;
   std::chrono::milliseconds retryDelay = std::chrono::milliseconds(100);
-  bool enableConnectionPool = true; // TODO: Implement connection pooling
-  int poolSize = 5; // TODO: Implement connection pooling
+  // Connection pooling is not yet supported
 };
 
 class RedisCache {

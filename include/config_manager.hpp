@@ -5,6 +5,7 @@
 #include <functional>
 #include <memory>
 #include <nlohmann/json.hpp>
+#include <set>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -123,7 +124,7 @@ private:
 
   bool parseConfigFile(const std::string &configPath);
   void flattenJson(const nlohmann::json &json, const std::string &prefix,
-                   int currentDepth = 0, int maxDepth = 100);
+                   int currentDepth, int maxDepth, std::set<const void*> &visited);
   LogLevel parseLogLevel(const std::string &levelStr) const;
   LogFormat parseLogFormat(const std::string &formatStr) const;
 
