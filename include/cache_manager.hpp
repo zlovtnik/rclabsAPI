@@ -2,7 +2,7 @@
 #define CACHE_MANAGER_HPP
 
 // Forward declarations to avoid circular includes
-#ifdef ETL_ENABLE_REDIS
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
 class RedisCache;
 #endif
 class DatabaseManager;
@@ -43,7 +43,7 @@ public:
   ~CacheManager();
 
   // Initialize with Redis cache
-#ifdef ETL_ENABLE_REDIS
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
   bool initialize(std::unique_ptr<RedisCache> redisCache);
 #endif
 
@@ -92,18 +92,16 @@ public:
 
 private:
   CacheConfig config_;
-#ifdef ETL_ENABLE_REDIS
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
   std::unique_ptr<RedisCache> redisCache_;
 #endif
   mutable CacheStats stats_;
   mutable std::mutex statsMutex_;
 
   // Health check caching
-  mutable std::atomic<std::chrono::steady_clock::time_point>
-      lastHealthCheckTime_;
-  mutable std::atomic<bool> lastHealthStatus_;
-  mutable std::mutex
-      healthMutex_; // For atomic operations that need synchronization
+  mutable std::chrono::steady_clock::time_point lastHealthCheckTime_;
+  mutable bool lastHealthStatus_;
+  mutable std::mutex healthMutex_;
 
   // Private methods
   std::string makeCacheKey(const std::string &key) const;
