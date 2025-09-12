@@ -20,16 +20,15 @@ ConfigManager &ConfigManager::getInstance() {
 bool ConfigManager::loadConfig(const std::string &configPath) {
   etl_plus::ScopedTimedLock<std::timed_mutex> lock(
       configMutex, std::chrono::milliseconds(5000), "configMutex");
-  std::cout << "Loading configuration from: " << configPath << std::endl;
+  LOG_INFO("ConfigManager", "Loading configuration from: " + configPath);
 
   configFilePath = configPath; // Store for reload functionality
   bool result = parseConfigFile(configPath);
   if (result) {
-    std::cout << "Configuration loaded successfully with " << configData.size()
-              << " parameters" << std::endl;
+    LOG_INFO("ConfigManager", "Configuration loaded successfully with " + 
+              std::to_string(configData.size()) + " parameters");
   } else {
-    std::cerr << "Failed to load configuration from: " << configPath
-              << std::endl;
+    LOG_ERROR("ConfigManager", "Failed to load configuration from: " + configPath);
   }
   return result;
 }
@@ -83,19 +82,30 @@ ConfigManager::getStringSet(const std::string &key) const {
   std::unordered_set<std::string, TransparentStringHash, std::equal_to<>>
       result;
   if (auto it = configData.find(key); it != configData.end()) {
-    std::string value = it->second;
+    const std::string &raw = it->second;
+    if (!raw.empty() && raw.front() == '[') {
+      try {
+        auto arr = nlohmann::json::parse(raw);
+        if (arr.is_array()) {
+          for (const auto &v : arr) {
+            if (v.is_string()) result.insert(v.get<std::string>());
+          }
+          return result;
+        }
+      } catch (const std::exception &) {
+        // fall through to legacy CSV parsing
+      }
+    }
+    std::string value = raw;
     if (!value.empty() && value.front() == '[' && value.back() == ']') {
       value = value.substr(1, value.length() - 2);
     }
-
     std::stringstream ss(value);
     std::string item;
     while (std::getline(ss, item, ',')) {
       item.erase(0, item.find_first_not_of(" \t\""));
       item.erase(item.find_last_not_of(" \t\"") + 1);
-      if (!item.empty()) {
-        result.insert(item);
-      }
+      if (!item.empty()) result.insert(item);
     }
   }
   return result;
@@ -176,7 +186,7 @@ bool ConfigManager::updateMonitoringConfig(const MonitoringConfig &newConfig) {
 
   // Convert config to map and update
   if (auto configMap = configToMap(newConfig);
-      validateAndUpdateConfigData("monitoring", configMap)) {
+      updateConfigData("monitoring", configMap)) {
     notifyConfigChange("monitoring", newConfig);
     return true;
   }
@@ -198,7 +208,7 @@ bool ConfigManager::updateWebSocketConfig(const WebSocketConfig &newConfig) {
 
   // Convert config to map and update
   if (auto configMap = webSocketConfigToMap(newConfig);
-      validateAndUpdateConfigData("monitoring.websocket", configMap)) {
+      updateConfigData("monitoring.websocket", configMap)) {
     MonitoringConfig fullConfig = getMonitoringConfig();
     notifyConfigChange("websocket", fullConfig);
     return true;
@@ -222,7 +232,7 @@ bool ConfigManager::updateJobTrackingConfig(
 
   // Convert config to map and update
   if (auto configMap = jobTrackingConfigToMap(newConfig);
-      validateAndUpdateConfigData("monitoring.job_tracking", configMap)) {
+      updateConfigData("monitoring.job_tracking", configMap)) {
     MonitoringConfig fullConfig = getMonitoringConfig();
     notifyConfigChange("job_tracking", fullConfig);
     return true;
@@ -233,11 +243,11 @@ bool ConfigManager::updateJobTrackingConfig(
 
 bool ConfigManager::reloadConfiguration() {
   if (configFilePath.empty()) {
-    std::cerr << "No configuration file path available for reload" << std::endl;
+    LOG_ERROR("ConfigManager", "No configuration file path available for reload");
     return false;
   }
 
-  std::cout << "Reloading configuration from: " << configFilePath << std::endl;
+  LOG_INFO("ConfigManager", "Reloading configuration from: " + configFilePath);
 
   // Store old config for comparison
   auto oldMonitoringConfig = getMonitoringConfig();
@@ -283,7 +293,7 @@ void ConfigManager::notifyConfigChange(const std::string &section,
   }
 }
 
-bool ConfigManager::validateAndUpdateConfigData(
+bool ConfigManager::updateConfigData(
     const std::string &section,
     const std::unordered_map<std::string, std::string, TransparentStringHash,
                              std::equal_to<>> &updates) {
@@ -295,12 +305,12 @@ bool ConfigManager::validateAndUpdateConfigData(
     }
     return true;
   } catch (const std::runtime_error &e) {
-    std::cerr << "Runtime error updating configuration data for section '"
-              << section << "': " << e.what() << std::endl;
+    LOG_ERROR("ConfigManager", "Runtime error updating configuration data for section '" + 
+              section + "': " + std::string(e.what()));
     return false;
   } catch (const std::logic_error &e) {
-    std::cerr << "Logic error updating configuration data for section '"
-              << section << "': " << e.what() << std::endl;
+    LOG_ERROR("ConfigManager", "Logic error updating configuration data for section '" + 
+              section + "': " + std::string(e.what()));
     return false;
   }
 }
