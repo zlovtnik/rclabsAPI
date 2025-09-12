@@ -16,6 +16,12 @@ ConnectionPool::ConnectionPool(const ConnectionPoolConfig &config)
                std::to_string(config_.maxConnections));
 }
 
+void ConnectionPool::setIoContext(net::io_context &ioContext) {
+  healthCheckTimer_ = std::make_unique<net::steady_timer>(ioContext);
+  cleanupTimer_ = std::make_unique<net::steady_timer>(ioContext);
+  WS_LOG_DEBUG("Connection pool timers initialized");
+}
+
 ConnectionPool::~ConnectionPool() {
   stop();
   WS_LOG_DEBUG("Connection pool destroyed");
@@ -285,13 +291,19 @@ ConnectionPool::getConnectionsByFilter(
     std::function<bool(const std::shared_ptr<WebSocketConnection> &)> filter)
     const {
 
-  SCOPED_SHARED_LOCK_TIMEOUT(connectionsMutex_, 500);
-  std::vector<std::shared_ptr<WebSocketConnection>> matchingConnections;
-
-  for (const auto &[id, connection] : connections_) {
-    if (connection && filter(connection)) {
-      matchingConnections.push_back(connection);
+  std::vector<std::shared_ptr<WebSocketConnection>> snapshot;
+  {
+    SCOPED_SHARED_LOCK_TIMEOUT(connectionsMutex_, 500);
+    snapshot.reserve(connections_.size());
+    for (const auto &[id, connection] : connections_) {
+      if (connection) snapshot.push_back(connection);
     }
+  }
+
+  std::vector<std::shared_ptr<WebSocketConnection>> matchingConnections;
+  matchingConnections.reserve(snapshot.size());
+  for (const auto &connection : snapshot) {
+    if (filter(connection)) matchingConnections.push_back(connection);
   }
 
   return matchingConnections;
@@ -301,13 +313,19 @@ std::vector<std::string> ConnectionPool::getConnectionIdsByFilter(
     std::function<bool(const std::shared_ptr<WebSocketConnection> &)> filter)
     const {
 
-  SCOPED_SHARED_LOCK_TIMEOUT(connectionsMutex_, 500);
-  std::vector<std::string> matchingIds;
-
-  for (const auto &[id, connection] : connections_) {
-    if (connection && filter(connection)) {
-      matchingIds.push_back(id);
+  std::vector<std::pair<std::string, std::shared_ptr<WebSocketConnection>>> snapshot;
+  {
+    SCOPED_SHARED_LOCK_TIMEOUT(connectionsMutex_, 500);
+    snapshot.reserve(connections_.size());
+    for (const auto &[id, connection] : connections_) {
+      snapshot.emplace_back(id, connection);
     }
+  }
+
+  std::vector<std::string> matchingIds;
+  matchingIds.reserve(snapshot.size());
+  for (const auto &[id, connection] : snapshot) {
+    if (connection && filter(connection)) matchingIds.push_back(id);
   }
 
   return matchingIds;
