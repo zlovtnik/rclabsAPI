@@ -164,18 +164,18 @@ bool RedisCache::set(const std::string &key, const std::string &value,
   return success;
 }
 
-std::string RedisCache::get(const std::string &key) {
+std::optional<std::string> RedisCache::get(const std::string &key) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!isConnected())
-    return "";
+    return std::nullopt;
 
   redisReply *reply = executeCommand("GET %s", key.c_str());
   if (!reply) {
     updateMetrics(false, true);
-    return "";
+    return std::nullopt;
   }
 
-  std::string result;
+  std::optional<std::string> result = std::nullopt;
   if (reply->type == REDIS_REPLY_STRING) {
     result = reply->str;
     updateMetrics(true, true);
@@ -247,16 +247,16 @@ bool RedisCache::setJson(const std::string &key, const nlohmann::json &value,
   return set(key, value.dump(), ttl);
 }
 
-nlohmann::json RedisCache::getJson(const std::string &key) {
-  std::string data = get(key);
-  if (data.empty())
-    return nlohmann::json();
+std::optional<nlohmann::json> RedisCache::getJson(const std::string &key) {
+  auto data = get(key);
+  if (!data.has_value())
+    return std::nullopt;
 
   try {
-    return nlohmann::json::parse(data);
+    return nlohmann::json::parse(data.value());
   } catch (const std::exception &e) {
     WS_LOG_ERROR("Failed to parse JSON from cache: " + std::string(e.what()));
-    return nlohmann::json();
+    return std::nullopt;
   }
 }
 
@@ -276,16 +276,16 @@ bool RedisCache::hset(const std::string &key, const std::string &field,
   return success;
 }
 
-std::string RedisCache::hget(const std::string &key, const std::string &field) {
+std::optional<std::string> RedisCache::hget(const std::string &key, const std::string &field) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!isConnected())
-    return "";
+    return std::nullopt;
 
   redisReply *reply = executeCommand("HGET %s %s", key.c_str(), field.c_str());
   if (!reply)
-    return "";
+    return std::nullopt;
 
-  std::string result;
+  std::optional<std::string> result = std::nullopt;
   if (reply->type == REDIS_REPLY_STRING) {
     result = reply->str;
   }
@@ -382,16 +382,16 @@ bool RedisCache::rpush(const std::string &key, const std::string &value) {
   return success;
 }
 
-std::string RedisCache::lpop(const std::string &key) {
+std::optional<std::string> RedisCache::lpop(const std::string &key) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!isConnected())
-    return "";
+    return std::nullopt;
 
   redisReply *reply = executeCommand("LPOP %s", key.c_str());
   if (!reply)
-    return "";
+    return std::nullopt;
 
-  std::string result;
+  std::optional<std::string> result = std::nullopt;
   if (reply->type == REDIS_REPLY_STRING) {
     result = reply->str;
   }
@@ -400,16 +400,16 @@ std::string RedisCache::lpop(const std::string &key) {
   return result;
 }
 
-std::string RedisCache::rpop(const std::string &key) {
+std::optional<std::string> RedisCache::rpop(const std::string &key) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!isConnected())
-    return "";
+    return std::nullopt;
 
   redisReply *reply = executeCommand("RPOP %s", key.c_str());
   if (!reply)
-    return "";
+    return std::nullopt;
 
-  std::string result;
+  std::optional<std::string> result = std::nullopt;
   if (reply->type == REDIS_REPLY_STRING) {
     result = reply->str;
   }
