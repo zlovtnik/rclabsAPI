@@ -170,7 +170,7 @@ ResponseBuilder::notFound(const std::string &resource) {
 http::response<http::string_body>
 ResponseBuilder::methodNotAllowed(const std::string &method,
                                   const std::string &endpoint) {
-  setHeader("allow", "GET, POST, PUT, DELETE, OPTIONS");
+  setHeader("allow", "GET, POST, PUT, OPTIONS");
   return error(http::status::method_not_allowed,
                "Method " + method + " not allowed for " + endpoint);
 }

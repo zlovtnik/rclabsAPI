@@ -113,7 +113,9 @@ TEST_F(ResponseBuilderTest, CreateMethodNotAllowedResponse) {
   auto response = builder_->methodNotAllowed("DELETE", "/api/users");
 
   EXPECT_EQ(response.result(), http::status::method_not_allowed);
-  EXPECT_EQ(response[http::field::allow], "GET, POST, PUT, DELETE, OPTIONS");
+  EXPECT_EQ(response[http::field::allow], "GET, POST, PUT, OPTIONS");
+  EXPECT_TRUE(std::string(response[http::field::allow]).find("DELETE") ==
+              std::string::npos);
 
   std::string body = response.body();
   EXPECT_TRUE(body.find("Method DELETE not allowed") != std::string::npos);

@@ -330,7 +330,7 @@ public:
    */
   Response methodNotAllowed(const std::string &method,
                             const std::string &endpoint) {
-    setHeader("Allow", "GET, POST, PUT, DELETE, OPTIONS");
+    setHeader("Allow", "GET, POST, PUT, OPTIONS");
     return error(Status::METHOD_NOT_ALLOWED,
                  "Method " + method + " not allowed for " + endpoint);
   }
