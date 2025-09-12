@@ -151,6 +151,7 @@ private:
 
         // Initialize cache manager
         if (config_.enableCacheLoad) {
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
             RedisConfig redisConfig;
             auto redisCache = std::make_unique<RedisCache>(redisConfig);
 
@@ -158,6 +159,10 @@ private:
             if (!cacheManager_->initialize(std::move(redisCache))) {
                 std::cout << "Warning: Failed to initialize cache\n";
             }
+#else
+            cacheManager_ = std::make_unique<CacheManager>();
+            std::cout << "Cache enabled but Redis support not compiled in\n";
+#endif
         }
 
         // Initialize system metrics
