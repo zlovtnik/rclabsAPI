@@ -1,5 +1,6 @@
+#include <gtest/gtest.h>
+
 #include <atomic>
-#include <cassert>
 #include <chrono>
 #include <future>
 #include <iostream>
@@ -17,7 +18,20 @@
 #include "timeout_manager.hpp"
 
 /**
- * Concurrent Load Test Request Handler
+ * Concurren    server_ = std::make_unique<HttpServer>(address_, port_, 1,
+ config); server_->setRequestHandler(handler_);
+
+    auto poolManager = server_->getConnectionPoolManager();
+    EXPECT_NE(poolManager, nullptr);
+
+    // Verify restrictive configuration
+    EXPECT_EQ(poolManager->getMaxConnections(), 2);
+    EXPECT_EQ(poolManager->getMaxQueueSize(), 3);
+
+    std::cout << "✓ Error handling under load test configuration validated"
+              << std::endl;
+    std::cout << "✓ Error handling under load test setup completed"
+              << std::endl;quest Handler
  */
 class ConcurrentTestHandler : public RequestHandler {
 private:
@@ -28,6 +42,7 @@ private:
   std::vector<std::chrono::milliseconds> responseTimes_;
 
 public:
+  ConcurrentTestHandler() : RequestHandler(nullptr, nullptr, nullptr) {}
   /**
    * @brief Handles an incoming HTTP request for the concurrent-load test
    * handler.
@@ -51,7 +66,7 @@ public:
    * body containing "message", "count", and "concurrent" fields.
    */
   http::response<http::string_body>
-  handleRequest(http::request<http::string_body> &&req) override {
+  handleRequest(http::request<http::string_body> &&req) {
     auto startTime = std::chrono::steady_clock::now();
 
     int currentConcurrent = ++concurrentRequests_;
@@ -174,7 +189,7 @@ public:
    *
    * @return std::shared_ptr<ETLJobManager> Always `nullptr`.
    */
-  std::shared_ptr<ETLJobManager> getJobManager() override { return nullptr; }
+  std::shared_ptr<ETLJobManager> getJobManager() { return nullptr; }
   /**
    * @brief Returns the job monitor service used by the handler.
    *
@@ -184,9 +199,7 @@ public:
    * @return std::shared_ptr<JobMonitorService> Always `nullptr` for this
    * handler.
    */
-  std::shared_ptr<JobMonitorService> getJobMonitorService() override {
-    return nullptr;
-  }
+  std::shared_ptr<JobMonitorService> getJobMonitorService() { return nullptr; }
 };
 
 /**
@@ -238,13 +251,14 @@ public:
 
     server_ = std::make_unique<HttpServer>(address_, port_, 8, config);
     server_->setRequestHandler(handler_);
+    server_->start();
 
     auto poolManager = server_->getConnectionPoolManager();
-    assert(poolManager != nullptr);
+    EXPECT_NE(poolManager, nullptr);
 
     // Verify pool configuration
-    assert(poolManager->getMaxConnections() == 100);
-    assert(poolManager->getMaxQueueSize() == 200);
+    EXPECT_EQ(poolManager->getMaxConnections(), 100);
+    EXPECT_EQ(poolManager->getMaxQueueSize(), 200);
 
     std::cout << "✓ High concurrency pool configuration validated" << std::endl;
     std::cout << "✓ High concurrency test setup completed" << std::endl;
@@ -285,14 +299,15 @@ public:
 
     server_ = std::make_unique<HttpServer>(address_, port_, 4, config);
     server_->setRequestHandler(handler_);
+    server_->start();
 
     auto poolManager = server_->getConnectionPoolManager();
-    assert(poolManager != nullptr);
+    EXPECT_NE(poolManager, nullptr);
 
     // Test pool statistics tracking
-    assert(poolManager->getConnectionReuseCount() == 0);
-    assert(poolManager->getTotalConnectionsCreated() == 0);
-    assert(poolManager->getRejectedRequestCount() == 0);
+    EXPECT_EQ(poolManager->getConnectionReuseCount(), 0);
+    EXPECT_EQ(poolManager->getTotalConnectionsCreated(), 0);
+    EXPECT_EQ(poolManager->getRejectedRequestCount(), 0);
 
     std::cout << "✓ Connection pool stress test configuration validated"
               << std::endl;
@@ -332,17 +347,18 @@ public:
 
     server_ = std::make_unique<HttpServer>(address_, port_, 2, config);
     server_->setRequestHandler(handler_);
+    server_->start();
 
     auto poolManager = server_->getConnectionPoolManager();
-    assert(poolManager != nullptr);
+    EXPECT_NE(poolManager, nullptr);
 
     // Verify queue configuration
-    assert(poolManager->getMaxConnections() == 3);
-    assert(poolManager->getMaxQueueSize() == 10);
+    EXPECT_EQ(poolManager->getMaxConnections(), 3);
+    EXPECT_EQ(poolManager->getMaxQueueSize(), 10);
 
     // Test initial queue state
-    assert(poolManager->getQueueSize() == 0);
-    assert(poolManager->getRejectedRequestCount() == 0);
+    EXPECT_EQ(poolManager->getQueueSize(), 0);
+    EXPECT_EQ(poolManager->getRejectedRequestCount(), 0);
 
     std::cout << "✓ Request queuing behavior test configuration validated"
               << std::endl;
@@ -385,13 +401,14 @@ public:
 
     server_ = std::make_unique<HttpServer>(address_, port_, 1, config);
     server_->setRequestHandler(handler_);
+    server_->start();
 
     auto poolManager = server_->getConnectionPoolManager();
-    assert(poolManager != nullptr);
+    EXPECT_NE(poolManager, nullptr);
 
     // Verify restrictive configuration
-    assert(poolManager->getMaxConnections() == 2);
-    assert(poolManager->getMaxQueueSize() == 3);
+    EXPECT_EQ(poolManager->getMaxConnections(), 2);
+    EXPECT_EQ(poolManager->getMaxQueueSize(), 3);
 
     std::cout << "✓ Error handling under load test configuration validated"
               << std::endl;
@@ -433,9 +450,10 @@ public:
 
     server_ = std::make_unique<HttpServer>(address_, port_, 8, config);
     server_->setRequestHandler(handler_);
+    server_->start();
 
     auto poolManager = server_->getConnectionPoolManager();
-    assert(poolManager != nullptr);
+    EXPECT_NE(poolManager, nullptr);
 
     // Test concurrent access to pool statistics
     std::vector<std::future<bool>> futures;
@@ -456,10 +474,10 @@ public:
                 auto rejected = poolManager->getRejectedRequestCount();
 
                 // Verify basic consistency
-                assert(total == active + idle);
-                assert(reuse >= 0);
-                assert(queue >= 0);
-                assert(rejected >= 0);
+                EXPECT_EQ(total, active + idle);
+                EXPECT_GE(reuse, 0);
+                EXPECT_GE(queue, 0);
+                EXPECT_GE(rejected, 0);
 
                 // Small delay to increase chance of race conditions
                 std::this_thread::sleep_for(std::chrono::microseconds(100));
@@ -478,7 +496,7 @@ public:
       }
     }
 
-    assert(successfulAccesses.load() == 20);
+    EXPECT_EQ(successfulAccesses.load(), 20);
     std::cout << "✓ Thread safety under concurrent load test passed"
               << std::endl;
     std::cout << "✓ Thread safety test completed successfully" << std::endl;
@@ -506,24 +524,25 @@ public:
 
     server_ = std::make_unique<HttpServer>(address_, port_, 6, config);
     server_->setRequestHandler(handler_);
+    server_->start();
 
     auto poolManager = server_->getConnectionPoolManager();
-    assert(poolManager != nullptr);
+    EXPECT_NE(poolManager, nullptr);
 
     // Test metrics collection capabilities
     auto initialReuse = poolManager->getConnectionReuseCount();
     auto initialCreated = poolManager->getTotalConnectionsCreated();
     auto initialRejected = poolManager->getRejectedRequestCount();
 
-    assert(initialReuse >= 0);
-    assert(initialCreated >= 0);
-    assert(initialRejected >= 0);
+    EXPECT_GE(initialReuse, 0);
+    EXPECT_GE(initialCreated, 0);
+    EXPECT_GE(initialRejected, 0);
 
     // Test statistics reset
     poolManager->resetStatistics();
-    assert(poolManager->getConnectionReuseCount() == 0);
-    assert(poolManager->getTotalConnectionsCreated() == 0);
-    assert(poolManager->getRejectedRequestCount() == 0);
+    EXPECT_EQ(poolManager->getConnectionReuseCount(), 0);
+    EXPECT_EQ(poolManager->getTotalConnectionsCreated(), 0);
+    EXPECT_EQ(poolManager->getRejectedRequestCount(), 0);
 
     std::cout << "✓ Performance metrics collection test passed" << std::endl;
     std::cout << "✓ Performance metrics test completed successfully"
@@ -545,7 +564,7 @@ public:
     if (server_ && server_->isRunning()) {
       std::cout << "Stopping server..." << std::endl;
       server_->stop();
-      assert(!server_->isRunning());
+      EXPECT_FALSE(server_->isRunning());
       std::cout << "✓ Server stopped successfully" << std::endl;
     }
 
@@ -617,36 +636,45 @@ public:
   }
 };
 
-/**
- * @brief Entry point for the concurrent request handling test suite.
- *
- * Configures logging, constructs the test harness
- * (ConcurrentRequestHandlingTest), and runs the full suite of integration tests
- * via runAllTests().
- *
- * Exits with 0 on success. If a std::exception is thrown, prints the exception
- * message to stderr and returns 1. For any other unexpected exception, prints
- * a generic error message to stderr and returns 1.
- *
- * @return int Exit code (0 = success, 1 = failure).
- */
-int main() {
-  try {
-    // Set up logging
-    Logger::getInstance().setLogLevel(LogLevel::INFO);
+// GoogleTest test cases
+TEST(ConcurrentRequestHandlingTest, HighConcurrencyWithOptimalPool) {
+  Logger::getInstance().setLogLevel(LogLevel::INFO);
+  ConcurrentRequestHandlingTest test;
+  test.testHighConcurrencyWithOptimalPool();
+  test.cleanup();
+}
 
-    ConcurrentRequestHandlingTest test;
-    test.runAllTests();
+TEST(ConcurrentRequestHandlingTest, ConnectionPoolUnderStress) {
+  Logger::getInstance().setLogLevel(LogLevel::INFO);
+  ConcurrentRequestHandlingTest test;
+  test.testConnectionPoolUnderStress();
+  test.cleanup();
+}
 
-    return 0;
-  } catch (const std::exception &e) {
-    std::cerr << "Concurrent request handling test suite failed: " << e.what()
-              << std::endl;
-    return 1;
-  } catch (...) {
-    std::cerr << "Concurrent request handling test suite failed with unknown "
-                 "exception"
-              << std::endl;
-    return 1;
-  }
+TEST(ConcurrentRequestHandlingTest, RequestQueueingBehavior) {
+  Logger::getInstance().setLogLevel(LogLevel::INFO);
+  ConcurrentRequestHandlingTest test;
+  test.testRequestQueueingBehavior();
+  test.cleanup();
+}
+
+TEST(ConcurrentRequestHandlingTest, ErrorHandlingUnderLoad) {
+  Logger::getInstance().setLogLevel(LogLevel::INFO);
+  ConcurrentRequestHandlingTest test;
+  test.testErrorHandlingUnderLoad();
+  test.cleanup();
+}
+
+TEST(ConcurrentRequestHandlingTest, ThreadSafetyUnderConcurrentLoad) {
+  Logger::getInstance().setLogLevel(LogLevel::INFO);
+  ConcurrentRequestHandlingTest test;
+  test.testThreadSafetyUnderConcurrentLoad();
+  test.cleanup();
+}
+
+TEST(ConcurrentRequestHandlingTest, PerformanceMetricsCollection) {
+  Logger::getInstance().setLogLevel(LogLevel::INFO);
+  ConcurrentRequestHandlingTest test;
+  test.testPerformanceMetricsCollection();
+  test.cleanup();
 }

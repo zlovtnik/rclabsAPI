@@ -58,7 +58,7 @@ void testValidationException() {
   assert(ex.getValue() == "");
 
   // Test with value
-  ValidationException ex2(ErrorCode::INVALID_FORMAT, "Invalid email format",
+  ValidationException ex2(ErrorCode::INVALID_INPUT, "Invalid email format",
                           "email", "invalid-email");
 
   assert(ex2.getField() == "email");
@@ -187,7 +187,7 @@ void testSerialization() {
   std::cout << "Testing exception serialization..." << std::endl;
 
   // Test log string serialization
-  ValidationException ex(ErrorCode::INVALID_FORMAT, "Invalid email", "email",
+  ValidationException ex(ErrorCode::INVALID_INPUT, "Invalid email", "email",
                          "bad-email");
   ex.addContext("user_id", "12345");
 

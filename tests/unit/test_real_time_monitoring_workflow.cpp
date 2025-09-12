@@ -6,8 +6,7 @@
 #include "notification_service.hpp"
 #include "websocket_manager.hpp"
 #include <atomic>
-#include <boost/asio/connect.hpp>
-#include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 #include <boost/beast/websocket.hpp>
@@ -155,18 +154,72 @@ public:
       return "";
 
     try {
-      beast::flat_buffer buffer;
+      // Use promise/future for async coordination
+      std::promise<std::string> promise;
+      std::future<std::string> future = promise.get_future();
 
-      // Use async read with timeout
-      std::future<void> future =
-          std::async(std::launch::async, [&]() { ws_.read(buffer); });
+      // Buffer must be kept alive until async operation completes
+      auto buffer = std::make_shared<beast::flat_buffer>();
 
-      if (future.wait_for(timeout) == std::future_status::timeout) {
-        return "TIMEOUT";
+      // Timer for timeout handling (must be associated with the same
+      // io_context)
+      net::steady_timer timer(ioc_, timeout);
+
+      // Use atomic flag to prevent race conditions
+      std::atomic<bool> completed{false};
+
+      // Lambda to handle read completion
+      auto read_handler = [buffer, &promise, &timer,
+                           &completed](beast::error_code ec,
+                                       std::size_t bytes_transferred) {
+        if (completed.exchange(true))
+          return; // Already handled
+
+        // Cancel timer since read completed
+        timer.cancel();
+
+        if (ec) {
+          if (ec == net::error::operation_aborted) {
+            // Operation was cancelled (timeout)
+            promise.set_value("TIMEOUT");
+          } else {
+            // Other error
+            promise.set_value(std::string("ERROR: ") + ec.message());
+          }
+        } else {
+          // Successful read
+          promise.set_value(beast::buffers_to_string(buffer->data()));
+        }
+      };
+
+      // Lambda to handle timer expiry
+      auto timer_handler = [&promise, &ws = ws_,
+                            &completed](beast::error_code ec) {
+        if (!ec && !completed.exchange(true)) {
+          // Timer expired and we haven't completed yet, cancel the read
+          // operation
+          beast::error_code cancel_ec;
+          ws.next_layer().cancel(cancel_ec);
+          // Set timeout result
+          promise.set_value("TIMEOUT");
+        }
+      };
+
+      // Start async read
+      ws_.async_read(*buffer, read_handler);
+
+      // Start timer (already set expiry in constructor)
+      timer.async_wait(timer_handler);
+
+      // Run the io_context with polling to avoid blocking indefinitely
+      ioc_.restart();
+      while (!completed && ioc_.run_one_for(std::chrono::milliseconds(10))) {
+        // Continue running until completed or we timeout
       }
 
-      future.get();
-      return beast::buffers_to_string(buffer.data());
+      // Get the result
+      return future.get();
+
     } catch (std::exception const &e) {
       last_error_ = e.what();
       return std::string("ERROR: ") + e.what();
@@ -199,17 +252,18 @@ class RealTimeMonitoringWorkflowTest : public ::testing::Test {
 protected:
   void SetUp() override {
     // Setup server components
-    config = std::make_shared<ConfigManager>();
+    config = std::shared_ptr<ConfigManager>(&ConfigManager::getInstance(),
+                                            [](ConfigManager *) {});
 
     // Use default config if file doesn't exist
     try {
-      config->load("config/config.json");
+      config->loadConfig("config/config.json");
     } catch (...) {
       // Create minimal config for testing
       createTestConfig();
     }
 
-    logger = std::make_shared<Logger>();
+    logger = std::shared_ptr<Logger>(&Logger::getInstance(), [](Logger *) {});
     logger->configure(LogConfig{});
 
     ws_manager = std::make_shared<WebSocketManager>();
@@ -228,7 +282,7 @@ protected:
 
     server_thread = std::thread([this]() {
       try {
-        http_server->start(server_port);
+        http_server->start();
       } catch (const std::exception &e) {
         server_error = e.what();
       }
@@ -283,7 +337,30 @@ private:
     file << testConfig.dump(2);
     file.close();
 
-    config->load("test_config.json");
+    config->loadConfig("test_config.json");
+  }
+
+public:
+  ETLJobConfig createTestJobConfig(const std::string &jobId,
+                                   const std::string &name) {
+    ETLJobConfig config;
+    config.jobId = jobId;
+    config.type = JobType::FULL_ETL;
+    config.sourceConfig =
+        R"({"type": "database", "connection": "test_source"})";
+    config.targetConfig =
+        R"({"type": "database", "connection": "test_target"})";
+    config.transformationRules = R"({"rules": ["validate", "transform"]})";
+    config.scheduledTime = std::chrono::system_clock::now();
+    config.isRecurring = false;
+    config.recurringInterval = std::chrono::minutes(0);
+    return config;
+  }
+
+private:
+  int findAvailablePort() {
+    // Simple port finding - in real tests, use a more robust method
+    return 18080 + (rand() % 1000);
   }
 
 protected:
@@ -314,7 +391,8 @@ TEST_F(RealTimeMonitoringWorkflowTest, CompleteJobLifecycle) {
 
   // 2. Start a job
   std::string jobId = "test_job_lifecycle_123";
-  etl_manager->startJob(jobId, "Integration Test Job");
+  ETLJobConfig jobConfig = createTestJobConfig(jobId, "Integration Test Job");
+  jobId = etl_manager->scheduleJob(jobConfig);
 
   // 3. Verify initial WebSocket message
   std::string message =
@@ -341,7 +419,7 @@ TEST_F(RealTimeMonitoringWorkflowTest, CompleteJobLifecycle) {
   EXPECT_EQ(restJson["status"], "RUNNING");
 
   // 5. Simulate job progress
-  etl_manager->updateJobProgress(jobId, 50, "Processing data batch 1");
+  etl_manager->publishJobProgress(jobId, 50, "Processing data batch 1");
 
   message = wsClient.receiveMessage(std::chrono::milliseconds(2000));
   ASSERT_NE(message, "TIMEOUT") << "Timeout waiting for progress update";
@@ -353,7 +431,7 @@ TEST_F(RealTimeMonitoringWorkflowTest, CompleteJobLifecycle) {
   EXPECT_EQ(json_msg["payload"]["currentStep"], "Processing data batch 1");
 
   // 6. Simulate job completion
-  etl_manager->finishJob(jobId, "COMPLETED");
+  etl_manager->publishJobStatusUpdate(jobId, JobStatus::COMPLETED);
 
   message = wsClient.receiveMessage(std::chrono::milliseconds(2000));
   ASSERT_NE(message, "TIMEOUT") << "Timeout waiting for completion message";
@@ -395,7 +473,8 @@ TEST_F(RealTimeMonitoringWorkflowTest, MultiClientTest) {
 
   // Start a job and verify all clients receive the update
   std::string jobId = "multi_client_test_job_456";
-  etl_manager->startJob(jobId, "Multi-Client Test Job");
+  ETLJobConfig jobConfig = createTestJobConfig(jobId, "Multi-Client Test Job");
+  jobId = etl_manager->scheduleJob(jobConfig);
 
   // Check that all clients receive the job status update
   std::vector<std::string> receivedMessages;
@@ -427,7 +506,7 @@ TEST_F(RealTimeMonitoringWorkflowTest, MultiClientTest) {
   }
 
   // Update job progress and verify all clients receive it
-  etl_manager->updateJobProgress(jobId, 75, "Nearly complete");
+  etl_manager->publishJobProgress(jobId, 75, "Nearly complete");
 
   for (int i = 0; i < numClients; ++i) {
     std::string message =
@@ -441,7 +520,7 @@ TEST_F(RealTimeMonitoringWorkflowTest, MultiClientTest) {
   }
 
   // Complete the job
-  etl_manager->finishJob(jobId, "COMPLETED");
+  etl_manager->publishJobStatusUpdate(jobId, JobStatus::COMPLETED);
 
   // Verify completion message received by all clients
   for (int i = 0; i < numClients; ++i) {
@@ -474,7 +553,8 @@ TEST_F(RealTimeMonitoringWorkflowTest, JobFailureNotificationFlow) {
   std::string jobId = "failing_job_789";
   std::string errorMessage = "Simulated database connection failure";
 
-  etl_manager->startJob(jobId, "Failing Test Job");
+  ETLJobConfig jobConfig = createTestJobConfig(jobId, "Failing Test Job");
+  jobId = etl_manager->scheduleJob(jobConfig);
 
   // Receive initial status
   std::string message = wsClient.receiveMessage();
@@ -482,7 +562,7 @@ TEST_F(RealTimeMonitoringWorkflowTest, JobFailureNotificationFlow) {
   EXPECT_EQ(json_msg["payload"]["status"], "RUNNING");
 
   // Simulate job failure
-  etl_manager->finishJob(jobId, "FAILED", errorMessage);
+  etl_manager->publishJobStatusUpdate(jobId, JobStatus::FAILED);
 
   // Verify WebSocket failure notification
   message = wsClient.receiveMessage();
@@ -516,7 +596,9 @@ TEST_F(RealTimeMonitoringWorkflowTest, EndToEndMonitoringAndNotificationFlow) {
   std::vector<std::string> jobIds = {"e2e_job_1", "e2e_job_2", "e2e_job_3"};
 
   for (const auto &jobId : jobIds) {
-    etl_manager->startJob(jobId, "End-to-End Test Job " + jobId);
+    ETLJobConfig jobConfig =
+        createTestJobConfig(jobId, "End-to-End Test Job " + jobId);
+    etl_manager->scheduleJob(jobConfig);
 
     // Verify WebSocket notification
     std::string message = wsClient.receiveMessage();
@@ -545,8 +627,8 @@ TEST_F(RealTimeMonitoringWorkflowTest, EndToEndMonitoringAndNotificationFlow) {
 
   // 4. Simulate progress updates
   for (size_t i = 0; i < jobIds.size(); ++i) {
-    etl_manager->updateJobProgress(jobIds[i], (i + 1) * 30,
-                                   "Processing step " + std::to_string(i + 1));
+    etl_manager->publishJobProgress(jobIds[i], (i + 1) * 30,
+                                    "Processing step " + std::to_string(i + 1));
 
     std::string message = wsClient.receiveMessage();
     auto json_msg = nlohmann::json::parse(message);
@@ -554,9 +636,9 @@ TEST_F(RealTimeMonitoringWorkflowTest, EndToEndMonitoringAndNotificationFlow) {
   }
 
   // 5. Complete some jobs and fail others
-  etl_manager->finishJob(jobIds[0], "COMPLETED");
-  etl_manager->finishJob(jobIds[1], "FAILED", "Validation error");
-  etl_manager->finishJob(jobIds[2], "COMPLETED");
+  etl_manager->publishJobStatusUpdate(jobIds[0], JobStatus::COMPLETED);
+  etl_manager->publishJobStatusUpdate(jobIds[1], JobStatus::FAILED);
+  etl_manager->publishJobStatusUpdate(jobIds[2], JobStatus::COMPLETED);
 
   // 6. Verify completion/failure notifications
   for (size_t i = 0; i < jobIds.size(); ++i) {

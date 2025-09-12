@@ -317,6 +317,7 @@ set(COMMON_SOURCES
     src/pooled_session.cpp
     src/connection_pool_manager.cpp
     src/request_handler.cpp
+    src/http_server.cpp
     src/rate_limiter.cpp
     src/lock_utils.cpp
     src/type_definitions.cpp
@@ -435,7 +436,7 @@ endforeach()
 macro(create_test_executable target_name script_file)
     add_executable(${target_name} ${script_file})
     target_include_directories(${target_name} PRIVATE include)
-    target_link_libraries(${target_name} etl_common)
+    target_link_libraries(${target_name} etl_common GTest::gtest GTest::gtest_main)
 endmacro()
 
 # Create all test executables using the shared library
@@ -445,6 +446,7 @@ create_test_executable(test_websocket_manager_enhanced tests/unit/test_websocket
 create_test_executable(test_websocket_filtering_demo tests/unit/test_websocket_filtering_demo.cpp)
 create_test_executable(test_websocket_filtering_unit tests/unit/test_websocket_filtering_unit.cpp)
 create_test_executable(test_websocket_error_handling tests/unit/test_websocket_error_handling.cpp)
+create_test_executable(test_websocket_race_condition_fix tests/unit/test_websocket_race_condition_fix.cpp)
 create_test_executable(test_job_monitoring_models tests/unit/test_job_monitoring_models.cpp)
 create_test_executable(test_etl_job_manager_monitoring tests/unit/test_etl_job_manager_monitoring.cpp)
 if(ENABLE_TESTS)
@@ -457,13 +459,17 @@ create_test_executable(test_job_monitor_service_error_handling tests/unit/test_j
 create_test_executable(test_log_streaming_simple tests/unit/test_log_streaming_simple.cpp)
 create_test_executable(test_log_streaming_integration tests/unit/test_log_streaming_integration.cpp)
 create_test_executable(test_log_streaming_demo tests/unit/test_log_streaming_demo.cpp)
+create_test_executable(test_real_time_monitoring_workflow tests/unit/test_real_time_monitoring_workflow.cpp)
 create_test_executable(test_enhanced_rest_endpoints_simple tests/unit/test_enhanced_rest_endpoints_simple.cpp)
+create_test_executable(test_error_code_consolidation tests/unit/test_error_code_consolidation.cpp)
 create_test_executable(hana_exception_demo demos/hana_exception_demo.cpp)
 create_test_executable(test_config_management_demo tests/unit/test_config_management_demo.cpp)
 create_test_executable(test_config_simple tests/unit/test_config_simple.cpp)
 create_test_executable(test_server_config_and_metrics tests/unit/test_server_config_and_metrics.cpp)
 create_test_executable(test_pooled_session tests/unit/test_pooled_session.cpp)
 create_test_executable(test_pooled_session_integration tests/unit/test_pooled_session_integration.cpp)
+create_test_executable(test_concurrent_request_handling tests/unit/test_concurrent_request_handling.cpp)
+target_link_libraries(test_concurrent_request_handling GTest::gtest GTest::gtest_main)
 create_test_executable(demo_request_validator demos/demo_request_validator.cpp)
 create_test_executable(demo_response_builder_simple demos/demo_response_builder_simple.cpp)
 create_test_executable(demo_exception_mapper_integration demos/demo_exception_mapper_integration.cpp)
