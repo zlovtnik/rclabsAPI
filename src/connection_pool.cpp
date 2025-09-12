@@ -296,14 +296,16 @@ ConnectionPool::getConnectionsByFilter(
     SCOPED_SHARED_LOCK_TIMEOUT(connectionsMutex_, 500);
     snapshot.reserve(connections_.size());
     for (const auto &[id, connection] : connections_) {
-      if (connection) snapshot.push_back(connection);
+      if (connection)
+        snapshot.push_back(connection);
     }
   }
 
   std::vector<std::shared_ptr<WebSocketConnection>> matchingConnections;
   matchingConnections.reserve(snapshot.size());
   for (const auto &connection : snapshot) {
-    if (filter(connection)) matchingConnections.push_back(connection);
+    if (filter(connection))
+      matchingConnections.push_back(connection);
   }
 
   return matchingConnections;
@@ -313,7 +315,8 @@ std::vector<std::string> ConnectionPool::getConnectionIdsByFilter(
     std::function<bool(const std::shared_ptr<WebSocketConnection> &)> filter)
     const {
 
-  std::vector<std::pair<std::string, std::shared_ptr<WebSocketConnection>>> snapshot;
+  std::vector<std::pair<std::string, std::shared_ptr<WebSocketConnection>>>
+      snapshot;
   {
     SCOPED_SHARED_LOCK_TIMEOUT(connectionsMutex_, 500);
     snapshot.reserve(connections_.size());
@@ -325,7 +328,8 @@ std::vector<std::string> ConnectionPool::getConnectionIdsByFilter(
   std::vector<std::string> matchingIds;
   matchingIds.reserve(snapshot.size());
   for (const auto &[id, connection] : snapshot) {
-    if (connection && filter(connection)) matchingIds.push_back(id);
+    if (connection && filter(connection))
+      matchingIds.push_back(id);
   }
 
   return matchingIds;

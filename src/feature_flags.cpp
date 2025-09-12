@@ -65,10 +65,14 @@ bool FeatureFlags::shouldEnableForUser(const std::string &flag,
   if (percentage <= 0.0)
     return false;
 
-  // Use stable FNV-1a hash with finer granularity (10,000 buckets for 0.01% precision)
+  // Use stable FNV-1a hash with finer granularity (10,000 buckets for 0.01%
+  // precision)
   auto fnv1a64 = [](std::string_view s) {
     uint64_t h = 1469598103934665603ull;
-    for (unsigned char c : s) { h ^= c; h *= 1099511628211ull; }
+    for (unsigned char c : s) {
+      h ^= c;
+      h *= 1099511628211ull;
+    }
     return h;
   };
   const uint64_t h = fnv1a64(userId);
@@ -108,10 +112,12 @@ void FeatureFlags::loadFromConfig(const std::string &configFile) {
     }
     if (config.contains("flags") && config["flags"].is_object()) {
       for (const auto &[key, value] : config["flags"].items()) {
-        if (value.is_boolean()) newFlags[key] = value.get<bool>();
+        if (value.is_boolean())
+          newFlags[key] = value.get<bool>();
       }
     }
-    if (config.contains("rollout_percentages") && config["rollout_percentages"].is_object()) {
+    if (config.contains("rollout_percentages") &&
+        config["rollout_percentages"].is_object()) {
       for (const auto &[key, value] : config["rollout_percentages"].items()) {
         if (value.is_number()) {
           const double val = value.get<double>();
@@ -143,8 +149,8 @@ void FeatureFlags::saveToConfig(const std::string &configFile) const {
     const std::string tmpFile = configFile + ".tmp";
     std::ofstream file(tmpFile);
     if (!file.is_open()) {
-      std::cerr << "Error: Could not open temp file for writing: "
-                << tmpFile << '\n';
+      std::cerr << "Error: Could not open temp file for writing: " << tmpFile
+                << '\n';
       return;
     }
 
@@ -152,8 +158,8 @@ void FeatureFlags::saveToConfig(const std::string &configFile) const {
     file.close();
     // If you add <filesystem>, prefer std::filesystem::rename with error_code.
     if (std::rename(tmpFile.c_str(), configFile.c_str()) != 0) {
-      std::cerr << "Error: Could not replace config file: "
-                << configFile << '\n';
+      std::cerr << "Error: Could not replace config file: " << configFile
+                << '\n';
       std::remove(tmpFile.c_str());
       return;
     }

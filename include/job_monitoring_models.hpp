@@ -256,7 +256,8 @@ inline std::string escapeJsonString(const std::string &str) {
     default:
       if (static_cast<unsigned char>(c) < 0x20) {
         std::ostringstream oss;
-        oss << "\\u" << std::setw(4) << std::setfill('0') << std::hex << static_cast<unsigned int>(c);
+        oss << "\\u" << std::setw(4) << std::setfill('0') << std::hex
+            << static_cast<unsigned int>(c);
         result += oss.str();
       } else {
         result += c;

@@ -141,7 +141,8 @@ void DatabaseConnectionPool::releaseConnection(
   // Find the connection in active connections
   auto it = std::find_if(activeConnections_.begin(), activeConnections_.end(),
                          [&conn](const std::shared_ptr<PooledConnection> &pc) {
-                           if (!pc) return false;
+                           if (!pc)
+                             return false;
                            return pc->connection == conn;
                          });
 
@@ -380,7 +381,8 @@ void DatabaseConnectionPool::performHealthCheck() {
     std::lock_guard<std::mutex> lock(poolMutex_);
 
     // Update idle connections
-    while (!idleConnections_.empty()) idleConnections_.pop();
+    while (!idleConnections_.empty())
+      idleConnections_.pop();
     for (auto &conn : healthyIdle) {
       idleConnections_.push(conn);
     }
@@ -448,8 +450,9 @@ void DatabaseConnectionPool::adjustPoolSize() {
       connectionsToCreate = config_.minConnections - totalCurrent;
     } else if (currentIdle > config_.minConnections &&
                totalCurrent > config_.minConnections) {
-      connectionsToRemove = std::min(currentIdle - config_.minConnections,
-                                     currentIdle + currentActive - config_.minConnections);
+      connectionsToRemove =
+          std::min(currentIdle - config_.minConnections,
+                   currentIdle + currentActive - config_.minConnections);
     }
   }
 

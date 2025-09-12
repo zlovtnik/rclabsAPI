@@ -276,7 +276,8 @@ bool RedisCache::hset(const std::string &key, const std::string &field,
   return success;
 }
 
-std::optional<std::string> RedisCache::hget(const std::string &key, const std::string &field) {
+std::optional<std::string> RedisCache::hget(const std::string &key,
+                                            const std::string &field) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!isConnected())
     return std::nullopt;

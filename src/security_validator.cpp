@@ -328,7 +328,7 @@ std::string SecurityValidator::escapeHtml(const std::string &input) {
 
   for (char c : input) {
     unsigned char uc = static_cast<unsigned char>(c);
-    if (uc < htmlEntities.size() && !htmlEntities[uc].empty()) {
+    if (!htmlEntities[uc].empty()) {
       escaped.append(htmlEntities[uc]);
     } else {
       escaped.push_back(c);

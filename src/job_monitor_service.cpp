@@ -372,10 +372,12 @@ void JobMonitorService::broadcastLogMessage(const LogMessage &logMessage) {
   }
 
   auto message = WebSocketMessage::createLogMessage(logMessage);
-  (void)tryOperation([&] {
-    wsManager_->broadcastLogMessage(message.toJson(), logMessage.jobId,
-                                    logMessage.level);
-  }, "broadcast_log_message");
+  (void)tryOperation(
+      [&] {
+        wsManager_->broadcastLogMessage(message.toJson(), logMessage.jobId,
+                                        logMessage.level);
+      },
+      "broadcast_log_message");
 
   JOB_LOG_DEBUG("Broadcasted log message for job: " + logMessage.jobId);
 }

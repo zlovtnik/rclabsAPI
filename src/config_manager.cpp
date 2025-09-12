@@ -25,10 +25,12 @@ bool ConfigManager::loadConfig(const std::string &configPath) {
   configFilePath = configPath; // Store for reload functionality
   bool result = parseConfigFile(configPath);
   if (result) {
-    LOG_INFO("ConfigManager", "Configuration loaded successfully with " + 
-              std::to_string(configData.size()) + " parameters");
+    LOG_INFO("ConfigManager", "Configuration loaded successfully with " +
+                                  std::to_string(configData.size()) +
+                                  " parameters");
   } else {
-    LOG_ERROR("ConfigManager", "Failed to load configuration from: " + configPath);
+    LOG_ERROR("ConfigManager",
+              "Failed to load configuration from: " + configPath);
   }
   return result;
 }
@@ -88,7 +90,8 @@ ConfigManager::getStringSet(const std::string &key) const {
         auto arr = nlohmann::json::parse(raw);
         if (arr.is_array()) {
           for (const auto &v : arr) {
-            if (v.is_string()) result.insert(v.get<std::string>());
+            if (v.is_string())
+              result.insert(v.get<std::string>());
           }
           return result;
         }
@@ -105,7 +108,8 @@ ConfigManager::getStringSet(const std::string &key) const {
     while (std::getline(ss, item, ',')) {
       item.erase(0, item.find_first_not_of(" \t\""));
       item.erase(item.find_last_not_of(" \t\"") + 1);
-      if (!item.empty()) result.insert(item);
+      if (!item.empty())
+        result.insert(item);
     }
   }
   return result;
@@ -243,7 +247,8 @@ bool ConfigManager::updateJobTrackingConfig(
 
 bool ConfigManager::reloadConfiguration() {
   if (configFilePath.empty()) {
-    LOG_ERROR("ConfigManager", "No configuration file path available for reload");
+    LOG_ERROR("ConfigManager",
+              "No configuration file path available for reload");
     return false;
   }
 
@@ -305,12 +310,14 @@ bool ConfigManager::updateConfigData(
     }
     return true;
   } catch (const std::runtime_error &e) {
-    LOG_ERROR("ConfigManager", "Runtime error updating configuration data for section '" + 
-              section + "': " + std::string(e.what()));
+    LOG_ERROR("ConfigManager",
+              "Runtime error updating configuration data for section '" +
+                  section + "': " + std::string(e.what()));
     return false;
   } catch (const std::logic_error &e) {
-    LOG_ERROR("ConfigManager", "Logic error updating configuration data for section '" + 
-              section + "': " + std::string(e.what()));
+    LOG_ERROR("ConfigManager",
+              "Logic error updating configuration data for section '" +
+                  section + "': " + std::string(e.what()));
     return false;
   }
 }
@@ -401,7 +408,7 @@ bool ConfigManager::parseConfigFile(const std::string &configPath) {
     configData.clear();
 
     // Flatten JSON into dot-separated keys
-    std::unordered_set<const nlohmann::json*> visited;
+    std::unordered_set<const nlohmann::json *> visited;
     flattenJson(jsonConfig, "", 0, 100, visited);
 
     return true;
@@ -411,9 +418,9 @@ bool ConfigManager::parseConfigFile(const std::string &configPath) {
   }
 }
 
-void ConfigManager::flattenJson(const nlohmann::json &json,
-                                const std::string &prefix, int currentDepth,
-                                int maxDepth, std::unordered_set<const nlohmann::json*> &visited) {
+void ConfigManager::flattenJson(
+    const nlohmann::json &json, const std::string &prefix, int currentDepth,
+    int maxDepth, std::unordered_set<const nlohmann::json *> &visited) {
   if (currentDepth >= maxDepth) {
     std::string key = prefix.empty() ? "deep_nested" : prefix + ".deep_nested";
     configData[key] = json.dump();
@@ -421,9 +428,10 @@ void ConfigManager::flattenJson(const nlohmann::json &json,
   }
 
   // Check for circular reference
-  const nlohmann::json* jsonPtr = &json;
+  const nlohmann::json *jsonPtr = &json;
   if (visited.find(jsonPtr) != visited.end()) {
-    std::string key = prefix.empty() ? "circular_ref" : prefix + ".circular_ref";
+    std::string key =
+        prefix.empty() ? "circular_ref" : prefix + ".circular_ref";
     configData[key] = "circular reference detected";
     return;
   }

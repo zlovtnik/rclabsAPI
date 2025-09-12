@@ -129,7 +129,7 @@ endif()
 # Try to find libpqxx (PostgreSQL C++ client library)
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
-    pkg_check_modules(LIBPQXX QUIET libpqxx)
+    pkg_check_modules(LIBPQXX QUIET libpqxx>=7.0)
 endif()
 
 if(NOT LIBPQXX_FOUND)

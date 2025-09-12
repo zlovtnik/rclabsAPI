@@ -42,10 +42,12 @@ AuthManager::AuthManager(std::shared_ptr<DatabaseManager> dbManager)
       }
     }
   }
-  
+
   if (jwtSecretKey.empty()) {
-    AUTH_LOG_ERROR("JWT_SECRET_KEY environment variable or JWT_SECRET_KEY_FILE must be set");
-    throw std::runtime_error("JWT_SECRET_KEY environment variable or JWT_SECRET_KEY_FILE must be set");
+    AUTH_LOG_ERROR("JWT_SECRET_KEY environment variable or JWT_SECRET_KEY_FILE "
+                   "must be set");
+    throw std::runtime_error("JWT_SECRET_KEY environment variable or "
+                             "JWT_SECRET_KEY_FILE must be set");
   }
   AUTH_LOG_DEBUG("JWT secret key loaded successfully.");
 
@@ -419,8 +421,10 @@ std::string AuthManager::generateJWTToken(const std::string &userId) {
             .set_payload_claim("username",
                                jwt::claim(std::string(user->username)))
             .set_payload_claim("roles",
-                               jwt::claim(picojson::array(user->roles.begin(), user->roles.end())))
-            .sign(jwt::algorithm::hs256{std::string(jwtSecretKey_.data(), jwtSecretKey_.size())});
+                               jwt::claim(picojson::array(user->roles.begin(),
+                                                          user->roles.end())))
+            .sign(jwt::algorithm::hs256{
+                std::string(jwtSecretKey_.data(), jwtSecretKey_.size())});
 
     AUTH_LOG_INFO("Generated JWT token for user: " + userId);
     return token;
@@ -440,7 +444,8 @@ AuthManager::validateJWTToken(const std::string &token) {
     auto verifier = jwt::verify()
                         .with_issuer("etl-backend")
                         .with_audience("etl-api")
-                        .allow_algorithm(jwt::algorithm::hs256{std::string(jwtSecretKey_.data(), jwtSecretKey_.size())});
+                        .allow_algorithm(jwt::algorithm::hs256{std::string(
+                            jwtSecretKey_.data(), jwtSecretKey_.size())});
 
     verifier.verify(decoded);
 

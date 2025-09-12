@@ -4,8 +4,8 @@
  */
 
 // Add this include at the top of main.cpp
-#include "notification_service.hpp"
 #include "job_monitor_service.hpp"
+#include "notification_service.hpp"
 
 // Add this code after initializing the ETL Job Manager and WebSocket Manager
 // (around line 95 in the current main.cpp)
@@ -13,7 +13,9 @@
 /*
 // Initialize Notification Service
 LOG_INFO("Main", "Initializing notification service...");
-auto notificationService = std::make_shared<NotificationServiceImpl>(std::shared_ptr<Logger>(&logger, [](Logger*){}));
+auto notificationService =
+std::make_shared<NotificationServiceImpl>(std::shared_ptr<Logger>(&logger,
+[](Logger*){}));
 
 // Load notification configuration
 auto notificationConfig = NotificationConfig::fromConfig(config);
@@ -42,9 +44,9 @@ LOG_INFO("Main", "Job monitor service started successfully");
 
 /*
  * Configuration changes needed in config.json:
- * 
+ *
  * Add to "monitoring" section:
- * 
+ *
  * "notifications": {
  *   "enabled": true,
  *   "job_failure_alerts": true,
@@ -72,14 +74,14 @@ LOG_INFO("Main", "Job monitor service started successfully");
 
 /*
  * Shutdown changes needed in main.cpp:
- * 
+ *
  * Add before server shutdown:
- * 
+ *
  * if (jobMonitorService) {
  *     LOG_INFO("Main", "Stopping job monitor service...");
  *     jobMonitorService->stop();
  * }
- * 
+ *
  * if (notificationService) {
  *     LOG_INFO("Main", "Stopping notification service...");
  *     notificationService->stop();
@@ -89,27 +91,29 @@ LOG_INFO("Main", "Job monitor service started successfully");
 // Example of how other components can trigger notifications:
 
 void exampleNotificationUsage() {
-    // From ETLJobManager when a job fails:
-    // notificationService->sendJobFailureAlert("job_123", "Database connection failed");
-    
-    // From a monitoring component checking system resources:
-    // notificationService->checkMemoryUsage(getCurrentMemoryUsage());
-    // notificationService->checkCpuUsage(getCurrentCpuUsage());
-    
-    // From any component when a critical error occurs:
-    // notificationService->sendSystemErrorAlert("DatabaseManager", "Connection pool exhausted");
-    
-    // Custom notifications for business logic:
-    // NotificationMessage custom;
-    // custom.id = NotificationMessage::generateId();
-    // custom.type = NotificationType::SYSTEM_ERROR;
-    // custom.priority = NotificationPriority::HIGH;
-    // custom.subject = "Data Quality Issue";
-    // custom.message = "Detected anomalous data patterns in latest ETL batch";
-    // custom.timestamp = std::chrono::system_clock::now();
-    // custom.scheduledFor = custom.timestamp;
-    // custom.retryCount = 0;
-    // custom.maxRetries = 3;
-    // custom.methods = {NotificationMethod::LOG_ONLY, NotificationMethod::EMAIL};
-    // notificationService->sendCustomNotification(custom);
+  // From ETLJobManager when a job fails:
+  // notificationService->sendJobFailureAlert("job_123", "Database connection
+  // failed");
+
+  // From a monitoring component checking system resources:
+  // notificationService->checkMemoryUsage(getCurrentMemoryUsage());
+  // notificationService->checkCpuUsage(getCurrentCpuUsage());
+
+  // From any component when a critical error occurs:
+  // notificationService->sendSystemErrorAlert("DatabaseManager", "Connection
+  // pool exhausted");
+
+  // Custom notifications for business logic:
+  // NotificationMessage custom;
+  // custom.id = NotificationMessage::generateId();
+  // custom.type = NotificationType::SYSTEM_ERROR;
+  // custom.priority = NotificationPriority::HIGH;
+  // custom.subject = "Data Quality Issue";
+  // custom.message = "Detected anomalous data patterns in latest ETL batch";
+  // custom.timestamp = std::chrono::system_clock::now();
+  // custom.scheduledFor = custom.timestamp;
+  // custom.retryCount = 0;
+  // custom.maxRetries = 3;
+  // custom.methods = {NotificationMethod::LOG_ONLY, NotificationMethod::EMAIL};
+  // notificationService->sendCustomNotification(custom);
 }

@@ -1,7 +1,7 @@
 #include "exception_handler.hpp"
 #include <algorithm>
-#include <cerrno>
 #include <cctype>
+#include <cerrno>
 #include <cmath>
 #include <system_error>
 
@@ -154,14 +154,14 @@ ExceptionHandler::convertException(const std::exception &ex,
                                    const etl::ErrorContext &context) {
 
   // Check well-known exception types first for better accuracy
-  if (dynamic_cast<const std::bad_alloc*>(&ex)) {
-    return std::make_shared<etl::SystemException>(
-        etl::ErrorCode::MEMORY_ERROR,
-        "Memory allocation failed: " + std::string(ex.what()), "MemorySystem",
-        context);
+  if (dynamic_cast<const std::bad_alloc *>(&ex)) {
+    return std::make_shared<etl::SystemException>(etl::ErrorCode::MEMORY_ERROR,
+                                                  "Memory allocation failed: " +
+                                                      std::string(ex.what()),
+                                                  "MemorySystem", context);
   }
 
-  if (auto se = dynamic_cast<const std::system_error*>(&ex)) {
+  if (auto se = dynamic_cast<const std::system_error *>(&ex)) {
     const auto code = se->code();
     const auto cond = code.default_error_condition();
     if (cond == std::errc::timed_out || cond == std::errc::connection_aborted) {
@@ -180,10 +180,10 @@ ExceptionHandler::convertException(const std::exception &ex,
     }
     if (cond == std::errc::no_such_file_or_directory ||
         cond == std::errc::permission_denied) {
-      return std::make_shared<etl::SystemException>(
-          etl::ErrorCode::FILE_ERROR,
-          "File access error: " + std::string(ex.what()), "FileSystem",
-          context);
+      return std::make_shared<etl::SystemException>(etl::ErrorCode::FILE_ERROR,
+                                                    "File access error: " +
+                                                        std::string(ex.what()),
+                                                    "FileSystem", context);
     }
     return std::make_shared<etl::SystemException>(
         etl::ErrorCode::INTERNAL_ERROR,
@@ -253,7 +253,8 @@ void ExceptionHandler::logException(const etl::ETLException &ex,
   if (!operationName.empty()) {
     logMessage = "[" + operationName + "] " + logMessage;
   }
-  // Log all exceptions as errors for now (simplified from severity-based logging)
+  // Log all exceptions as errors for now (simplified from severity-based
+  // logging)
   LOG_ERROR("ExceptionHandler", logMessage);
 }
 
@@ -310,11 +311,13 @@ void ExceptionHandler::handleUnknownException(
 std::chrono::milliseconds
 ExceptionHandler::calculateDelay(int attempt, const RetryConfig &config) {
   const int k = std::max(1, attempt) - 1;
-  const long double factor = std::pow(static_cast<long double>(config.backoffMultiplier),
-                                      static_cast<long double>(k));
-  const long double raw = static_cast<long double>(config.initialDelay.count()) * factor;
-  const auto clamped = static_cast<long long>(
-      std::min<long double>(raw, static_cast<long double>(config.maxDelay.count())));
+  const long double factor =
+      std::pow(static_cast<long double>(config.backoffMultiplier),
+               static_cast<long double>(k));
+  const long double raw =
+      static_cast<long double>(config.initialDelay.count()) * factor;
+  const auto clamped = static_cast<long long>(std::min<long double>(
+      raw, static_cast<long double>(config.maxDelay.count())));
   return std::chrono::milliseconds{clamped};
 }
 

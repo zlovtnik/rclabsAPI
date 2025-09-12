@@ -151,7 +151,8 @@ bool DatabaseManager::executeQuery(const std::string &query) {
   }
 }
 
-bool DatabaseManager::executeQuery(const std::string &query, const std::vector<std::string> &params) {
+bool DatabaseManager::executeQuery(const std::string &query,
+                                   const std::vector<std::string> &params) {
   if (!isConnected()) {
     DB_LOG_ERROR("Cannot execute parameterized query: database not connected");
     return false;
@@ -164,7 +165,7 @@ bool DatabaseManager::executeQuery(const std::string &query, const std::vector<s
     auto conn = pImpl->connectionPool->acquireConnection();
     pqxx::work txn(*conn);
     pqxx::params pqxx_params;
-    for (const auto& param : params) {
+    for (const auto &param : params) {
       pqxx_params.append(param);
     }
     txn.exec_params(query, pqxx_params);
@@ -173,7 +174,8 @@ bool DatabaseManager::executeQuery(const std::string &query, const std::vector<s
     DB_LOG_DEBUG("Parameterized query executed successfully");
     return true;
   } catch (const std::exception &e) {
-    DB_LOG_ERROR("Parameterized query execution failed: " + std::string(e.what()));
+    DB_LOG_ERROR("Parameterized query execution failed: " +
+                 std::string(e.what()));
     return false;
   }
 }
@@ -225,7 +227,8 @@ DatabaseManager::selectQuery(const std::string &query) {
 }
 
 std::vector<std::vector<std::string>>
-DatabaseManager::selectQuery(const std::string &query, const std::vector<std::string> &params) {
+DatabaseManager::selectQuery(const std::string &query,
+                             const std::vector<std::string> &params) {
   if (!isConnected()) {
     DB_LOG_ERROR("Cannot execute select query: database not connected");
     return {};
@@ -238,7 +241,7 @@ DatabaseManager::selectQuery(const std::string &query, const std::vector<std::st
     auto conn = pImpl->connectionPool->acquireConnection();
     pqxx::work txn(*conn);
     pqxx::params pqxx_params;
-    for (const auto& param : params) {
+    for (const auto &param : params) {
       pqxx_params.append(param);
     }
     pqxx::result result = txn.exec_params(query, pqxx_params);

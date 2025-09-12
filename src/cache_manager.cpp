@@ -452,8 +452,9 @@ void CacheManager::warmupCache(DatabaseManager *dbManager) {
 
   try {
     // Use parameterized query for safe integer binding
-    std::string query = "SELECT DISTINCT key_name, data_type FROM cache_access_log "
-                        "ORDER BY access_count DESC LIMIT $1";
+    std::string query =
+        "SELECT DISTINCT key_name, data_type FROM cache_access_log "
+        "ORDER BY access_count DESC LIMIT $1";
     std::vector<std::string> params = {std::to_string(safeMaxKeys)};
 
     auto results = dbManager->selectQuery(query, params);
