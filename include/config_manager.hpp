@@ -130,7 +130,7 @@ private:
   // Helper methods for configuration updates
   void notifyConfigChange(const std::string &section,
                           const MonitoringConfig &newConfig);
-  bool validateAndUpdateConfigData(
+  bool updateConfigData(
       const std::string &section,
       const std::unordered_map<std::string, std::string, TransparentStringHash,
                                std::equal_to<>> &updates);
