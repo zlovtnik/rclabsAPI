@@ -204,7 +204,8 @@ bool DatabaseManager::beginTransaction() {
   }
 
   DB_LOG_DEBUG("Beginning PostgreSQL database transaction");
-  // Note: Transaction handling is done in executeQuery and selectQuery
+  // TODO: Implement proper transaction management with connection pooling
+  // Note: Currently transactions are handled implicitly in executeQuery and selectQuery
   return true;
 }
 
@@ -215,7 +216,8 @@ bool DatabaseManager::commitTransaction() {
   }
 
   DB_LOG_DEBUG("Committing PostgreSQL database transaction");
-  // Note: Transaction handling is done in executeQuery and selectQuery
+  // TODO: Implement proper transaction management with connection pooling
+  // Note: Currently transactions are handled implicitly in executeQuery and selectQuery
   return true;
 }
 
@@ -226,7 +228,8 @@ bool DatabaseManager::rollbackTransaction() {
   }
 
   DB_LOG_WARN("Rolling back PostgreSQL database transaction");
-  // Note: Transaction handling is done in executeQuery and selectQuery
+  // TODO: Implement proper transaction management with connection pooling
+  // Note: Currently transactions are handled implicitly in executeQuery and selectQuery
   return true;
 }
 
