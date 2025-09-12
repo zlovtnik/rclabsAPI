@@ -1,5 +1,5 @@
 #include "cache_manager.hpp"
-#ifdef ETL_ENABLE_REDIS
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
 #include "redis_cache.hpp"
 #endif
 #include "database_manager.hpp"
@@ -70,14 +70,14 @@ CacheManager::CacheManager(const CacheConfig &config)
 }
 
 CacheManager::~CacheManager() {
-#ifdef ETL_ENABLE_REDIS
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
   if (redisCache_) {
     redisCache_->disconnect();
   }
 #endif
 }
 
-#ifdef ETL_ENABLE_REDIS
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
 bool CacheManager::initialize(std::unique_ptr<RedisCache> redisCache) {
   redisCache_ = std::move(redisCache);
 
@@ -98,7 +98,7 @@ bool CacheManager::initialize(std::unique_ptr<RedisCache> redisCache) {
 
 bool CacheManager::cacheUserData(const std::string &userId,
                                  const nlohmann::json &userData) {
-#ifdef ETL_ENABLE_REDIS
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
   if (!isCacheEnabled() || !redisCache_)
     return false;
 
@@ -121,7 +121,7 @@ bool CacheManager::cacheUserData(const std::string &userId,
 }
 
 nlohmann::json CacheManager::getCachedUserData(const std::string &userId) {
-#ifdef ETL_ENABLE_REDIS
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
   if (!isCacheEnabled() || !redisCache_)
     return nlohmann::json();
 
@@ -143,7 +143,7 @@ nlohmann::json CacheManager::getCachedUserData(const std::string &userId) {
 }
 
 bool CacheManager::invalidateUserData(const std::string &userId) {
-#ifdef ETL_ENABLE_REDIS
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
   if (!isCacheEnabled() || !redisCache_)
     return false;
 
@@ -163,7 +163,7 @@ bool CacheManager::invalidateUserData(const std::string &userId) {
 
 bool CacheManager::cacheJobData(const std::string &jobId,
                                 const nlohmann::json &jobData) {
-#ifdef ETL_ENABLE_REDIS
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
   if (!isCacheEnabled() || !redisCache_)
     return false;
 
@@ -186,7 +186,7 @@ bool CacheManager::cacheJobData(const std::string &jobId,
 }
 
 nlohmann::json CacheManager::getCachedJobData(const std::string &jobId) {
-#ifdef ETL_ENABLE_REDIS
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
   if (!isCacheEnabled() || !redisCache_)
     return nlohmann::json();
 
@@ -208,7 +208,7 @@ nlohmann::json CacheManager::getCachedJobData(const std::string &jobId) {
 }
 
 bool CacheManager::invalidateJobData(const std::string &jobId) {
-#ifdef ETL_ENABLE_REDIS
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
   if (!isCacheEnabled() || !redisCache_)
     return false;
 
@@ -227,7 +227,7 @@ bool CacheManager::invalidateJobData(const std::string &jobId) {
 }
 
 bool CacheManager::invalidateAllJobData() {
-#ifdef ETL_ENABLE_REDIS
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
   if (!isCacheEnabled() || !redisCache_)
     return false;
 
@@ -239,7 +239,7 @@ bool CacheManager::invalidateAllJobData() {
 
 bool CacheManager::cacheSessionData(const std::string &sessionId,
                                     const nlohmann::json &sessionData) {
-#ifdef ETL_ENABLE_REDIS
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
   if (!isCacheEnabled() || !redisCache_)
     return false;
 
@@ -263,7 +263,7 @@ bool CacheManager::cacheSessionData(const std::string &sessionId,
 
 nlohmann::json
 CacheManager::getCachedSessionData(const std::string &sessionId) {
-#ifdef ETL_ENABLE_REDIS
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
   if (!isCacheEnabled() || !redisCache_)
     return nlohmann::json();
 
@@ -285,7 +285,7 @@ CacheManager::getCachedSessionData(const std::string &sessionId) {
 }
 
 bool CacheManager::invalidateSessionData(const std::string &sessionId) {
-#ifdef ETL_ENABLE_REDIS
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
   if (!isCacheEnabled() || !redisCache_)
     return false;
 
@@ -306,7 +306,7 @@ bool CacheManager::invalidateSessionData(const std::string &sessionId) {
 bool CacheManager::cacheData(const std::string &key, const nlohmann::json &data,
                              const std::vector<std::string> &tags,
                              std::optional<std::chrono::seconds> ttl) {
-#ifdef ETL_ENABLE_REDIS
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
   if (!isCacheEnabled() || !redisCache_)
     return false;
 
@@ -337,7 +337,7 @@ bool CacheManager::cacheData(const std::string &key, const nlohmann::json &data,
 }
 
 nlohmann::json CacheManager::getCachedData(const std::string &key) {
-#ifdef ETL_ENABLE_REDIS
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
   if (!isCacheEnabled() || !redisCache_)
     return nlohmann::json();
 
@@ -359,7 +359,7 @@ nlohmann::json CacheManager::getCachedData(const std::string &key) {
 }
 
 bool CacheManager::invalidateData(const std::string &key) {
-#ifdef ETL_ENABLE_REDIS
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
   if (!isCacheEnabled() || !redisCache_)
     return false;
 
@@ -376,7 +376,7 @@ bool CacheManager::invalidateData(const std::string &key) {
 }
 
 bool CacheManager::invalidateByTags(const std::vector<std::string> &tags) {
-#ifdef ETL_ENABLE_REDIS
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
   if (!isCacheEnabled() || !redisCache_)
     return false;
 
@@ -389,7 +389,7 @@ bool CacheManager::invalidateByTags(const std::vector<std::string> &tags) {
 CacheManager::CacheStats CacheManager::getCacheStats() const {
   std::lock_guard<std::mutex> lock(statsMutex_);
   CacheStats stats = stats_;
-#ifdef ETL_ENABLE_REDIS
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
   if (redisCache_) {
     auto redisMetrics = redisCache_->getMetrics();
     stats.hits = redisMetrics.hits;
@@ -410,7 +410,7 @@ CacheManager::CacheStats CacheManager::getCacheStats() const {
 }
 
 void CacheManager::clearAllCache() {
-#ifdef ETL_ENABLE_REDIS
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
   if (!isCacheEnabled() || !redisCache_)
     return;
 
@@ -420,7 +420,7 @@ void CacheManager::clearAllCache() {
 }
 
 void CacheManager::warmupCache(DatabaseManager *dbManager) {
-#ifdef ETL_ENABLE_REDIS
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
   if (!isCacheEnabled() || !redisCache_ || !dbManager ||
       !config_.enableWarmup) {
     return;
@@ -521,7 +521,7 @@ void CacheManager::warmupCache(DatabaseManager *dbManager) {
 }
 
 bool CacheManager::isCacheEnabled() const {
-#ifdef ETL_ENABLE_REDIS
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
   return config_.enabled && redisCache_ != nullptr;
 #else
   return false;
@@ -529,7 +529,7 @@ bool CacheManager::isCacheEnabled() const {
 }
 
 bool CacheManager::isCacheHealthy() const {
-#ifdef ETL_ENABLE_REDIS
+#if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
   // Quick preconditions - these are fast checks
   if (!isCacheEnabled() || !redisCache_->isConnected()) {
     return false;
@@ -537,30 +537,26 @@ bool CacheManager::isCacheHealthy() const {
 
   // Check if we have a valid cached health status
   auto now = std::chrono::steady_clock::now();
-  auto timeSinceLastCheck =
-      now - lastHealthCheckTime_.load(std::memory_order_acquire);
+  std::lock_guard<std::mutex> lock(healthMutex_);
+  auto timeSinceLastCheck = now - lastHealthCheckTime_;
 
   if (timeSinceLastCheck < config_.healthCheckTTL) {
     // Cached status is still valid
-    return lastHealthStatus_.load(std::memory_order_acquire);
+    return lastHealthStatus_;
   }
 
-  // Cached status is stale, perform health check
-  std::lock_guard<std::mutex> lock(healthMutex_);
-
   // Double-check after acquiring lock (another thread might have updated it)
-  timeSinceLastCheck =
-      now - lastHealthCheckTime_.load(std::memory_order_acquire);
+  timeSinceLastCheck = now - lastHealthCheckTime_;
   if (timeSinceLastCheck < config_.healthCheckTTL) {
-    return lastHealthStatus_.load(std::memory_order_acquire);
+    return lastHealthStatus_;
   }
 
   // Perform the expensive ping operation
   bool currentHealthStatus = redisCache_->ping();
 
   // Update cached values
-  lastHealthCheckTime_.store(now, std::memory_order_release);
-  lastHealthStatus_.store(currentHealthStatus, std::memory_order_release);
+  lastHealthCheckTime_ = now;
+  lastHealthStatus_ = currentHealthStatus;
 
   return currentHealthStatus;
 #else
