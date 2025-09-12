@@ -5,10 +5,10 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
+#include <filesystem>
 #include <iomanip>
 #include <iostream>
 #include <random>
-#include <ranges>
 #include <sstream>
 #include <string_view>
 #if ETL_ENABLE_JWT
@@ -22,24 +22,34 @@ AuthManager::AuthManager(std::shared_ptr<DatabaseManager> dbManager)
   AUTH_LOG_INFO("Initializing authentication manager");
 
 #if ETL_ENABLE_JWT
-  // Load JWT secret from environment variable
+  // Load JWT secret from environment variable or file
+  std::string jwtSecretKey;
   const char *secret = std::getenv("JWT_SECRET_KEY");
-  if (!secret) {
-    AUTH_LOG_ERROR("JWT_SECRET_KEY environment variable must be set");
-    throw std::runtime_error("JWT_SECRET_KEY environment variable must be set");
+  if (secret) {
+    jwtSecretKey = secret;
+  } else {
+    // Try loading from file
+    const char *secretFile = std::getenv("JWT_SECRET_KEY_FILE");
+    if (secretFile) {
+      std::ifstream file(secretFile);
+      if (file.is_open()) {
+        std::getline(file, jwtSecretKey);
+        file.close();
+      }
+    }
   }
-  AUTH_LOG_DEBUG("JWT_SECRET_KEY environment variable is set.");
+  
+  if (jwtSecretKey.empty()) {
+    AUTH_LOG_ERROR("JWT_SECRET_KEY environment variable or JWT_SECRET_KEY_FILE must be set");
+    throw std::runtime_error("JWT_SECRET_KEY environment variable or JWT_SECRET_KEY_FILE must be set");
+  }
+  AUTH_LOG_DEBUG("JWT secret key loaded successfully.");
 
-  std::string secretStr(secret);
-  if (secretStr.empty()) {
-    throw std::runtime_error(
-        "JWT_SECRET_KEY environment variable cannot be empty");
-  }
-  if (secretStr.length() < 32) {
+  if (jwtSecretKey.length() < 32) {
     throw std::runtime_error(
         "JWT_SECRET_KEY must be at least 32 characters long for security");
   }
-  jwtSecretKey_ = secretStr;
+  jwtSecretKey_ = jwtSecretKey;
 #endif
 
   // Note: Default admin user creation is now handled by database schema
@@ -57,7 +67,7 @@ std::chrono::hours AuthManager::getJWTExpiryHours() const {
 bool AuthManager::createUser(const std::string &username,
                              const std::string &email,
                              const std::string &password) {
-  AUTH_LOG_DEBUG("Creating user: " + username + " with email: " + email);
+  AUTH_LOG_DEBUG("Creating user: " + username);
 
   // Check if user already exists
   if (userRepo_->userExists(username, email)) {
@@ -84,17 +94,17 @@ bool AuthManager::createUser(const std::string &username,
   }
 }
 
-bool AuthManager::authenticateUser(std::string_view username) const {
+bool AuthManager::userExists(std::string_view username) const {
   auto user = userRepo_->getUserByUsername(std::string(username));
   if (user && user->isActive) {
     // For simplicity, we're not implementing proper password
     // hashing/verification In a real implementation, you'd verify the hashed
     // password
-    AUTH_LOG_INFO("Authenticated user: " + std::string(username));
+    AUTH_LOG_INFO("User exists: " + std::string(username));
     return true;
   }
 
-  AUTH_LOG_ERROR("Authentication failed for user: " + std::string(username));
+  AUTH_LOG_ERROR("User lookup failed for user: " + std::string(username));
   return false;
 }
 
@@ -108,15 +118,13 @@ bool AuthManager::authenticateUser(std::string_view username,
 
   auto user = userRepo_->getUserByUsername(std::string(username));
   if (!user || !user->isActive) {
-    AUTH_LOG_ERROR("Authentication failed for user: " + std::string(username) +
-                   " - user not found or inactive");
+    AUTH_LOG_ERROR("Authentication failed: invalid credentials");
     return false;
   }
 
   // Verify password using secure comparison
   if (!verifyPassword(std::string(password), user->passwordHash)) {
-    AUTH_LOG_ERROR("Authentication failed for user: " + std::string(username) +
-                   " - invalid password");
+    AUTH_LOG_ERROR("Authentication failed: invalid credentials");
     return false;
   }
 
@@ -195,8 +203,9 @@ bool AuthManager::validateSession(const std::string &sessionId) {
   if (session && session->isValid &&
       std::chrono::system_clock::now() < session->expiresAt) {
     return true;
-  } else if (session && !session->isValid) {
-    // Session exists but is invalid, update it in database
+  } else if (session && session->isValid &&
+             std::chrono::system_clock::now() >= session->expiresAt) {
+    // Session exists but is expired, mark as invalid in database
     Session updatedSession = *session;
     updatedSession.isValid = false;
     sessionRepo_->updateSession(updatedSession);
@@ -337,9 +346,9 @@ bool AuthManager::constantTimeCompare(std::string_view a,
     return false;
   }
 
-  int result = 0;
+  volatile unsigned char result = 0;
   for (size_t i = 0; i < a.length(); ++i) {
-    result |= (a[i] ^ b[i]);
+    result |= static_cast<unsigned char>(a[i] ^ b[i]);
   }
 
   return result == 0;
@@ -387,7 +396,7 @@ std::string AuthManager::generateJWTToken(const std::string &userId) {
             .set_payload_claim("username",
                                jwt::claim(std::string(user->username)))
             .set_payload_claim("roles",
-                               jwt::claim(nlohmann::json(user->roles).dump()))
+                               jwt::claim(picojson::array(user->roles.begin(), user->roles.end())))
             .sign(jwt::algorithm::hs256{jwtSecretKey_});
 
     AUTH_LOG_INFO("Generated JWT token for user: " + userId);
@@ -407,15 +416,18 @@ AuthManager::validateJWTToken(const std::string &token) {
     auto decoded = jwt::decode(token);
     auto verifier = jwt::verify()
                         .with_issuer("etl-backend")
+                        .with_audience("etl-api")
                         .allow_algorithm(jwt::algorithm::hs256{jwtSecretKey_});
 
     verifier.verify(decoded);
 
-    // Check if token is expired
+    // Check if token is expired with clock skew tolerance
     auto exp = decoded.get_expires_at();
     if (exp != jwt::date{}) {
       auto now = std::chrono::system_clock::now();
-      if (now > exp) {
+      // Allow 30 seconds clock skew tolerance
+      auto skew_tolerance = std::chrono::seconds(30);
+      if (now > (exp + skew_tolerance)) {
         AUTH_LOG_WARN("JWT token expired for user: " + decoded.get_subject());
         return std::nullopt;
       }
