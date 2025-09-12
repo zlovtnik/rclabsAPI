@@ -1,7 +1,9 @@
 #include "core_logger.hpp"
 #include "log_handler.hpp"
 #include <atomic>
+#include <chrono>
 #include <iostream>
+#include <thread>
 
 // Simple test handler
 class SimpleTestHandler : public LogHandler {

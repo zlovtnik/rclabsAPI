@@ -1,4 +1,5 @@
 #include "log_aggregation_config.hpp"
+#include "log_aggregator.hpp"
 #include <algorithm>
 #include <iostream>
 
@@ -82,7 +83,11 @@ LogDestinationConfig LogAggregationConfigLoader::loadDestinationConfig(
 
   if (dest_config.contains("headers") && dest_config["headers"].is_object()) {
     for (const auto &[key, value] : dest_config["headers"].items()) {
-      config.headers[key] = value;
+      if (value.is_string()) {
+        config.headers[key] = value.get<std::string>();
+      } else {
+        std::cerr << "Warning: Non-string header value for key '" << key << "', skipping" << std::endl;
+      }
     }
   }
 
@@ -114,7 +119,7 @@ LogDestinationConfig LogAggregationConfigLoader::loadDestinationConfig(
   }
 
   if (dest_config.contains("batch_timeout")) {
-    config.batch_timeout = std::chrono::seconds(dest_config["batch_timeout"]);
+    config.batch_timeout = std::chrono::seconds{dest_config["batch_timeout"].get<int>()};
   }
 
   if (dest_config.contains("max_retries")) {
@@ -122,7 +127,7 @@ LogDestinationConfig LogAggregationConfigLoader::loadDestinationConfig(
   }
 
   if (dest_config.contains("retry_delay")) {
-    config.retry_delay = std::chrono::seconds(dest_config["retry_delay"]);
+    config.retry_delay = std::chrono::seconds{dest_config["retry_delay"].get<int>()};
   }
 
   // Filtering
@@ -133,7 +138,11 @@ LogDestinationConfig LogAggregationConfigLoader::loadDestinationConfig(
   if (dest_config.contains("allowed_components") &&
       dest_config["allowed_components"].is_array()) {
     for (const auto &component : dest_config["allowed_components"]) {
-      config.allowed_components.insert(component);
+      if (component.is_string()) {
+        config.allowed_components.insert(component.get<std::string>());
+      } else {
+        std::cerr << "Warning: Non-string component in allowed_components, skipping" << std::endl;
+      }
     }
   }
 

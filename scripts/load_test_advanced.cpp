@@ -6,6 +6,7 @@
 #include <future>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <nlohmann/json.hpp>
 #include <random>
 #include <sstream>
@@ -57,6 +58,7 @@ struct LoadTestMetrics {
   std::atomic<uint64_t> failedRequests{0};
   std::atomic<uint64_t> timeoutRequests{0};
   std::atomic<uint64_t> databaseQueries{0};
+  std::atomic<uint64_t> dbFailures{0}; // Track DB query failures
   std::atomic<uint64_t> cacheHits{0};
   std::atomic<uint64_t> cacheMisses{0};
 
@@ -164,6 +166,7 @@ public:
 private:
   LoadTestConfig config_;
   LoadTestMetrics metrics_;
+  std::mutex metricsMutex_; // Protects metrics_ access
   std::atomic<bool> monitoring_{true};
   std::unique_ptr<DatabaseManager> dbManager_;
   std::unique_ptr<CacheManager> cacheManager_;
@@ -213,17 +216,18 @@ private:
         std::cerr << "Warning: DB_PASSWORD environment variable not set, "
                      "disabling database load testing\n";
         config_.enableDatabaseLoad = false;
-        return;
-      }
-      dbConfig.password = dbPassword;
+      } else {
+        dbConfig.password = dbPassword;
 
-      dbManager_ = std::make_unique<DatabaseManager>();
-      if (!dbManager_->connect(dbConfig)) {
-        std::cout << "Warning: Failed to connect to database\n";
+        dbManager_ = std::make_unique<DatabaseManager>();
+        if (!dbManager_->connect(dbConfig)) {
+          std::cout << "Warning: Failed to connect to database\n";
+          config_.enableDatabaseLoad = false;
+        }
       }
     }
 
-    // Initialize cache manager
+    // Continue with cache initialization regardless of DB status
     if (config_.enableCacheLoad) {
 #if defined(ETL_ENABLE_REDIS) && ETL_ENABLE_REDIS
       RedisConfig redisConfig;
@@ -415,7 +419,13 @@ private:
         // Success
       }
     } catch (const std::exception &e) {
-      // Query failed
+      // Log the error and update failure metrics
+      std::cerr << "Database query failed: " << e.what() 
+                << " (Query: SELECT 1)" << std::endl;
+      {
+        std::lock_guard<std::mutex> lock(metricsMutex_);
+        metrics_.dbFailures++;
+      }
     }
   }
 

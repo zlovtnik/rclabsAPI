@@ -1,4 +1,5 @@
 #include "ssl_manager.hpp"
+#include <ctime>
 #include <filesystem>
 #include <iostream>
 #include <logger.hpp>
@@ -19,12 +20,14 @@ int main() {
   ETLPlus::SSL::SSLManager manager(config);
 
   // Create a temporary directory for testing
-  std::string testDir = "/tmp/ssl_test_" + std::to_string(time(nullptr));
+  std::filesystem::path tempDir = std::filesystem::temp_directory_path();
+  std::string uniqueName = "ssl_test_" + std::to_string(time(nullptr));
+  std::filesystem::path testDir = tempDir / uniqueName;
   std::filesystem::create_directories(testDir);
 
   std::cout << "Testing certificate generation in: " << testDir << std::endl;
 
-  auto result = manager.generateSelfSignedCertificate(testDir);
+  auto result = manager.generateSelfSignedCertificate(testDir.string());
 
   if (!result.success) {
     std::cout << "ERROR: " << result.errorMessage << std::endl;

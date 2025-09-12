@@ -1,11 +1,15 @@
 #include "core_logger.hpp"
 #include "log_handler.hpp"
+#include "transparent_string_hash.hpp"
 #include <cassert>
 #include <chrono>
 #include <functional>
 #include <iostream>
+#include <memory>
+#include <mutex>
 #include <thread>
 #include <unordered_set>
+#include <vector>
 
 // Test handler implementation
 class TestLogHandler : public LogHandler {
