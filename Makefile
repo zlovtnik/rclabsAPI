@@ -73,7 +73,7 @@ format:
 format-check:
 	@echo "$(BLUE)Checking code formatting...$(NC)"
 	@if which clang-format > /dev/null 2>&1; then \
-		if find . -name "*.cpp" -o -name "*.hpp" | xargs clang-format --dry-run --Werror > /dev/null 2>&1; then \
+		if find . -name "*.cpp" -o -name "*.hpp" -exec clang-format --dry-run --Werror {} \; > /dev/null 2>&1; then \
 			echo "$(GREEN)✓ All files are properly formatted$(NC)"; \
 		else \
 			echo "$(RED)✗ Some files need formatting. Run 'make format' to fix.$(NC)"; \
