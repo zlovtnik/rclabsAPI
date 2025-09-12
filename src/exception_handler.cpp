@@ -1,7 +1,7 @@
 #include "exception_handler.hpp"
 #include <algorithm>
+#include <cctype>
 #include <cmath>
-#include <thread>
 
 namespace ETLPlus {
 namespace ExceptionHandling {
@@ -151,7 +151,44 @@ ExceptionHandler::convertException(const std::exception &ex,
                                    const std::string &operationName,
                                    const etl::ErrorContext &context) {
 
-  // Try to determine the most appropriate exception type based on the message
+  // Check well-known exception types first for better accuracy
+  if (dynamic_cast<const std::bad_alloc*>(&ex)) {
+    return std::make_shared<etl::SystemException>(
+        etl::ErrorCode::MEMORY_ERROR,
+        "Memory allocation failed: " + std::string(ex.what()), "MemorySystem",
+        context);
+  }
+
+  if (auto se = dynamic_cast<const std::system_error*>(&ex)) {
+    // Inspect system error code for more specific mapping
+    auto code = se->code();
+    if (code.category() == std::system_category()) {
+      if (code.value() == ETIMEDOUT || code.value() == ECONNABORTED) {
+        return std::make_shared<etl::SystemException>(
+            etl::ErrorCode::NETWORK_ERROR,
+            "Network timeout/connection error: " + std::string(ex.what()),
+            "NetworkSystem", context);
+      }
+      if (code.value() == ECONNREFUSED || code.value() == EHOSTUNREACH) {
+        return std::make_shared<etl::SystemException>(
+            etl::ErrorCode::NETWORK_ERROR,
+            "Connection refused/unreachable: " + std::string(ex.what()),
+            "NetworkSystem", context);
+      }
+      if (code.value() == ENOENT || code.value() == EACCES) {
+        return std::make_shared<etl::SystemException>(
+            etl::ErrorCode::FILE_ERROR,
+            "File access error: " + std::string(ex.what()), "FileSystem",
+            context);
+      }
+    }
+    // Default system error mapping
+    return std::make_shared<etl::SystemException>(
+        etl::ErrorCode::INTERNAL_ERROR,
+        "System error: " + std::string(ex.what()), "System", context);
+  }
+
+  // Fall back to message-based heuristics for other exception types
   std::string message = ex.what();
   std::string lowerMessage = message;
   std::transform(lowerMessage.begin(), lowerMessage.end(), lowerMessage.begin(),
@@ -204,13 +241,17 @@ ExceptionHandler::convertException(const std::exception &ex,
 void ExceptionHandler::logException(const etl::ETLException &ex,
                                     const std::string &operationName) {
 
-  std::string logMessage = ex.toLogString();
+  std::string logMessage;
+  try {
+    logMessage = ex.toLogString();
+  } catch (const std::exception &fmtEx) {
+    logMessage =
+        std::string("ETLException (toLogString failed): ") + fmtEx.what();
+  }
   if (!operationName.empty()) {
     logMessage = "[" + operationName + "] " + logMessage;
   }
-
-  // Log all exceptions as errors for now (simplified from severity-based
-  // logging)
+  // Log all exceptions as errors for now (simplified from severity-based logging)
   LOG_ERROR("ExceptionHandler", logMessage);
 }
 
