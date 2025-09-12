@@ -110,14 +110,15 @@ int main(int argc, char *argv[]) {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> dis(0, 255);
-    
+
     std::ostringstream secretStream;
     for (int i = 0; i < 32; ++i) {
       secretStream << std::hex << std::setfill('0') << std::setw(2) << dis(gen);
     }
     jwtConfig.secretKey = secretStream.str();
-    
-    std::cerr << "WARNING: DEMO_JWT_SECRET not set. Generated random secret for demo use only. "
+
+    std::cerr << "WARNING: DEMO_JWT_SECRET not set. Generated random secret "
+                 "for demo use only. "
               << "DO NOT USE IN PRODUCTION!" << std::endl;
   }
   jwtConfig.enableRotation = true;

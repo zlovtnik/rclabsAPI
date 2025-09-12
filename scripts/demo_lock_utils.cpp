@@ -271,7 +271,7 @@ void demonstrateLockTimeout() {
                            "fast_operation");
       std::cout << "Fast thread acquired lock (this shouldn't happen)"
                 << std::endl;
-    } catch (const LockTimeoutException &e) {
+    } catch (const etl_plus::LockTimeoutException &e) {
       std::cout << "Fast thread timed out as expected: " << e.what()
                 << std::endl;
     }
@@ -317,7 +317,7 @@ void demonstrateDeadlockPrevention() {
     ScopedTimedLock configLock(configMutex, std::chrono::milliseconds(1000),
                                "config_second");
     std::cout << "❌ This should not be reached!" << std::endl;
-  } catch (const DeadlockException &e) {
+  } catch (const etl_plus::DeadlockException &e) {
     std::cout << "✓ Deadlock prevention worked: " << e.what() << std::endl;
   }
 }
@@ -355,7 +355,7 @@ int main() {
       try {
         account.deposit(100.0 + i * 10);
         account.withdraw(50.0 + i * 5);
-      } catch (const LockTimeoutException &e) {
+      } catch (const etl_plus::LockTimeoutException &e) {
         std::cerr << "Thread " << i
                   << " failed due to lock timeout: " << e.what() << std::endl;
         // Continue with other operations or abort gracefully
@@ -388,7 +388,7 @@ int main() {
           std::this_thread::sleep_for(std::chrono::milliseconds(50));
           pool.releaseConnection(conn);
         }
-      } catch (const LockTimeoutException &e) {
+      } catch (const etl_plus::LockTimeoutException &e) {
         std::cerr << "Worker thread " << i
                   << " failed due to lock timeout: " << e.what() << std::endl;
       } catch (const std::exception &e) {
@@ -403,7 +403,7 @@ int main() {
     try {
       std::this_thread::sleep_for(std::chrono::milliseconds(25));
       pool.updateConfig(15, 3000);
-    } catch (const LockTimeoutException &e) {
+    } catch (const etl_plus::LockTimeoutException &e) {
       std::cerr << "Config update thread failed due to lock timeout: "
                 << e.what() << std::endl;
     } catch (const std::exception &e) {

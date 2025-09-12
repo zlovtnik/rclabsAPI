@@ -106,14 +106,16 @@ LOG_INFO("Main", "Job monitor service started successfully");
 
 void exampleNotificationUsage() {
   // From ETLJobManager when a job fails:
-  // notificationService->sendJobFailureAlert("job_123", "Database connection failed");
+  // notificationService->sendJobFailureAlert("job_123", "Database connection
+  // failed");
 
   // From a monitoring component checking system resources:
   // notificationService->checkMemoryUsage(getCurrentMemoryUsage());
   // notificationService->checkCpuUsage(getCurrentCpuUsage());
 
   // From any component when a critical error occurs:
-  // notificationService->sendSystemErrorAlert("DatabaseManager", "Connection pool exhausted");
+  // notificationService->sendSystemErrorAlert("DatabaseManager", "Connection
+  // pool exhausted");
 
   // Custom notifications for business logic:
   // NotificationMessage custom;

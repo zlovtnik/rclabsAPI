@@ -58,15 +58,16 @@ public:
     int currentMax = maxConcurrentRequests_.load();
     int retries = 0;
     const int maxRetries = 100;
-    
+
     while (currentConcurrent > currentMax && retries < maxRetries) {
-      if (maxConcurrentRequests_.compare_exchange_strong(currentMax, currentConcurrent)) {
+      if (maxConcurrentRequests_.compare_exchange_strong(currentMax,
+                                                         currentConcurrent)) {
         break; // Successfully updated
       }
       // Reload currentMax after failed compare_exchange_strong
       currentMax = maxConcurrentRequests_.load();
       retries++;
-      
+
       if (retries >= maxRetries) {
         // Fallback: use mutex-protected update
         static std::mutex maxUpdateMutex;
@@ -82,10 +83,9 @@ public:
 
     // Simulate variable processing time (10-50ms)
     thread_local std::mt19937 gen(
-        std::random_device{}() ^ 
+        std::random_device{}() ^
         std::hash<std::thread::id>{}(std::this_thread::get_id()) ^
-        std::chrono::steady_clock::now().time_since_epoch().count()
-    );
+        std::chrono::steady_clock::now().time_since_epoch().count());
     std::uniform_int_distribution<> dis(10, 50);
     std::this_thread::sleep_for(std::chrono::milliseconds(dis(gen)));
 

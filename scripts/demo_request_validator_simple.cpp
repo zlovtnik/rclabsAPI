@@ -60,9 +60,9 @@ public:
 
 private:
   std::vector<std::string> knownEndpoints_ = {
-      "/api/auth/login",     "/api/auth/logout", "/api/auth/profile",
-      "/api/jobs",           "/api/logs",        
-      "/api/monitor/status", "/api/health"};
+      "/api/auth/login", "/api/auth/logout", "/api/auth/profile",
+      "/api/jobs",       "/api/logs",        "/api/monitor/status",
+      "/api/health"};
 
   /**
    * @brief Decode percent-encoded octets in a string (URL percent-decoding).
@@ -83,13 +83,15 @@ private:
       if (input[i] == '%' && i + 2 < input.size()) {
         char hex1 = input[i + 1];
         char hex2 = input[i + 2];
-        
+
         // Validate hex digits
-        if ((hex1 >= '0' && hex1 <= '9') || (hex1 >= 'A' && hex1 <= 'F') || (hex1 >= 'a' && hex1 <= 'f')) {
-          if ((hex2 >= '0' && hex2 <= '9') || (hex2 >= 'A' && hex2 <= 'F') || (hex2 >= 'a' && hex2 <= 'f')) {
+        if ((hex1 >= '0' && hex1 <= '9') || (hex1 >= 'A' && hex1 <= 'F') ||
+            (hex1 >= 'a' && hex1 <= 'f')) {
+          if ((hex2 >= '0' && hex2 <= '9') || (hex2 >= 'A' && hex2 <= 'F') ||
+              (hex2 >= 'a' && hex2 <= 'f')) {
             char hex[3] = {hex1, hex2, '\0'};
             unsigned char ch = (unsigned char)strtol(hex, nullptr, 16);
-            
+
             // Sanitize null bytes and other control characters
             if (ch == 0x00 || ch < 0x20) {
               result += '?'; // Replace with safe placeholder
@@ -133,7 +135,7 @@ private:
         c = '/';
       }
     }
-    
+
     std::vector<std::string> segments;
     std::stringstream ss(normalizedInput);
     std::string segment;
@@ -159,7 +161,7 @@ private:
 
   /**
    * @brief Perform iterative percent-decoding until no changes occur.
-   * 
+   *
    * Repeatedly percent-decodes the input string until no further changes
    * are made or a safe iteration limit is reached to prevent infinite loops.
    * This prevents double-encoded traversal attacks.
@@ -169,13 +171,13 @@ private:
     std::string previous;
     int iterations = 0;
     const int maxIterations = 5; // Safety limit
-    
+
     do {
       previous = current;
       current = percentDecode(current);
       iterations++;
     } while (current != previous && iterations < maxIterations);
-    
+
     return current;
   }
 
@@ -362,7 +364,6 @@ public:
   }
 
 private:
-
   /**
    * @brief Parse a URL query string into key/value pairs.
    *
@@ -741,18 +742,19 @@ void printResult(const std::string &testName,
                  const SimpleRequestValidator::ValidationResult &result) {
   std::cout << "=== " << testName << " ===" << std::endl;
   std::cout << (result.isValid ? "SECURE" : "NOT SECURE") << std::endl;
-  std::cout << "Method: " << result.method << ", Path: " << result.path << std::endl;
-  
+  std::cout << "Method: " << result.method << ", Path: " << result.path
+            << std::endl;
+
   if (!result.queryParams.empty()) {
     std::cout << "Query params: ";
-    for (const auto& param : result.queryParams) {
+    for (const auto &param : result.queryParams) {
       std::cout << param.first << "=" << param.second << " ";
     }
     std::cout << std::endl;
   }
-  
+
   if (!result.errors.empty()) {
-    for (const auto& error : result.errors) {
+    for (const auto &error : result.errors) {
       std::cout << "🚨 " << error << std::endl;
     }
   }
@@ -776,9 +778,9 @@ void printSecurityResult(const std::string &testName,
                          const SimpleRequestValidator::SecurityResult &result) {
   std::cout << "=== " << testName << " ===" << std::endl;
   std::cout << (result.isSecure ? "SECURE" : "NOT SECURE") << std::endl;
-  
+
   if (!result.issues.empty()) {
-    for (const auto& issue : result.issues) {
+    for (const auto &issue : result.issues) {
       std::cout << "🚨 " << issue << std::endl;
     }
   }

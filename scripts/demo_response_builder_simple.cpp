@@ -54,9 +54,10 @@ public:
     bool includeTimestamp = true;
     bool includeRequestId = false;
     ContentType defaultContentType = ContentType::JSON;
-    
+
     // CORS configuration
-    std::string corsAllowedOrigin = "https://localhost:3000"; // Restrictive default
+    std::string corsAllowedOrigin =
+        "https://localhost:3000"; // Restrictive default
     std::string corsAllowedMethods = "GET, POST, OPTIONS";
     std::string corsAllowedHeaders = "Content-Type, Authorization";
   };
@@ -513,9 +514,12 @@ private:
     // Apply CORS headers if enabled
     if (config_.enableCors) {
       // Use configurable CORS settings instead of wildcard
-      response.headers["Access-Control-Allow-Origin"] = config_.corsAllowedOrigin;
-      response.headers["Access-Control-Allow-Methods"] = config_.corsAllowedMethods;
-      response.headers["Access-Control-Allow-Headers"] = config_.corsAllowedHeaders;
+      response.headers["Access-Control-Allow-Origin"] =
+          config_.corsAllowedOrigin;
+      response.headers["Access-Control-Allow-Methods"] =
+          config_.corsAllowedMethods;
+      response.headers["Access-Control-Allow-Headers"] =
+          config_.corsAllowedHeaders;
       response.headers["Access-Control-Allow-Credentials"] = "true";
     }
 
@@ -593,7 +597,8 @@ private:
         // Escape control characters (0x00-0x1F) as \u00XX
         if (uc < 0x20) {
           escaped << "\\u00";
-          escaped << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << static_cast<int>(uc);
+          escaped << std::hex << std::uppercase << std::setfill('0')
+                  << std::setw(2) << static_cast<int>(uc);
           escaped << std::dec; // Reset to decimal
         } else {
           escaped << c;

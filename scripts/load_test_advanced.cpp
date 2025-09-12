@@ -420,8 +420,8 @@ private:
       }
     } catch (const std::exception &e) {
       // Log the error and update failure metrics
-      std::cerr << "Database query failed: " << e.what() 
-                << " (Query: SELECT 1)" << std::endl;
+      std::cerr << "Database query failed: " << e.what() << " (Query: SELECT 1)"
+                << std::endl;
       {
         std::lock_guard<std::mutex> lock(metricsMutex_);
         metrics_.dbFailures++;
@@ -660,8 +660,6 @@ private:
     std::cout << "Peak Active Connections: " << metrics_.peakActiveConnections
               << "\n";
   }
-
-  std::mutex metricsMutex_;
 };
 
 /**
