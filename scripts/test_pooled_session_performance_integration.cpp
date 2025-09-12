@@ -8,6 +8,7 @@
 // Include necessary headers
 #include "../include/performance_monitor.hpp"
 #include "../include/pooled_session.hpp"
+#include "../include/request_handler.hpp"
 #include "../include/timeout_manager.hpp"
 
 // Mock classes for testing

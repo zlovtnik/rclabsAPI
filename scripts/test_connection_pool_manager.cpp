@@ -2,6 +2,7 @@
 #include "timeout_manager.hpp"
 #include <boost/asio.hpp>
 #include <chrono>
+#include <future>
 #include <gtest/gtest.h>
 #include <thread>
 
@@ -107,8 +108,8 @@ TEST_F(ConnectionPoolManagerTest, ConstructorValidatesParameters) {
   // Invalid parameters should throw
   EXPECT_THROW(
       {
-        ConnectionPoolManager invalidPool(ioc_, 10, 5, idleTimeout_, handler_,
-                                          wsManager_, timeoutManager_);
+        ConnectionPoolManager invalidPool(ioc_, 10, 5, idleTimeout_, nullptr,
+                                          nullptr, timeoutManager_);
       },
       std::invalid_argument);
 
@@ -116,7 +117,7 @@ TEST_F(ConnectionPoolManagerTest, ConstructorValidatesParameters) {
       {
         ConnectionPoolManager invalidPool(
             ioc_, minConnections_, maxConnections_, std::chrono::seconds(-1),
-            handler_, wsManager_, timeoutManager_);
+            nullptr, nullptr, timeoutManager_);
       },
       std::invalid_argument);
 }
@@ -346,8 +347,8 @@ TEST_F(ConnectionPoolManagerTest, ReleaseUnknownSessionHandledGracefully) {
 
   // Create a session outside the pool
   auto socket = createSocket();
-  auto session = std::make_shared<PooledSession>(std::move(socket), handler_,
-                                                 wsManager_, timeoutManager_);
+  auto session = std::make_shared<PooledSession>(std::move(socket), nullptr,
+                                                 nullptr, timeoutManager_);
 
   // Should not crash or throw
   EXPECT_NO_THROW(poolManager_->releaseConnection(session));

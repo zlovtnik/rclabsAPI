@@ -210,7 +210,7 @@ public:
       // Normalize the path
       std::string normalizedPath = normalizePath(decodedPath);
 
-      // Reject if normalized path contains ".." 
+      // Reject if normalized path contains ".."
       if (normalizedPath.find("..") != std::string::npos) {
         result.addError("Path traversal not allowed");
       }
@@ -307,7 +307,8 @@ public:
 
 private:
   /**
-   * @brief URL-decode a string, handling percent-encoded sequences and '+' to space.
+   * @brief URL-decode a string, handling percent-encoded sequences and '+' to
+   * space.
    */
   std::string urlDecode(const std::string &str) {
     std::string result;
@@ -491,7 +492,8 @@ private:
    * @return true if the body is valid JSON; false otherwise.
    */
   bool isValidJson(const std::string &body) {
-    if (body.empty()) return false;
+    if (body.empty())
+      return false;
     try {
       auto json = nlohmann::json::parse(body);
       return true;
@@ -506,7 +508,8 @@ private:
    * This function uses regex with word boundaries to detect SQL keywords and
    * common SQL injection patterns. It checks for whole words like "select",
    * "drop", etc., and patterns like "select .* from", "union select", etc.
-   * Returns true if multiple suspicious patterns are found to reduce false positives.
+   * Returns true if multiple suspicious patterns are found to reduce false
+   * positives.
    *
    * @param input The string to inspect (URL, body, or other request content).
    * @return true if suspicious SQL patterns are detected; otherwise false.
@@ -520,7 +523,7 @@ private:
     // Check for SQL keywords with word boundaries
     std::vector<std::string> sqlKeywords = {
         "\\bselect\\b", "\\binsert\\b", "\\bupdate\\b", "\\bdelete\\b",
-        "\\bdrop\\b", "\\bunion\\b", "\\bexec\\b", "\\bscript\\b"};
+        "\\bdrop\\b",   "\\bunion\\b",  "\\bexec\\b",   "\\bscript\\b"};
 
     for (const auto &pattern : sqlKeywords) {
       std::regex regex(pattern, std::regex_constants::icase);
@@ -530,9 +533,14 @@ private:
     }
 
     // Check for common SQL injection patterns
-    std::vector<std::string> sqlPatterns = {
-        "select\\s+.*\\s+from", "union\\s+select", "drop\\s+table",
-        "insert\\s+into", "';\\s*drop", "1=1", "--", "/\\*"};
+    std::vector<std::string> sqlPatterns = {"select\\s+.*\\s+from",
+                                            "union\\s+select",
+                                            "drop\\s+table",
+                                            "insert\\s+into",
+                                            "';\\s*drop",
+                                            "1=1",
+                                            "--",
+                                            "/\\*"};
 
     for (const auto &pattern : sqlPatterns) {
       std::regex regex(pattern, std::regex_constants::icase);

@@ -71,70 +71,65 @@ public:
   bool isRunning() const { return true; }
 
 private:
+  std::vector<std::shared_ptr<ETLJob>> mockJobs_;
+
   /**
    * @brief Populate the mock ETL job collection used by unit tests.
    *
-   * This function is intended to create and register a set of predefined
+   * This function creates and registers a set of predefined
    * ETLJob instances (e.g., completed, running, failed) into the test
    * manager's internal job store so test cases have deterministic data.
-   *
-   * Implementation note: the body may add jobs using the class's protected
-   * addJob/addMockJob helper (if available) or otherwise arrange the
-   * mockJobs_ container so tests can access the predefined jobs.
    */
   void createMockJobs() {
-    // Note: We'll populate the jobs through the protected addJob method
-    // if available, or we'll modify the tests to work with the existing
-    // interface
+    // Create a completed job
+    auto job1 = std::make_shared<ETLJob>();
+    job1->jobId = "job_001";
+    job1->type = JobType::FULL_ETL;
+    job1->status = JobStatus::COMPLETED;
+    job1->createdAt = std::chrono::system_clock::now() - std::chrono::hours(2);
+    job1->startedAt = std::chrono::system_clock::now() - std::chrono::hours(2) +
+                      std::chrono::minutes(5);
+    job1->completedAt =
+        std::chrono::system_clock::now() - std::chrono::hours(1);
+    job1->recordsProcessed = 1000;
+    job1->recordsSuccessful = 995;
+    job1->recordsFailed = 5;
+    job1->errorMessage = "";
+    mockJobs_.push_back(job1);
+
+    // Create a running job
+    auto job2 = std::make_shared<ETLJob>();
+    job2->jobId = "job_002";
+    job2->type = JobType::EXTRACT;
+    job2->status = JobStatus::RUNNING;
+    job2->createdAt =
+        std::chrono::system_clock::now() - std::chrono::minutes(30);
+    job2->startedAt =
+        std::chrono::system_clock::now() - std::chrono::minutes(25);
+    job2->completedAt = std::chrono::system_clock::time_point{};
+    job2->recordsProcessed = 500;
+    job2->recordsSuccessful = 500;
+    job2->recordsFailed = 0;
+    job2->errorMessage = "";
+    mockJobs_.push_back(job2);
+
+    // Create a failed job
+    auto job3 = std::make_shared<ETLJob>();
+    job3->jobId = "job_003";
+    job3->type = JobType::LOAD;
+    job3->status = JobStatus::FAILED;
+    job3->createdAt = std::chrono::system_clock::now() - std::chrono::hours(3);
+    job3->startedAt = std::chrono::system_clock::now() - std::chrono::hours(3) +
+                      std::chrono::minutes(2);
+    job3->completedAt = std::chrono::system_clock::now() -
+                        std::chrono::hours(2) - std::chrono::minutes(30);
+    job3->recordsProcessed = 100;
+    job3->recordsSuccessful = 80;
+    job3->recordsFailed = 20;
+    job3->errorMessage = "Database connection failed";
+    mockJobs_.push_back(job3);
   }
 };
-// Create a completed job
-auto job1 = std::make_shared<ETLJob>();
-job1->jobId = "job_001";
-job1->type = JobType::FULL_ETL;
-job1->status = JobStatus::COMPLETED;
-job1->createdAt = std::chrono::system_clock::now() - std::chrono::hours(2);
-job1->startedAt = std::chrono::system_clock::now() - std::chrono::hours(2) +
-                  std::chrono::minutes(5);
-job1->completedAt = std::chrono::system_clock::now() - std::chrono::hours(1);
-job1->recordsProcessed = 1000;
-job1->recordsSuccessful = 995;
-job1->recordsFailed = 5;
-job1->errorMessage = "";
-mockJobs_.push_back(job1);
-
-// Create a running job
-auto job2 = std::make_shared<ETLJob>();
-job2->jobId = "job_002";
-job2->type = JobType::EXTRACT;
-job2->status = JobStatus::RUNNING;
-job2->createdAt = std::chrono::system_clock::now() - std::chrono::minutes(30);
-job2->startedAt = std::chrono::system_clock::now() - std::chrono::minutes(25);
-job2->completedAt = std::chrono::system_clock::time_point{};
-job2->recordsProcessed = 500;
-job2->recordsSuccessful = 500;
-job2->recordsFailed = 0;
-job2->errorMessage = "";
-mockJobs_.push_back(job2);
-
-// Create a failed job
-auto job3 = std::make_shared<ETLJob>();
-job3->jobId = "job_003";
-job3->type = JobType::LOAD;
-job3->status = JobStatus::FAILED;
-job3->createdAt = std::chrono::system_clock::now() - std::chrono::hours(3);
-job3->startedAt = std::chrono::system_clock::now() - std::chrono::hours(3) +
-                  std::chrono::minutes(2);
-job3->completedAt = std::chrono::system_clock::now() - std::chrono::hours(2) -
-                    std::chrono::minutes(30);
-job3->recordsProcessed = 100;
-job3->recordsSuccessful = 80;
-job3->recordsFailed = 20;
-job3->errorMessage = "Database connection failed";
-mockJobs_.push_back(job3);
-}
-}
-;
 
 /**
  * @brief Unit test for the GET /api/jobs/{id}/status REST endpoint.

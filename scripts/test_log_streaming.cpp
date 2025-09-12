@@ -1,5 +1,6 @@
 #include "../include/job_monitoring_models.hpp"
 #include "../include/logger.hpp"
+#include "../include/transparent_string_hash.hpp"
 #include "../include/websocket_manager.hpp"
 #include <cassert>
 #include <chrono>
@@ -212,8 +213,9 @@ void testLogMessageCreation() {
   Logger &logger = Logger::getInstance();
 
   // Test LogMessage creation and JSON serialization
-  std::unordered_map<std::string, std::string> context = {
-      {"user_id", "12345"}, {"operation", "data_transform"}};
+  std::unordered_map<std::string, std::string, TransparentStringHash,
+                     std::equal_to<>>
+      context = {{"user_id", "12345"}, {"operation", "data_transform"}};
 
   // Create a log message using the private method (we'll test through public
   // interface)

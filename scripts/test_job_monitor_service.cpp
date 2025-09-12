@@ -554,7 +554,13 @@ private:
 
     // Clear previous notifications
     auto mockService =
-        std::static_pointer_cast<MockNotificationService>(notificationService);
+        std::dynamic_pointer_cast<MockNotificationService>(notificationService);
+    if (!mockService) {
+      std::cerr << "ERROR: Failed to cast notificationService to "
+                   "MockNotificationService"
+                << std::endl;
+      return;
+    }
     mockService->failureAlerts.clear();
     mockService->timeoutWarnings.clear();
 

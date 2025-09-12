@@ -95,7 +95,8 @@ public:
   /**
    * @brief Destructor for LoadTester.
    *
-   * Releases global libcurl resources by calling curl_global_cleanup() if CURL was initialized.
+   * Releases global libcurl resources by calling curl_global_cleanup() if CURL
+   * was initialized.
    */
   ~LoadTester() {
     // Cleanup CURL global state

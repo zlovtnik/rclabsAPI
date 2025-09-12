@@ -194,7 +194,7 @@ private:
     }
 
     // Initialize other core components
-    authManager_ = std::make_shared<AuthManager>();
+    authManager_ = std::make_shared<AuthManager>(dbManager_);
     dataTransformer_ = std::make_shared<DataTransformer>();
     etlManager_ = std::make_shared<ETLJobManager>(dbManager_, dataTransformer_);
     wsManager_ = std::make_shared<WebSocketManager>();
@@ -354,17 +354,28 @@ private:
     std::cout << "Testing job failure scenarios..." << std::endl;
 
     // Create a job that will fail
-    auto failingJob =
-        etlManager_->createJob(JobType::DATA_IMPORT, "test_failing_job");
-    if (failingJob) {
-      // Simulate job failure
-      jobMonitor_->onJobStatusChanged(failingJob->jobId, JobStatus::RUNNING,
-                                      JobStatus::FAILED);
+    ETLJobConfig failingJobConfig;
+    failingJobConfig.jobId = "test_failing_job";
+    failingJobConfig.type = JobType::EXTRACT;
+    failingJobConfig.sourceConfig = "invalid_source";
+    failingJobConfig.targetConfig = "test_target";
+    failingJobConfig.transformationRules = "test_rules";
+    failingJobConfig.scheduledTime = std::chrono::system_clock::now();
+    failingJobConfig.isRecurring = false;
 
-      // Wait for notification
-      std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    auto failingJobId = etlManager_->scheduleJob(failingJobConfig);
+    if (!failingJobId.empty()) {
+      auto failingJob = etlManager_->getJob(failingJobId);
+      if (failingJob) {
+        // Simulate job failure
+        jobMonitor_->onJobStatusChanged(failingJob->jobId, JobStatus::RUNNING,
+                                        JobStatus::FAILED);
 
-      std::cout << "✓ Job failure handling tested" << std::endl;
+        // Wait for notification
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+        std::cout << "✓ Job failure handling tested" << std::endl;
+      }
     }
 
     // Test WebSocket connection recovery
@@ -436,19 +447,30 @@ private:
     auto sustainedJobCreator = std::async(std::launch::async, [&]() {
       int jobCounter = 0;
       while (sustainedTestRunning) {
-        auto job = etlManager_->createJob(JobType::DATA_EXPORT,
-                                          "sustained_test_" +
-                                              std::to_string(jobCounter++));
-        if (job) {
-          // Simulate quick job processing
-          jobMonitor_->onJobStatusChanged(job->jobId, JobStatus::PENDING,
-                                          JobStatus::RUNNING);
-          std::this_thread::sleep_for(std::chrono::milliseconds(100));
-          jobMonitor_->onJobProgressUpdated(job->jobId, 50, "Processing data");
-          std::this_thread::sleep_for(std::chrono::milliseconds(100));
-          jobMonitor_->onJobStatusChanged(job->jobId, JobStatus::RUNNING,
-                                          JobStatus::COMPLETED);
-          sustainedJobsProcessed++;
+        ETLJobConfig jobConfig;
+        jobConfig.jobId = "sustained_test_" + std::to_string(jobCounter++);
+        jobConfig.type = JobType::LOAD;
+        jobConfig.sourceConfig = "test_source";
+        jobConfig.targetConfig = "test_target";
+        jobConfig.transformationRules = "test_rules";
+        jobConfig.scheduledTime = std::chrono::system_clock::now();
+        jobConfig.isRecurring = false;
+
+        auto jobId = etlManager_->scheduleJob(jobConfig);
+        if (!jobId.empty()) {
+          auto job = etlManager_->getJob(jobId);
+          if (job) {
+            // Simulate quick job processing
+            jobMonitor_->onJobStatusChanged(job->jobId, JobStatus::PENDING,
+                                            JobStatus::RUNNING);
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            jobMonitor_->onJobProgressUpdated(job->jobId, 50,
+                                              "Processing data");
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            jobMonitor_->onJobStatusChanged(job->jobId, JobStatus::RUNNING,
+                                            JobStatus::COMPLETED);
+            sustainedJobsProcessed++;
+          }
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
       }
@@ -558,7 +580,22 @@ private:
       std::string jobIdStr = "load_test_job_" + std::to_string(jobId);
 
       // Create job
-      auto job = etlManager_->createJob(JobType::DATA_IMPORT, jobIdStr);
+      ETLJobConfig jobConfig;
+      jobConfig.jobId = jobIdStr;
+      jobConfig.type = JobType::EXTRACT;
+      jobConfig.sourceConfig = "test_source";
+      jobConfig.targetConfig = "test_target";
+      jobConfig.transformationRules = "test_rules";
+      jobConfig.scheduledTime = std::chrono::system_clock::now();
+      jobConfig.isRecurring = false;
+
+      auto scheduledJobId = etlManager_->scheduleJob(jobConfig);
+      if (scheduledJobId.empty()) {
+        jobsFailed_++;
+        return;
+      }
+
+      auto job = etlManager_->getJob(scheduledJobId);
       if (!job) {
         jobsFailed_++;
         return;

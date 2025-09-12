@@ -1,12 +1,13 @@
 #include "core_logger.hpp"
 #include "log_handler.hpp"
+#include <atomic>
 #include <iostream>
 
 // Simple test handler
 class SimpleTestHandler : public LogHandler {
 private:
   std::string id_;
-  int messageCount_ = 0;
+  std::atomic<int> messageCount_ = 0;
 
 public:
   /**
@@ -29,7 +30,7 @@ public:
    * entry.message for the printed output.
    */
   void handle(const LogEntry &entry) override {
-    messageCount_++;
+    messageCount_.fetch_add(1, std::memory_order_relaxed);
     std::cout << "[" << id_ << "] " << entry.component << ": " << entry.message
               << std::endl;
   }
@@ -56,7 +57,7 @@ public:
    * @return int The cumulative count of messages handled by this
    * SimpleTestHandler since construction.
    */
-  int getMessageCount() const { return messageCount_; }
+  int getMessageCount() const { return messageCount_.load(); }
 };
 
 /**

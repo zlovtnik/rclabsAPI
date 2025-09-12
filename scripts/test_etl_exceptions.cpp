@@ -2,6 +2,7 @@
 #include <cassert>
 #include <iostream>
 #include <stdexcept>
+#include <string>
 
 using namespace etl;
 
