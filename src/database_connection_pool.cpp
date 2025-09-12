@@ -246,7 +246,13 @@ void DatabaseConnectionPool::startHealthMonitoring() {
         DB_LOG_ERROR("Health check error: " + std::string(e.what()));
       }
 
-      std::this_thread::sleep_for(config_.healthCheckInterval);
+      // Use condition variable for interruptible sleep
+      {
+        std::unique_lock<std::mutex> lock(healthMutex_);
+        if (running_.load()) {
+          healthCV_.wait_for(lock, config_.healthCheckInterval);
+        }
+      }
     }
   });
 
@@ -255,6 +261,10 @@ void DatabaseConnectionPool::startHealthMonitoring() {
 
 void DatabaseConnectionPool::stopHealthMonitoring() {
   running_.store(false);
+  {
+    std::lock_guard<std::mutex> lock(healthMutex_);
+    healthCV_.notify_all();
+  }
   if (healthCheckThread_.joinable()) {
     healthCheckThread_.join();
   }
@@ -332,31 +342,67 @@ bool DatabaseConnectionPool::validateConnection(
 }
 
 void DatabaseConnectionPool::performHealthCheck() {
-  std::lock_guard<std::mutex> lock(poolMutex_);
+  // Snapshot connections under lock, then validate outside lock
+  std::vector<std::shared_ptr<PooledConnection>> idleSnapshot;
+  std::vector<std::shared_ptr<PooledConnection>> activeSnapshot;
 
+  {
+    std::lock_guard<std::mutex> lock(poolMutex_);
+    // Copy idle connections
+    idleSnapshot.reserve(idleConnections_.size());
+    std::queue<std::shared_ptr<PooledConnection>> tempQueue = idleConnections_;
+    while (!tempQueue.empty()) {
+      idleSnapshot.push_back(tempQueue.front());
+      tempQueue.pop();
+    }
+
+    // Copy active connections
+    activeSnapshot.reserve(activeConnections_.size());
+    activeSnapshot.assign(activeConnections_.begin(), activeConnections_.end());
+  }
+
+  // Validate connections outside the lock
   size_t unhealthyCount = 0;
+  std::vector<std::shared_ptr<PooledConnection>> healthyIdle;
+  std::vector<std::shared_ptr<PooledConnection>> unhealthyActive;
 
-  // Check idle connections
-  std::queue<std::shared_ptr<PooledConnection>> tempQueue;
-  while (!idleConnections_.empty()) {
-    auto pooledConn = idleConnections_.front();
-    idleConnections_.pop();
-
+  for (auto &pooledConn : idleSnapshot) {
     if (validateConnection(pooledConn->connection)) {
-      tempQueue.push(pooledConn);
+      healthyIdle.push_back(pooledConn);
     } else {
       unhealthyCount++;
-      metrics_.connectionsDestroyed++;
-      metrics_.totalConnections--;
     }
   }
-  idleConnections_ = std::move(tempQueue);
 
-  // Check active connections (mark as unhealthy if needed)
-  for (auto &pooledConn : activeConnections_) {
+  for (auto &pooledConn : activeSnapshot) {
     if (!validateConnection(pooledConn->connection)) {
-      pooledConn->isHealthy = false;
+      unhealthyActive.push_back(pooledConn);
       unhealthyCount++;
+    }
+  }
+
+  // Update pool state under lock
+  {
+    std::lock_guard<std::mutex> lock(poolMutex_);
+
+    // Update idle connections
+    while (!idleConnections_.empty()) idleConnections_.pop();
+    for (auto &conn : healthyIdle) {
+      idleConnections_.push(conn);
+    }
+
+    // Update active connections
+    for (auto &unhealthyConn : unhealthyActive) {
+      unhealthyConn->isHealthy = false;
+    }
+
+    // Update metrics
+    for (size_t i = 0; i < unhealthyCount; ++i) {
+      if (!healthyIdle.empty()) {
+        metrics_.connectionsDestroyed++;
+        metrics_.totalConnections--;
+        healthyIdle.pop_back();
+      }
     }
   }
 
@@ -396,17 +442,35 @@ void DatabaseConnectionPool::cleanupExpiredConnections() {
 }
 
 void DatabaseConnectionPool::adjustPoolSize() {
-  std::lock_guard<std::mutex> lock(poolMutex_);
+  // Determine what needs to be done outside the lock
+  size_t currentIdle = 0;
+  size_t currentActive = 0;
+  size_t connectionsToCreate = 0;
+  size_t connectionsToRemove = 0;
 
-  // Maintain minimum connections
-  while (idleConnections_.size() + activeConnections_.size() <
-         config_.minConnections) {
+  {
+    std::lock_guard<std::mutex> lock(poolMutex_);
+    currentIdle = idleConnections_.size();
+    currentActive = activeConnections_.size();
+
+    size_t totalCurrent = currentIdle + currentActive;
+
+    if (totalCurrent < config_.minConnections) {
+      connectionsToCreate = config_.minConnections - totalCurrent;
+    } else if (currentIdle > config_.minConnections &&
+               totalCurrent > config_.minConnections) {
+      connectionsToRemove = std::min(currentIdle - config_.minConnections,
+                                     currentIdle + currentActive - config_.minConnections);
+    }
+  }
+
+  // Create connections outside the lock
+  std::vector<std::shared_ptr<PooledConnection>> newConnections;
+  for (size_t i = 0; i < connectionsToCreate; ++i) {
     try {
       auto conn = createConnection();
       if (conn) {
-        idleConnections_.push(std::make_shared<PooledConnection>(conn));
-        metrics_.totalConnections++;
-        metrics_.connectionsCreated++;
+        newConnections.push_back(std::make_shared<PooledConnection>(conn));
       }
     } catch (const std::exception &e) {
       DB_LOG_ERROR("Failed to create connection during pool adjustment: " +
@@ -415,13 +479,25 @@ void DatabaseConnectionPool::adjustPoolSize() {
     }
   }
 
-  // Remove excess idle connections
-  while (idleConnections_.size() > config_.minConnections &&
-         idleConnections_.size() + activeConnections_.size() >
-             config_.minConnections) {
-    idleConnections_.pop();
-    metrics_.connectionsDestroyed++;
-    metrics_.totalConnections--;
+  // Update pool state under lock
+  {
+    std::lock_guard<std::mutex> lock(poolMutex_);
+
+    // Add new connections
+    for (auto &conn : newConnections) {
+      idleConnections_.push(conn);
+      metrics_.totalConnections++;
+      metrics_.connectionsCreated++;
+    }
+
+    // Remove excess idle connections
+    for (size_t i = 0; i < connectionsToRemove; ++i) {
+      if (!idleConnections_.empty()) {
+        idleConnections_.pop();
+        metrics_.connectionsDestroyed++;
+        metrics_.totalConnections--;
+      }
+    }
   }
 }
 
