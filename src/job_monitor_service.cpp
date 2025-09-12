@@ -66,12 +66,12 @@ void JobMonitorService::initialize(
 }
 
 void JobMonitorService::start() {
-  if (running_) {
+  if (running_.load()) {
     JOB_LOG_WARN("Job Monitor Service is already running");
     return;
   }
 
-  running_ = true;
+  running_.store(true);
 
   // Initialize monitoring data for any existing jobs
   if (etlManager_) {
@@ -112,11 +112,11 @@ void JobMonitorService::start() {
 }
 
 void JobMonitorService::stop() {
-  if (!running_) {
+  if (!running_.load()) {
     return;
   }
 
-  running_ = false;
+  running_.store(false);
 
   // Clear monitoring data
   std::scoped_lock lock(jobDataMutex_);
@@ -126,12 +126,12 @@ void JobMonitorService::stop() {
   JOB_LOG_INFO("Job Monitor Service stopped");
 }
 
-bool JobMonitorService::isRunning() const { return running_; }
+bool JobMonitorService::isRunning() const { return running_.load(); }
 
 void JobMonitorService::onJobStatusChanged(const std::string &jobId,
                                            JobStatus oldStatus,
                                            JobStatus newStatus) {
-  if (!running_) {
+  if (!running_.load()) {
     JOB_LOG_WARN(
         "Job Monitor Service not running, ignoring status change for job: " +
         jobId);
@@ -180,7 +180,7 @@ void JobMonitorService::onJobStatusChanged(const std::string &jobId,
 void JobMonitorService::onJobProgressUpdated(const std::string &jobId,
                                              int progressPercent,
                                              const std::string &currentStep) {
-  if (!running_) {
+  if (!running_.load()) {
     JOB_LOG_WARN(
         "Job Monitor Service not running, ignoring progress update for job: " +
         jobId);
@@ -208,7 +208,7 @@ void JobMonitorService::onJobProgressUpdated(const std::string &jobId,
 
 void JobMonitorService::onJobLogGenerated(const std::string &jobId,
                                           const LogMessage &logMessage) {
-  if (!running_) {
+  if (!running_.load()) {
     return;
   }
 
@@ -372,8 +372,10 @@ void JobMonitorService::broadcastLogMessage(const LogMessage &logMessage) {
   }
 
   auto message = WebSocketMessage::createLogMessage(logMessage);
-  wsManager_->broadcastLogMessage(message.toJson(), logMessage.jobId,
-                                  logMessage.level);
+  (void)tryOperation([&] {
+    wsManager_->broadcastLogMessage(message.toJson(), logMessage.jobId,
+                                    logMessage.level);
+  }, "broadcast_log_message");
 
   JOB_LOG_DEBUG("Broadcasted log message for job: " + logMessage.jobId);
 }
