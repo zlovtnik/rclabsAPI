@@ -3,6 +3,7 @@
 #include <fstream>
 #include <map>
 #include <memory>
+#include <queue>
 #include <sstream>
 #include <string>
 #include <thread>

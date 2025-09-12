@@ -53,12 +53,26 @@ public:
 
     // Get memory usage (simplified - in real implementation would use
     // platform-specific APIs)
+    // Get memory usage using platform-specific APIs
+#ifdef __linux__
     std::ifstream statm("/proc/self/statm");
     if (statm.is_open()) {
       size_t pages;
       statm >> pages;
-      metrics.memoryUsage = pages * 4096; // Assume 4KB page size
+      // Use sysconf to get actual page size instead of assuming 4KB
+      metrics.memoryUsage = pages * sysconf(_SC_PAGE_SIZE);
     }
+#elif defined(__APPLE__)
+    // macOS implementation using mach APIs
+    // TODO: Implement macOS memory usage
+    metrics.memoryUsage = 0;
+#elif defined(_WIN32)
+    // Windows implementation using PSAPI
+    // TODO: Implement Windows memory usage
+    metrics.memoryUsage = 0;
+#else
+    metrics.memoryUsage = 0;
+#endif
 
     // Get CPU usage (simplified - in real implementation would track process
     // CPU time)
@@ -162,7 +176,11 @@ protected:
     result.name = name_ + " - " + subName;
     result.operations = operations;
     result.duration = duration;
-    result.throughput = operations * 1000.0 / std::max(duration.count(), 1LL);
+    // Use microseconds for better precision with fast operations
+    auto duration_us =
+        std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
+    result.throughput =
+        duration_us > 0 ? (operations * 1000000.0 / duration_us) : 0.0;
     result.memoryUsage = 0; // Will be filled by system metrics
     result.cpuUsage = 0.0;  // Will be filled by system metrics
     result.notes = notes;

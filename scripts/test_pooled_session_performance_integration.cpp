@@ -67,10 +67,11 @@ private:
     tcp::socket socket2(ioc);
 
     // Create a connected socket pair for testing
+    // Create IO context and connected socket pair for testing
+    boost::asio::io_context ioc;
     boost::asio::local::stream_protocol::socket local_socket1(ioc);
     boost::asio::local::stream_protocol::socket local_socket2(ioc);
-    boost::asio::local::stream_protocol::socket::connect_pair(local_socket1,
-                                                              local_socket2);
+    boost::asio::local::connect_pair(local_socket1, local_socket2);
 
     // Create dependencies
     auto performanceMonitor = std::make_shared<PerformanceMonitor>();

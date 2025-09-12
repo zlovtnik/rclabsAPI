@@ -117,8 +117,9 @@ private:
 
     std::cout << "  Atomic result: " << counter.load() << " operations in "
               << duration.count() << "ms\n";
+    double safe_duration = std::max(duration.count(), 1LL);
     std::cout << "  Atomic throughput: "
-              << (counter.load() * 1000.0 / duration.count()) << " ops/sec\n\n";
+              << (counter.load() * 1000.0 / safe_duration) << " ops/sec\n\n";
   }
 
   void benchmarkLockFree() {
@@ -161,8 +162,9 @@ private:
 
     std::cout << "  Lock-free result: " << counter.load() << " operations in "
               << duration.count() << "ms\n";
+    double safe_duration = std::max(duration.count(), 1LL);
     std::cout << "  Lock-free throughput: "
-              << (counter.load() * 1000.0 / duration.count()) << " ops/sec\n\n";
+              << (counter.load() * 1000.0 / safe_duration) << " ops/sec\n\n";
   }
 };
 

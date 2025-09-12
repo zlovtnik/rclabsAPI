@@ -88,11 +88,12 @@ public:
   void testConnectionPoolManagerCreation() {
     std::cout << "Testing connection pool manager creation..." << std::endl;
 
-    // This test verifies that the connection pool manager can be created
-    // and configured correctly without starting the full server
-
-    // Note: Since we can't start the server without proper handlers,
-    // we'll test the configuration and component access instead
+    // TODO: Implement actual connection pool manager verification
+    // - Verify pool manager instance exists
+    // - Check initial pool state (connections count)
+    // - Validate pool configuration matches server config
+    std::cout << "⚠ Test not yet implemented - skipping" << std::endl;
+    return;
 
     std::cout << "✓ Connection pool manager creation test passed" << std::endl;
   }
@@ -110,9 +111,13 @@ public:
    * - Mutates the test fixture's `server_` by calling setServerConfig().
    * - Uses assert() to validate the updated values; test failure will terminate
    * the process when assertions are enabled.
-   */
   void testConfigurationUpdate() {
     std::cout << "Testing runtime configuration update..." << std::endl;
+
+    if (!server_) {
+      throw std::runtime_error("Server instance not initialized - cannot test
+  configuration update");
+    }
 
     // Update server configuration
     ServerConfig newConfig =
@@ -136,6 +141,7 @@ public:
     assert(retrievedConfig.requestTimeout.count() == 45);
 
     std::cout << "✓ Configuration update test passed" << std::endl;
+  }
   }
 
   /**

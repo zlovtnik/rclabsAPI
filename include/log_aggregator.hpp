@@ -20,9 +20,6 @@
 #include "logger.hpp"
 #include "nlohmann/json.hpp"
 
-// Forward declarations
-struct LogMessage;
-
 // Log shipping destination types
 enum class LogDestinationType {
   ELASTICSEARCH,
@@ -92,7 +89,7 @@ struct StructuredLogEntry {
    *
    * @return nlohmann::json JSON representation of this StructuredLogEntry.
    */
-  nlohmann::json toJson() const {
+  [[nodiscard]] nlohmann::json toJson() const {
     nlohmann::json json_entry;
     json_entry["@timestamp"] = timestamp;
     json_entry["level"] = levelToString(level);
@@ -286,7 +283,10 @@ private:
   AggregatorStats stats_;
 
   // CURL handle for HTTP requests
+  // CURL handle for HTTP requests (protected by curl_mutex_)
+  // CURL handle for HTTP requests (protected by curl_mutex_)
   CurlHandle curl_handle_;
+  mutable std::mutex curl_mutex_;
 
   // File streams for file destinations
   std::unordered_map<std::string, std::ofstream> file_streams_;

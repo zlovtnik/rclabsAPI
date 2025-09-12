@@ -100,6 +100,15 @@ std::shared_ptr<pqxx::connection> DatabaseConnectionPool::acquireConnection() {
     // Reacquire lock to add connection
     lock.lock();
 
+    // Re-check pool state after reacquiring lock
+    if (activeConnections_.size() >= config_.maxConnections) {
+      // Pool was filled by another thread
+      DB_LOG_DEBUG(
+          "Pool reached max connections while creating new connection");
+      // Connection will be destroyed when pooledConn goes out of scope
+      pooledConn.reset();
+    }
+
     if (pooledConn) {
       activeConnections_.push_back(pooledConn);
       metrics_.totalConnections++;

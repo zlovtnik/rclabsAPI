@@ -4,9 +4,11 @@
 #include <chrono>
 #include <gtest/gtest.h>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 
 namespace {
 
@@ -30,7 +32,7 @@ public:
     // No-op for testing
   }
 
-  const std::vector<LogEntry> &getEntries() const {
+  std::vector<LogEntry> getEntries() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return entries_;
   }

@@ -148,8 +148,15 @@ public:
     setup();
 
     // Test queue configuration
-    assert(poolManager_->getMaxConnections() == 5);
-    assert(poolManager_->getMaxQueueSize() == 10);
+    if (poolManager_->getMaxConnections() != 5) {
+      throw std::runtime_error(
+          "Expected max connections to be 5, got " +
+          std::to_string(poolManager_->getMaxConnections()));
+    }
+    if (poolManager_->getMaxQueueSize() != 10) {
+      throw std::runtime_error("Expected max queue size to be 10, got " +
+                               std::to_string(poolManager_->getMaxQueueSize()));
+    }
 
     // Test initial state
     assert(poolManager_->getActiveConnections() == 0);
@@ -219,11 +226,11 @@ public:
    *
    * Launches 10 asynchronous tasks that repeatedly read various pool statistics
    * (active, idle, total connections, reuse count, queue size, rejected count)
-   * and assert basic invariants (total == active + idle; non-negativity for
-   * counters). The test requires all tasks to complete successfully; it uses
-   * assertions to fail on any detected inconsistency.
+   * and verify basic invariants (total == active + idle; non-negativity for
+   * counters). The test requires all tasks to complete successfully; it returns
+   * false on any detected inconsistency.
    */
-  void testThreadSafeAccess() {
+  bool testThreadSafeAccess() {
     std::cout << "Testing thread-safe access to pool statistics..."
               << std::endl;
 
@@ -233,189 +240,184 @@ public:
     std::vector<std::future<bool>> futures;
     std::atomic<int> successfulAccesses{0};
 
-    // Launch multiple threads to access pool statistics concurrently
-    for (int i = 0; i < 10; ++i) {
-      futures.push_back(
-          std::async(std::launch::async, [this, &successfulAccesses]() {
-            try {
-              for (int j = 0; j < 100; ++j) {
-                // Access various statistics concurrently
-                auto active = poolManager_->getActiveConnections();
-                auto idle = poolManager_->getIdleConnections();
-                auto total = poolManager_->getTotalConnections();
-                auto reuse = poolManager_->getConnectionReuseCount();
-                auto queue = poolManager_->getQueueSize();
-                auto rejected = poolManager_->getRejectedRequestCount();
+#include <atomic>
+#include <cassert>
+#include <chrono>
+    std::this_thread::sleep_for(std::chrono::microseconds(10));
+  }
+  successfulAccesses++;
+  return true;
+} catch (...) {
+  return false;
+}
+}));
+}
 
-                // Verify basic consistency
-                assert(total == active + idle);
-                assert(reuse >= 0);
-                assert(queue >= 0);
-                assert(rejected >= 0);
+// Wait for all threads and check results
+bool allTasksSuccessful = true;
+for (auto &future : futures) {
+  if (!future.get()) {
+    allTasksSuccessful = false;
+  }
+}
 
-                // Small delay to increase chance of race conditions
-                std::this_thread::sleep_for(std::chrono::microseconds(10));
-              }
-              return true;
-            } catch (...) {
-              return false;
-            }
-          }));
-    }
+if (!allTasksSuccessful) {
+  std::cerr
+      << "✗ Thread-safe access test failed: One or more tasks reported errors"
+      << std::endl;
+  return false;
+}
 
-    // Wait for all threads and check results
-    for (auto &future : futures) {
-      if (future.get()) {
-        successfulAccesses++;
-      }
-    }
+std::cout << "✓ Thread-safe access test passed" << std::endl;
+return true;
+}
 
-    assert(successfulAccesses.load() == 10);
-    std::cout << "✓ Thread-safe access test passed" << std::endl;
+/**
+ * @brief Validates that ConnectionPoolManager rejects invalid configurations.
+ *
+ * Verifies two error cases:
+ * - minConnections > maxConnections should cause the constructor to throw
+ * std::invalid_argument.
+ * - a negative timeout value should cause the constructor to throw
+ * std::invalid_argument.
+ *
+ * The test prints progress messages and uses an assertion to fail if an
+ * expected exception is not thrown.
+ */
+void testConfigurationValidation() {
+  std::cout << "Testing configuration validation..." << std::endl;
+
+  // Test invalid configuration handling
+  try {
+    boost::asio::io_context testIoc;
+    auto invalidPool = std::make_shared<ConnectionPoolManager>(
+        testIoc,
+        10, // minConnections
+        5,  // maxConnections (less than min - should throw)
+        std::chrono::seconds(60), nullptr, nullptr, nullptr, 10,
+        std::chrono::seconds(5));
+    assert(false); // Should not reach here
+  } catch (const std::invalid_argument &e) {
+    // Expected exception
+    std::cout << "✓ Invalid min/max configuration correctly rejected"
+              << std::endl;
   }
 
-  /**
-   * @brief Validates that ConnectionPoolManager rejects invalid configurations.
-   *
-   * Verifies two error cases:
-   * - minConnections > maxConnections should cause the constructor to throw
-   * std::invalid_argument.
-   * - a negative timeout value should cause the constructor to throw
-   * std::invalid_argument.
-   *
-   * The test prints progress messages and uses an assertion to fail if an
-   * expected exception is not thrown.
-   */
-  void testConfigurationValidation() {
-    std::cout << "Testing configuration validation..." << std::endl;
-
-    // Test invalid configuration handling
-    try {
-      boost::asio::io_context testIoc;
-      auto invalidPool = std::make_shared<ConnectionPoolManager>(
-          testIoc,
-          10, // minConnections
-          5,  // maxConnections (less than min - should throw)
-          std::chrono::seconds(60), nullptr, nullptr, nullptr, 10,
-          std::chrono::seconds(5));
-      assert(false); // Should not reach here
-    } catch (const std::invalid_argument &e) {
-      // Expected exception
-      std::cout << "✓ Invalid min/max configuration correctly rejected"
-                << std::endl;
-    }
-
-    // Test invalid timeout configuration
-    try {
-      boost::asio::io_context testIoc;
-      auto invalidPool = std::make_shared<ConnectionPoolManager>(
-          testIoc, 2, 5,
-          std::chrono::seconds(-1), // Invalid negative timeout
-          nullptr, nullptr, nullptr, 10, std::chrono::seconds(5));
-      assert(false); // Should not reach here
-    } catch (const std::invalid_argument &e) {
-      // Expected exception
-      std::cout << "✓ Invalid timeout configuration correctly rejected"
-                << std::endl;
-    }
-
-    std::cout << "✓ Configuration validation test passed" << std::endl;
+  // Test invalid timeout configuration
+  try {
+    boost::asio::io_context testIoc;
+    auto invalidPool = std::make_shared<ConnectionPoolManager>(
+        testIoc, 2, 5,
+        std::chrono::seconds(-1), // Invalid negative timeout
+        nullptr, nullptr, nullptr, 10, std::chrono::seconds(5));
+    assert(false); // Should not reach here
+  } catch (const std::invalid_argument &e) {
+    // Expected exception
+    std::cout << "✓ Invalid timeout configuration correctly rejected"
+              << std::endl;
   }
 
-  /**
-   * @brief Tests ConnectionPoolManager cleanup behaviors.
-   *
-   * Runs setup(), exercises start/stop of the cleanup timer, calls
-   * cleanupIdleConnections() (expects a non-negative result), and verifies
-   * shutdown() completes without throwing.
-   */
-  void testCleanupOperations() {
-    std::cout << "Testing cleanup operations..." << std::endl;
+  std::cout << "✓ Configuration validation test passed" << std::endl;
+}
 
-    setup();
+/**
+ * @brief Tests ConnectionPoolManager cleanup behaviors.
+ *
+ * Runs setup(), exercises start/stop of the cleanup timer, calls
+ * cleanupIdleConnections() (expects a non-negative result), and verifies
+ * shutdown() completes without throwing.
+ */
+void testCleanupOperations() {
+  std::cout << "Testing cleanup operations..." << std::endl;
 
-    // Test cleanup timer operations
-    poolManager_->startCleanupTimer();
-    poolManager_->stopCleanupTimer();
+  setup();
 
-    // Test manual cleanup
-    auto cleanedUp = poolManager_->cleanupIdleConnections();
-    assert(cleanedUp >= 0); // Should not throw
+  // Test cleanup timer operations
+  poolManager_->startCleanupTimer();
+  poolManager_->stopCleanupTimer();
 
-    // Test shutdown
+  // Test manual cleanup
+  auto cleanedUp = poolManager_->cleanupIdleConnections();
+  assert(cleanedUp >= 0); // Should not throw
+
+  // Test shutdown
+  poolManager_->shutdown();
+
+  std::cout << "✓ Cleanup operations test passed" << std::endl;
+}
+
+/**
+ * @brief Clean up and release test resources.
+ *
+ * Shuts down the ConnectionPoolManager if present, then resets the pool
+ * manager and the owned io_context, releasing their resources. Safe to call
+ * multiple times; subsequent calls have no effect once resources are cleared.
+ */
+void cleanup() {
+  if (poolManager_) {
     poolManager_->shutdown();
-
-    std::cout << "✓ Cleanup operations test passed" << std::endl;
   }
+  poolManager_.reset();
+  ioc_.reset();
+}
 
-  /**
-   * @brief Clean up and release test resources.
-   *
-   * Shuts down the ConnectionPoolManager if present, then resets the pool
-   * manager and the owned io_context, releasing their resources. Safe to call
-   * multiple times; subsequent calls have no effect once resources are cleared.
-   */
-  void cleanup() {
-    if (poolManager_) {
-      poolManager_->shutdown();
+/**
+ * @brief Executes the full suite of connection pool enhancement tests.
+ *
+ * Runs each test in sequence: queue configuration, statistics tracking, pool
+ * capacity limits, thread-safety, configuration validation, and cleanup
+ * operations. After each individual test the test fixture is cleaned up.
+ * Progress and results are written to standard output. If any test fails,
+ * the fixture is cleaned up and the method returns 1. On success returns 0.
+ *
+ * @return int 0 on success, 1 on failure
+ */
+int runAllTests() {
+  std::cout << "Running Connection Pool Enhancement Tests..." << std::endl;
+  std::cout << "============================================================="
+            << std::endl;
+
+  try {
+    testQueueConfiguration();
+    cleanup();
+
+    testStatisticsTracking();
+    cleanup();
+
+    testPoolCapacityLimits();
+    cleanup();
+
+    if (!testThreadSafeAccess()) {
+      return 1; // Test failed
     }
-    poolManager_.reset();
-    ioc_.reset();
-  }
+    cleanup();
 
-  /**
-   * @brief Executes the full suite of connection pool enhancement tests.
-   *
-   * Runs each test in sequence: queue configuration, statistics tracking, pool
-   * capacity limits, thread-safety, configuration validation, and cleanup
-   * operations. After each individual test the test fixture is cleaned up.
-   * Progress and results are written to standard output. If any test throws,
-   * the fixture is cleaned up and the exception is rethrown.
-   */
-  void runAllTests() {
-    std::cout << "Running Connection Pool Enhancement Tests..." << std::endl;
+    testConfigurationValidation();
+    cleanup();
+
+    testCleanupOperations();
+    cleanup();
+
     std::cout << "============================================================="
               << std::endl;
+    std::cout << "✓ All connection pool enhancement tests passed!" << std::endl;
+    return 0;
 
-    try {
-      testQueueConfiguration();
-      cleanup();
-
-      testStatisticsTracking();
-      cleanup();
-
-      testPoolCapacityLimits();
-      cleanup();
-
-      testThreadSafeAccess();
-      cleanup();
-
-      testConfigurationValidation();
-      cleanup();
-
-      testCleanupOperations();
-      cleanup();
-
-      std::cout
-          << "============================================================="
-          << std::endl;
-      std::cout << "✓ All connection pool enhancement tests passed!"
-                << std::endl;
-
-    } catch (const std::exception &e) {
-      std::cout << "✗ Connection pool enhancement test failed: " << e.what()
-                << std::endl;
-      cleanup();
-      throw;
-    } catch (...) {
-      std::cout
-          << "✗ Connection pool enhancement test failed with unknown exception"
-          << std::endl;
-      cleanup();
-      throw;
-    }
+  } catch (const std::exception &e) {
+    std::cout << "✗ Connection pool enhancement test failed: " << e.what()
+              << std::endl;
+    cleanup();
+    return 1;
+  } catch (...) {
+    std::cout
+        << "✗ Connection pool enhancement test failed with unknown exception"
+        << std::endl;
+    cleanup();
+    return 1;
   }
-};
+}
+}
+;
 
 /**
  * @brief Entry point for the connection pool enhancement test suite.
@@ -432,9 +434,7 @@ public:
 int main() {
   try {
     ConnectionPoolEnhancementTest test;
-    test.runAllTests();
-
-    return 0;
+    return test.runAllTests();
   } catch (const std::exception &e) {
     std::cerr << "Connection pool enhancement test suite failed: " << e.what()
               << std::endl;

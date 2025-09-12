@@ -40,6 +40,16 @@ private:
       // Create WebSocket manager
       auto wsManager = std::make_shared<WebSocketManager>();
       wsManager->start();
+
+      // Ensure cleanup on exception
+      struct Cleanup {
+        std::shared_ptr<WebSocketManager> mgr;
+        ~Cleanup() {
+          if (mgr)
+            mgr->stop();
+        }
+      } cleanup{wsManager};
+
       std::cout << "✓ WebSocket manager started\n";
 
       // Test initial state

@@ -102,6 +102,7 @@ void testLogFiltering() {
   auto mockWsManager = std::make_shared<MockWebSocketManager>();
   Logger &logger = Logger::getInstance();
 
+  logger.setWebSocketManager(mockWsManager);
   mockWsManager->clearMessages();
 
   // Configure logger with job filtering
@@ -135,10 +136,10 @@ void testLogFiltering() {
 
 void testLogLevelFiltering() {
   std::cout << "\n=== Testing Log Level Filtering ===" << std::endl;
-
   auto mockWsManager = std::make_shared<MockWebSocketManager>();
   Logger &logger = Logger::getInstance();
 
+  logger.setWebSocketManager(mockWsManager);
   mockWsManager->clearMessages();
 
   // Configure logger with level filtering (WARN and above)
@@ -150,6 +151,7 @@ void testLogLevelFiltering() {
   config.fileOutput = false;
 
   logger.configure(config);
+  logger.clearStreamingJobFilter(); // Allow all jobs
   logger.clearStreamingJobFilter(); // Allow all jobs
 
   // Test different log levels

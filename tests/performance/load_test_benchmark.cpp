@@ -110,49 +110,48 @@ private:
     std::vector<std::thread> workerThreads;
     for (size_t i = 0; i < numThreads; ++i) {
       workerThreads.emplace_back([&, i]() {
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::uniform_int_distribution<> operationType(0, 3);
+        workerThreads.emplace_back([&, i]() {
+          thread_local std::mt19937 gen(std::random_device{}());
+          std::uniform_int_distribution<> operationType(0, 3);
 
-        for (size_t j = 0; j < opsPerThread; ++j) {
-          int op = operationType(gen);
-
-          switch (op) {
-          case 0: { // HTTP request
-            auto connection = poolManager.acquireConnection();
-            std::this_thread::sleep_for(std::chrono::microseconds(100));
-            poolManager.releaseConnection(connection);
-            httpRequests++;
-            break;
+          for (size_t j = 0; j < opsPerThread; ++j) {
+            int op = operationType(gen);
+            switch (op) {
+            case 0: { // HTTP request
+              auto connection = poolManager.acquireConnection();
+              std::this_thread::sleep_for(std::chrono::microseconds(100));
+              poolManager.releaseConnection(connection);
+              httpRequests++;
+              break;
+            }
+            case 1: { // Database operation
+              auto connection = poolManager.acquireConnection();
+              std::this_thread::sleep_for(std::chrono::microseconds(150));
+              poolManager.releaseConnection(connection);
+              dbOperations++;
+              break;
+            }
+            case 2: { // WebSocket message
+              std::string message = R"({"type":"update","thread":)" +
+                                    std::to_string(i) + R"(,"op":)" +
+                                    std::to_string(j) + "}";
+              wsManager.broadcastMessage(message);
+              wsMessages++;
+              break;
+            }
+            case 3: { // Logging
+              logger.info("LoadTest", "Thread " + std::to_string(i) +
+                                          " operation " + std::to_string(j));
+              logEntries++;
+              break;
+            }
+            }
           }
-          case 1: { // Database operation
-            auto connection = poolManager.acquireConnection();
-            std::this_thread::sleep_for(std::chrono::microseconds(150));
-            poolManager.releaseConnection(connection);
-            dbOperations++;
-            break;
-          }
-          case 2: { // WebSocket message
-            std::string message = R"({"type":"update","thread":)" +
-                                  std::to_string(i) + R"(,"op":)" +
-                                  std::to_string(j) + "}";
-            wsManager.broadcastMessage(message);
-            wsMessages++;
-            break;
-          }
-          case 3: { // Logging
-            logger.info("LoadTest", "Thread " + std::to_string(i) +
-                                        " operation " + std::to_string(j));
-            logEntries++;
-            break;
-          }
-          }
-        }
-      });
+        });
     }
 
     for (auto &thread : workerThreads) {
-      thread.join();
+        thread.join();
     }
 
     auto end = std::chrono::high_resolution_clock::now();
@@ -164,135 +163,140 @@ private:
                                ", DB: " + std::to_string(dbOperations) +
                                ", WS: " + std::to_string(wsMessages) +
                                ", Logs: " + std::to_string(logEntries)));
-  }
-
-  void benchmarkSpikeLoad() {
-    std::cout << "Running spike load benchmark...\n";
-
-    etl_plus::HttpServer server;
-    server.initialize(8080);
-
-    etl_plus::ConnectionPoolManager poolManager;
-    poolManager.initialize(30, "test_db", "localhost", 5432);
-
-    const size_t spikeDurationMs = 5000; // 5 seconds
-    const size_t baseLoad = 10;
-    const size_t spikeLoad = 100;
-
-    std::atomic<size_t> totalRequests{0};
-    std::atomic<size_t> spikeRequests{0};
-
-    auto start = std::chrono::high_resolution_clock::now();
-
-    // Phase 1: Base load
-    std::vector<std::thread> baseThreads;
-    for (size_t i = 0; i < baseLoad; ++i) {
-      baseThreads.emplace_back([&, i]() {
-        while (std::chrono::duration_cast<std::chrono::milliseconds>(
-                   std::chrono::high_resolution_clock::now() - start)
-                   .count() < spikeDurationMs / 2) {
-          auto connection = poolManager.acquireConnection();
-          std::this_thread::sleep_for(std::chrono::microseconds(200));
-          poolManager.releaseConnection(connection);
-          totalRequests++;
-        }
-      });
     }
 
-    // Wait for base load to establish
-    std::this_thread::sleep_for(std::chrono::milliseconds(spikeDurationMs / 2));
+    void benchmarkSpikeLoad() {
+      std::cout << "Running spike load benchmark...\n";
 
-    // Phase 2: Spike load
-    std::vector<std::thread> spikeThreads;
-    for (size_t i = 0; i < spikeLoad; ++i) {
-      spikeThreads.emplace_back([&, i]() {
-        while (std::chrono::duration_cast<std::chrono::milliseconds>(
-                   std::chrono::high_resolution_clock::now() - start)
-                   .count() < spikeDurationMs) {
-          auto connection = poolManager.acquireConnection();
-          std::this_thread::sleep_for(std::chrono::microseconds(100));
-          poolManager.releaseConnection(connection);
-          totalRequests++;
-          spikeRequests++;
-        }
-      });
-    }
+      etl_plus::HttpServer server;
+      server.initialize(8080);
 
-    // Wait for spike to complete
-    for (auto &thread : spikeThreads) {
-      thread.join();
-    }
-    for (auto &thread : baseThreads) {
-      thread.join();
-    }
+      etl_plus::ConnectionPoolManager poolManager;
+      poolManager.initialize(30, "test_db", "localhost", 5432);
 
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration =
-        std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+      const size_t spikeDurationMs = 5000; // 5 seconds
+      const size_t baseLoad = 10;
+      const size_t spikeLoad = 100;
 
-    addResult(createResult("Spike Load", totalRequests.load(), duration,
-                           "Spike requests: " + std::to_string(spikeRequests) +
-                               ", Base load: " + std::to_string(baseLoad) +
-                               ", Spike load: " + std::to_string(spikeLoad)));
-  }
+      std::atomic<size_t> totalRequests{0};
+      std::atomic<size_t> spikeRequests{0};
 
-  void benchmarkSustainedLoad() {
-    std::cout << "Running sustained load benchmark...\n";
+      auto start = std::chrono::high_resolution_clock::now();
 
-    etl_plus::HttpServer server;
-    server.initialize(8080);
-
-    etl_plus::ConnectionPoolManager poolManager;
-    poolManager.initialize(25, "test_db", "localhost", 5432);
-
-    const size_t testDurationMs = 10000; // 10 seconds
-    const size_t numWorkerThreads = 15;
-
-    std::atomic<size_t> totalOperations{0};
-    std::atomic<size_t> successfulOperations{0};
-    std::atomic<size_t> failedOperations{0};
-
-    auto start = std::chrono::high_resolution_clock::now();
-
-    std::vector<std::thread> workerThreads;
-    for (size_t i = 0; i < numWorkerThreads; ++i) {
-      workerThreads.emplace_back([&, i]() {
-        while (std::chrono::duration_cast<std::chrono::milliseconds>(
-                   std::chrono::high_resolution_clock::now() - start)
-                   .count() < testDurationMs) {
-
-          try {
-            // Simulate sustained workload
+      // Phase 1: Base load
+      std::vector<std::thread> baseThreads;
+      for (size_t i = 0; i < baseLoad; ++i) {
+        baseThreads.emplace_back([&, i]() {
+          while (std::chrono::duration_cast<std::chrono::milliseconds>(
+                     std::chrono::high_resolution_clock::now() - start)
+                     .count() < spikeDurationMs / 2) {
             auto connection = poolManager.acquireConnection();
-            std::this_thread::sleep_for(std::chrono::microseconds(300));
+            std::this_thread::sleep_for(std::chrono::microseconds(200));
             poolManager.releaseConnection(connection);
-
-            successfulOperations++;
-          } catch (const std::exception &e) {
-            failedOperations++;
+            totalRequests++;
           }
+        });
+      }
 
-          totalOperations++;
-        }
-      });
+      // Wait for base load to establish
+      std::this_thread::sleep_for(
+          std::chrono::milliseconds(spikeDurationMs / 2));
+
+      // Phase 2: Spike load
+      std::vector<std::thread> spikeThreads;
+      for (size_t i = 0; i < spikeLoad; ++i) {
+        spikeThreads.emplace_back([&, i]() {
+          while (std::chrono::duration_cast<std::chrono::milliseconds>(
+                     std::chrono::high_resolution_clock::now() - start)
+                     .count() < spikeDurationMs) {
+            auto connection = poolManager.acquireConnection();
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
+            poolManager.releaseConnection(connection);
+            totalRequests++;
+            spikeRequests++;
+          }
+        });
+      }
+
+      // Wait for spike to complete
+      for (auto &thread : spikeThreads) {
+        thread.join();
+      }
+      for (auto &thread : baseThreads) {
+        thread.join();
+      }
+
+      auto end = std::chrono::high_resolution_clock::now();
+      auto duration =
+          std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+      addResult(
+          createResult("Spike Load", totalRequests.load(), duration,
+                       "Spike requests: " + std::to_string(spikeRequests) +
+                           ", Base load: " + std::to_string(baseLoad) +
+                           ", Spike load: " + std::to_string(spikeLoad)));
     }
 
-    for (auto &thread : workerThreads) {
-      thread.join();
+    void benchmarkSustainedLoad() {
+      std::cout << "Running sustained load benchmark...\n";
+
+      etl_plus::HttpServer server;
+      server.initialize(8080);
+
+      etl_plus::ConnectionPoolManager poolManager;
+      poolManager.initialize(25, "test_db", "localhost", 5432);
+
+      const size_t testDurationMs = 10000; // 10 seconds
+      const size_t numWorkerThreads = 15;
+
+      std::atomic<size_t> totalOperations{0};
+      std::atomic<size_t> successfulOperations{0};
+      std::atomic<size_t> failedOperations{0};
+
+      auto start = std::chrono::high_resolution_clock::now();
+
+      std::vector<std::thread> workerThreads;
+      for (size_t i = 0; i < numWorkerThreads; ++i) {
+        workerThreads.emplace_back([&, i]() {
+          while (std::chrono::duration_cast<std::chrono::milliseconds>(
+                     std::chrono::high_resolution_clock::now() - start)
+                     .count() < testDurationMs) {
+
+            try {
+              // Simulate sustained workload
+              auto connection = poolManager.acquireConnection();
+              std::this_thread::sleep_for(std::chrono::microseconds(300));
+              poolManager.releaseConnection(connection);
+
+              successfulOperations++;
+            } catch (const std::exception &e) {
+              failedOperations++;
+            }
+
+            totalOperations++;
+          }
+        });
+      }
+
+      for (auto &thread : workerThreads) {
+        thread.join();
+      }
+
+      auto end = std::chrono::high_resolution_clock::now();
+      auto duration =
+          std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+      double successRate =
+          static_cast<double>(successfulOperations) / totalOperations * 100.0;
+      double successRate =
+          static_cast<double>(successfulOperations) / totalOperations * 100.0;
+      double durationSeconds = std::max(duration.count() / 1000.0, 0.001);
+      double opsPerSecond =
+          static_cast<double>(totalOperations) / durationSeconds;
+
+      addResult(createResult("Sustained Load", totalOperations.load(), duration,
+                             "Success rate: " + std::to_string(successRate) +
+                                 "%, " +
+                                 "Ops/sec: " + std::to_string(opsPerSecond)));
     }
-
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration =
-        std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-
-    double successRate =
-        static_cast<double>(successfulOperations) / totalOperations * 100.0;
-    double opsPerSecond =
-        static_cast<double>(totalOperations) / (duration.count() / 1000.0);
-
-    addResult(createResult("Sustained Load", totalOperations.load(), duration,
-                           "Success rate: " + std::to_string(successRate) +
-                               "%, " +
-                               "Ops/sec: " + std::to_string(opsPerSecond)));
-  }
-};
+  };

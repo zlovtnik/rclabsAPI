@@ -125,16 +125,17 @@ private:
     }
 
     // Calculate average latency
-    long long totalLatency = 0;
-    for (auto latency : latencies) {
-      totalLatency += latency;
-    }
-    long long avgLatency = totalLatency / latencies.size();
+    double avgLatency =
+        std::accumulate(latencies.begin(), latencies.end(), 0.0) /
+        latencies.size();
 
-    auto totalDuration = std::chrono::milliseconds(avgLatency / 1000);
-    addResult(createResult("Message Latency", numLatencyTests, totalDuration,
-                           "Average latency: " + std::to_string(avgLatency) +
-                               " microseconds"));
+    auto totalDuration =
+        std::chrono::microseconds(static_cast<long long>(avgLatency));
+    addResult(
+        createResult("Message Latency", numLatencyTests, totalDuration,
+                     "Average latency: " +
+                         std::to_string(static_cast<long long>(avgLatency)) +
+                         " microseconds"));
   }
 
   void benchmarkConnectionHandling() {

@@ -87,7 +87,8 @@ private:
     monitor.recordConnectionReuse();
 
     auto metrics2 = monitor.getMetrics();
-    assert(metrics2.connectionReuseRate == 0.5); // 1 reuse out of 2 connections
+    assert(metrics2.connectionReuseRate ==
+           0.5); // 1 reuse, 2 new connections (50% reuse rate)
 
     std::cout << "✓ Metrics accuracy test passed" << std::endl;
   }

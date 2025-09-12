@@ -5,12 +5,21 @@
 #include <thread>
 #include <vector>
 
-using namespace etl_plus;
+// Explicit using declarations for needed symbols
+using etl_plus::ConfigMutex;
+using etl_plus::ConfigSharedMutex;
+using etl_plus::ContainerMutex;
+using etl_plus::DeadlockDetector;
+using etl_plus::LockMonitor;
+using etl_plus::ResourceMutex;
+using etl_plus::ScopedTimedLock;
+using etl_plus::ScopedTimedSharedLock;
+using etl_plus::StateMutex;
 
 // Simulate a simple bank account with thread-safe operations
 class BankAccount {
 private:
-  StateMutex balanceMutex_;
+  mutable StateMutex balanceMutex_;
   double balance_;
   std::string accountId_;
 
@@ -47,12 +56,12 @@ public:
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
       balance_ -= amount;
       std::cout << "Withdrew $" << amount << " from " << accountId_
-                << ". New balance: $" << balance_ << std::endl;
+                << ". New balance: $" << balance_ << '\n';
       return true;
     }
 
     std::cout << "Insufficient funds in " << accountId_ << ". Balance: $"
-              << balance_ << ", Requested: $" << amount << std::endl;
+              << balance_ << ", Requested: $" << amount << '\n';
     return false;
   }
 
@@ -73,7 +82,7 @@ public:
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
     balance_ += amount;
     std::cout << "Deposited $" << amount << " to " << accountId_
-              << ". New balance: $" << balance_ << std::endl;
+              << ". New balance: $" << balance_ << '\n';
   }
 
   /**
@@ -87,8 +96,7 @@ public:
    * @return double Current balance.
    */
   double getBalance() const {
-    ScopedTimedLock lock(const_cast<StateMutex &>(balanceMutex_),
-                         std::chrono::milliseconds(500),
+    ScopedTimedLock lock(balanceMutex_, std::chrono::milliseconds(500),
                          "balance_check_" + accountId_);
     return balance_;
   }
@@ -166,9 +174,13 @@ public:
    * if none are available.
    */
   std::string acquireConnection() {
-    // Read config (shared lock - multiple readers allowed)
-    ScopedTimedSharedLock configLock(
-        configMutex_, std::chrono::milliseconds(500), "config_read");
+    // Read config under a bounded scope; release before taking the pool lock.
+    {
+      ScopedTimedSharedLock configLock(
+          configMutex_, std::chrono::milliseconds(500), "config_read");
+      // Copy any needed fields from config_ here.
+      // auto max = config_.maxConnections; auto to = config_.timeoutMs;
+    }
 
     // Access pool container (exclusive lock)
     ScopedTimedLock poolLock(poolMutex_, std::chrono::milliseconds(1000),

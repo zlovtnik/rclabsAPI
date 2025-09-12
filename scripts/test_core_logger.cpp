@@ -2,8 +2,10 @@
 #include "log_handler.hpp"
 #include <cassert>
 #include <chrono>
+#include <functional>
 #include <iostream>
 #include <thread>
+#include <unordered_set>
 
 // Test handler implementation
 class TestLogHandler : public LogHandler {

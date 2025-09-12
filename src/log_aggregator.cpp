@@ -267,12 +267,18 @@ bool LogAggregator::shipToFile(const LogDestinationConfig &dest,
 
   // Check if file needs rotation
   if (dest.rotate_files) {
-    std::filesystem::path file_path(dest.file_path);
-    if (std::filesystem::exists(file_path) &&
-        std::filesystem::file_size(file_path) >= dest.max_file_size) {
+    // Flush any buffered data to ensure accurate size calculation
+    stream.flush();
+
+    // Get current file size including any buffered data
+    std::streampos current_pos = stream.tellp();
+    if (current_pos >= static_cast<std::streampos>(dest.max_file_size)) {
       rotateLogFile(dest.file_path);
       stream.close();
       stream.open(dest.file_path, std::ios::app);
+      if (!stream.is_open()) {
+        return false;
+      }
     }
   }
 
@@ -396,10 +402,13 @@ bool LogAggregator::makeHttpRequest(
 
   // Set headers
   struct curl_slist *header_list = nullptr;
+  std::unique_ptr<curl_slist, decltype(&curl_slist_free_all)> header_guard(
+      nullptr, curl_slist_free_all);
   for (const auto &[key, value] : headers) {
     std::string header = key + ": " + value;
     header_list = curl_slist_append(header_list, header.c_str());
   }
+  header_guard.reset(header_list);
   curl_easy_setopt(curl_handle_.get(), CURLOPT_HTTPHEADER, header_list);
 
   // Set response callback

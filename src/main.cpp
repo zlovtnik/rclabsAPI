@@ -58,7 +58,12 @@ int main() {
       auto &structuredLogger = StructuredLogger::getInstance();
 
       // Load structured logging configuration
+      // Load structured logging configuration
       nlohmann::json fullConfig = config.getJsonConfig();
+      if (!fullConfig.contains("logging")) {
+        LOG_WARN("Main", "No 'logging' section found in configuration");
+        return 1;
+      }
       auto structuredConfig =
           LogAggregationConfigLoader::loadStructuredLoggingConfig(
               fullConfig["logging"]);

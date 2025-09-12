@@ -63,7 +63,7 @@ build-info:
 format:
 	@echo "$(BLUE)Running clang-format on all source files...$(NC)"
 	@if which clang-format > /dev/null 2>&1; then \
-		find . -name "*.cpp" -o -name "*.hpp" | xargs clang-format -i; \
+		find . \( -path ./build -o -path ./vendor -o -path ./third_party \) -prune -o \( -name "*.cpp" -o -name "*.hpp" \) -type f -print | xargs clang-format -i; \
 		echo "$(GREEN)✓ Code formatting complete!$(NC)"; \
 	else \
 		echo "$(YELLOW)⚠ clang-format not found - skipping formatting$(NC)"; \
@@ -73,7 +73,7 @@ format:
 format-check:
 	@echo "$(BLUE)Checking code formatting...$(NC)"
 	@if which clang-format > /dev/null 2>&1; then \
-		if find . -name "*.cpp" -o -name "*.hpp" -exec clang-format --dry-run --Werror {} \; > /dev/null 2>&1; then \
+		if find . \( -path ./build -o -path ./vendor -o -path ./third_party \) -prune -o \( -name "*.cpp" -o -name "*.hpp" \) -type f -exec clang-format --dry-run --Werror {} \; > /dev/null 2>&1; then \
 			echo "$(GREEN)✓ All files are properly formatted$(NC)"; \
 		else \
 			echo "$(RED)✗ Some files need formatting. Run 'make format' to fix.$(NC)"; \

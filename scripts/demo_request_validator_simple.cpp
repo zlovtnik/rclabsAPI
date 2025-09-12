@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <iostream>
 #include <nlohmann/json.hpp>
@@ -60,7 +61,7 @@ public:
 private:
   std::vector<std::string> knownEndpoints_ = {
       "/api/auth/login",     "/api/auth/logout", "/api/auth/profile",
-      "/api/jobs",           "/api/logs",        "/api/monitor/jobs",
+      "/api/jobs",           "/api/logs",        
       "/api/monitor/status", "/api/health"};
 
   /**
@@ -80,10 +81,27 @@ private:
     std::string result;
     for (size_t i = 0; i < input.size(); ++i) {
       if (input[i] == '%' && i + 2 < input.size()) {
-        char hex[3] = {input[i + 1], input[i + 2], '\0'};
-        char ch = (char)strtol(hex, nullptr, 16);
-        result += ch;
-        i += 2;
+        char hex1 = input[i + 1];
+        char hex2 = input[i + 2];
+        
+        // Validate hex digits
+        if ((hex1 >= '0' && hex1 <= '9') || (hex1 >= 'A' && hex1 <= 'F') || (hex1 >= 'a' && hex1 <= 'f')) {
+          if ((hex2 >= '0' && hex2 <= '9') || (hex2 >= 'A' && hex2 <= 'F') || (hex2 >= 'a' && hex2 <= 'f')) {
+            char hex[3] = {hex1, hex2, '\0'};
+            unsigned char ch = (unsigned char)strtol(hex, nullptr, 16);
+            
+            // Sanitize null bytes and other control characters
+            if (ch == 0x00 || ch < 0x20) {
+              result += '?'; // Replace with safe placeholder
+            } else {
+              result += (char)ch;
+            }
+            i += 2;
+            continue;
+          }
+        }
+        // Invalid hex sequence - treat as literal
+        result += input[i];
       } else {
         result += input[i];
       }
@@ -106,8 +124,16 @@ private:
    * @return std::string Normalized absolute path.
    */
   std::string normalizePath(const std::string &path) {
+    // First convert all backslashes to forward slashes
+    std::string normalizedInput = path;
+    for (char &c : normalizedInput) {
+      if (c == '\\') {
+        c = '/';
+      }
+    }
+    
     std::vector<std::string> segments;
-    std::stringstream ss(path);
+    std::stringstream ss(normalizedInput);
     std::string segment;
     while (std::getline(ss, segment, '/')) {
       if (segment == "." || segment.empty()) {
@@ -196,43 +222,44 @@ public:
       result.addError("Path must start with '/'");
     }
 
-    // Enhanced path traversal check
+    // Enhanced path traversal check + canonical path derivation
+    std::string canonicalPath = result.path;
     {
       // Percent-decode the path
       std::string decodedPath = percentDecode(result.path);
 
-      // Check for percent-encoded traversal sequences
-      if (decodedPath.find("..") != std::string::npos) {
+      // Check traversal at segment boundaries only
+      if (decodedPath.find("/../") != std::string::npos ||
+          (decodedPath.size() >= 3 &&
+           decodedPath.rfind("/..", decodedPath.size() - 3) !=
+               std::string::npos) ||
+          decodedPath.rfind("../", 0) == 0) {
         result.addError(
             "Path traversal not allowed (percent-encoded or direct)");
       }
 
-      // Normalize the path
-      std::string normalizedPath = normalizePath(decodedPath);
-
-      // Reject if normalized path contains ".."
-      if (normalizedPath.find("..") != std::string::npos) {
-        result.addError("Path traversal not allowed");
-      }
+      // Normalize and keep for subsequent checks
+      canonicalPath = normalizePath(decodedPath);
     }
 
     // Validate endpoint
-    if (!isKnownEndpoint(result.path)) {
-      result.addError("Unknown endpoint: " + result.path);
+    if (!isKnownEndpoint(canonicalPath)) {
+      result.addError("Unknown endpoint: " + canonicalPath);
     }
 
     // Validate method for endpoint
-    if (!isValidMethodForEndpoint(method, result.path)) {
-      result.addError("Method " + method + " not allowed for " + result.path);
+    if (!isValidMethodForEndpoint(method, canonicalPath)) {
+      result.addError("Method " + method + " not allowed for " + canonicalPath);
     }
 
     // Validate authentication for protected endpoints
-    if (requiresAuth(result.path)) {
+    if (requiresAuth(canonicalPath)) {
       std::string authHeader;
       for (const auto &header : headers) {
         std::string lowerKey = header.first;
-        std::transform(lowerKey.begin(), lowerKey.end(), lowerKey.begin(),
-                       ::tolower);
+        std::transform(
+            lowerKey.begin(), lowerKey.end(), lowerKey.begin(),
+            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         if (lowerKey == "authorization") {
           authHeader = header.second;
           break;
@@ -246,10 +273,10 @@ public:
     }
 
     // Validate body for POST/PUT requests
-    if ((method == "POST" || method == "PUT") && requiresBody(result.path)) {
+    if ((method == "POST" || method == "PUT") && requiresBody(canonicalPath)) {
       if (body.empty()) {
         result.addError("Request body required for " + method + " " +
-                        result.path);
+                        canonicalPath);
       } else if (!isValidJson(body)) {
         result.addError("Invalid JSON in request body");
       }
@@ -291,8 +318,9 @@ public:
     std::string userAgent;
     for (const auto &header : headers) {
       std::string lowerKey = header.first;
-      std::transform(lowerKey.begin(), lowerKey.end(), lowerKey.begin(),
-                     ::tolower);
+      std::transform(
+          lowerKey.begin(), lowerKey.end(), lowerKey.begin(),
+          [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
       if (lowerKey == "user-agent") {
         userAgent = header.second;
         break;
@@ -520,15 +548,17 @@ private:
     }
 
     std::string lower = input;
-    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    std::transform(
+        lower.begin(), lower.end(), lower.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
     int score = 0;
 
     // Check for SQL keywords with word boundaries (more precise)
-    std::vector<std::string> sqlKeywords = {
-        "\\bselect\\b", "\\binsert\\b", "\\bupdate\\b",   "\\bdelete\\b",
-        "\\bdrop\\b",   "\\bunion\\b",  "\\bexec\\b",     "\\bscript\\b",
-        "\\balter\\b",  "\\bcreate\\b", "\\btruncate\\b", "\\bexec\\b"};
+    static const std::vector<std::string> sqlKeywords = {
+        "\\bselect\\b", "\\binsert\\b", "\\bupdate\\b",  "\\bdelete\\b",
+        "\\bdrop\\b",   "\\bunion\\b",  "\\bexec\\b",    "\\bscript\\b",
+        "\\balter\\b",  "\\bcreate\\b", "\\btruncate\\b"};
 
     for (const auto &pattern : sqlKeywords) {
       std::regex regex(pattern, std::regex_constants::icase);
@@ -538,43 +568,42 @@ private:
     }
 
     // Enhanced SQL injection patterns with better context
-    std::vector<std::string> sqlPatterns = {
-        "select\\s+.*\\s+from\\s+",      // SELECT ... FROM with spaces
-        "union\\s+(all\\s+)?select\\s+", // UNION SELECT patterns
-        "drop\\s+table\\s+",             // DROP TABLE
-        "insert\\s+into\\s+",            // INSERT INTO
-        "update\\s+.*\\s+set\\s+",       // UPDATE ... SET
-        "delete\\s+from\\s+",            // DELETE FROM
-        "';\\s*drop\\s+",                // Classic ' ; DROP
-        "';\\s*--",                      // Comment injection
-        "/\\*.*\\*/",                    // Block comments
-        "1\\s*=\\s*1",                   // Tautology 1=1
-        "or\\s+1\\s*=\\s*1",             // OR 1=1
-        "and\\s+1\\s*=\\s*1",            // AND 1=1
-        "exec\\s*\\(",                   // EXEC function calls
-        "xp_cmdshell",                   // SQL Server system procedures
-        "sp_executesql",                 // Dynamic SQL execution
-        "information_schema",            // Metadata access
-        "sysobjects",                    // System table access
-        "having\\s+1\\s*=\\s*1",         // HAVING clause injection
-        "group\\s+by\\s+.*\\s+having",   // GROUP BY ... HAVING
-        "order\\s+by\\s+.*\\s*--",       // ORDER BY with comment
-        "waitfor\\s+delay",              // Time-based injection
-        "benchmark\\s*\\(",              // MySQL benchmark function
-        "sleep\\s*\\(",                  // Sleep function injection
-        "load_file\\s*\\(",              // File reading functions
-        "into\\s+outfile",               // File writing
-        "declare\\s+.*\\s+cursor",       // Cursor declarations
-        "open\\s+.*\\s+cursor",          // Cursor operations
-        "fetch\\s+.*\\s+from",           // Cursor fetching
-        "shutdown",                      // Database shutdown
-        "backup\\s+database",            // Database backup commands
-        "restore\\s+database"            // Database restore commands
+    static const std::vector<std::regex> kSqlPatterns = {
+        std::regex(R"(select\s+.*\s+from\s+)", std::regex::icase),
+        std::regex(R"(union\s+(all\s+)?select\s+)", std::regex::icase),
+        std::regex(R"(drop\s+table\s+)", std::regex::icase),
+        std::regex(R"(insert\s+into\s+)", std::regex::icase),
+        std::regex(R"(update\s+.*\s+set\s+)", std::regex::icase),
+        std::regex(R"(delete\s+from\s+)", std::regex::icase),
+        std::regex(R"(';\s*drop\s+)", std::regex::icase),
+        std::regex(R"(';\s*--)", std::regex::icase),
+        std::regex(R"(/\*.*\*/)", std::regex::icase),
+        std::regex(R"(1\s*=\s*1)", std::regex::icase),
+        std::regex(R"(or\s+1\s*=\s*1)", std::regex::icase),
+        std::regex(R"(and\s+1\s*=\s*1)", std::regex::icase),
+        std::regex(R"(exec\s*\()", std::regex::icase),
+        std::regex(R"(xp_cmdshell)", std::regex::icase),
+        std::regex(R"(sp_executesql)", std::regex::icase),
+        std::regex(R"(information_schema)", std::regex::icase),
+        std::regex(R"(sysobjects)", std::regex::icase),
+        std::regex(R"(having\s+1\s*=\s*1)", std::regex::icase),
+        std::regex(R"(group\s+by\s+.*\s+having)", std::regex::icase),
+        std::regex(R"(order\s+by\s+.*\s*--)", std::regex::icase),
+        std::regex(R"(waitfor\s+delay)", std::regex::icase),
+        std::regex(R"(benchmark\s*\()", std::regex::icase),
+        std::regex(R"(sleep\s*\()", std::regex::icase),
+        std::regex(R"(load_file\s*\()", std::regex::icase),
+        std::regex(R"(into\s+outfile)", std::regex::icase),
+        std::regex(R"(declare\s+.*\s+cursor)", std::regex::icase),
+        std::regex(R"(open\s+.*\s+cursor)", std::regex::icase),
+        std::regex(R"(fetch\s+.*\s+from)", std::regex::icase),
+        std::regex(R"(shutdown)", std::regex::icase),
+        std::regex(R"(backup\s+database)", std::regex::icase),
+        std::regex(R"(restore\s+database)", std::regex::icase),
     };
 
-    for (const auto &pattern : sqlPatterns) {
-      std::regex regex(pattern, std::regex_constants::icase);
-      if (std::regex_search(lower, regex)) {
+    for (const auto &rx : kSqlPatterns) {
+      if (std::regex_search(lower, rx)) {
         score += 2; // Higher weight for complex patterns
       }
     }
@@ -647,7 +676,9 @@ private:
    */
   bool checkForXss(const std::string &input) {
     std::string lower = input;
-    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    std::transform(
+        lower.begin(), lower.end(), lower.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
     std::vector<std::string> xssPatterns = {
         "<script",  "</script>", "javascript:",     "onload=",       "onerror=",
@@ -677,7 +708,9 @@ private:
    */
   bool isSuspiciousUserAgent(const std::string &userAgent) {
     std::string lower = userAgent;
-    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    std::transform(
+        lower.begin(), lower.end(), lower.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
     std::vector<std::string> suspiciousPatterns = {"sqlmap",  "nikto", "nmap",
                                                    "masscan", "zap",   "burp"};

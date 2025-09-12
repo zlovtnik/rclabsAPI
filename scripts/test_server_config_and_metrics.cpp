@@ -2,9 +2,10 @@
 #include "../include/server_config.hpp"
 #include <cassert>
 #include <chrono>
+#include <exception>
 #include <iostream>
 #include <thread>
-
+#include <vector>
 /**
  * @brief Test program for ServerConfig and PerformanceMonitor functionality
  *

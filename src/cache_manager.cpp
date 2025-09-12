@@ -454,11 +454,10 @@ void CacheManager::warmupCache(DatabaseManager *dbManager) {
     // Use parameterized query for safe integer binding
     std::string query =
         "SELECT DISTINCT key_name, data_type FROM cache_access_log "
-        "ORDER BY access_count DESC LIMIT $1";
+        "ORDER BY access_count DESC LIMIT $1::bigint";
     std::vector<std::string> params = {std::to_string(safeMaxKeys)};
 
     auto results = dbManager->selectQuery(query, params);
-
     if (results.empty()) {
       WS_LOG_INFO("No frequently accessed keys found for warmup");
       return;
