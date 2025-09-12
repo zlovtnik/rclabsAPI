@@ -23,7 +23,7 @@ public:
   // User management
   bool createUser(const std::string &username, const std::string &email,
                   const std::string &password);
-  bool authenticateUser(std::string_view username) const;
+  bool userExists(std::string_view username) const;
   bool authenticateUser(std::string_view username,
                         std::string_view password) const;
   bool updateUser(const std::string &userId, const User &updatedUser);
