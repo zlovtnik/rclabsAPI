@@ -4,7 +4,6 @@
 #include <chrono>
 #include <ctime>
 #include <iomanip>
-#include <pqxx/pqxx>
 #include <sstream>
 
 ETLJobRepository::ETLJobRepository(std::shared_ptr<DatabaseManager> dbManager)
@@ -451,7 +450,9 @@ JobStatus ETLJobRepository::stringToJobStatus(const std::string &str) {
     return JobStatus::FAILED;
   if (str == "CANCELLED")
     return JobStatus::CANCELLED;
-  return JobStatus::PENDING; // Default
+
+  ETL_LOG_WARN("Unknown job status string: " + str + ", defaulting to PENDING");
+  return JobStatus::PENDING; // Default with warning
 }
 
 std::string ETLJobRepository::jobTypeToString(JobType type) {
