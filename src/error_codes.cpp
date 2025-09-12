@@ -314,7 +314,7 @@ std::string getMigrationInfo(LegacyErrorCode legacyCode) {
 
   std::string info =
       "Legacy code " + std::to_string(static_cast<int>(legacyCode)) +
-      " migrates to " + std::to_string(static_cast<int>(newCode)) + " (" +
+      " migrates to " + errorCodeToString(newCode) + " (" +
       getErrorCodeDescription(newCode) + ")";
 
   // Add specific migration notes for consolidated codes
