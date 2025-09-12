@@ -340,8 +340,17 @@ int main() {
   // Create multiple concurrent transactions
   for (int i = 0; i < 3; ++i) {
     transactions.emplace_back([&account, i]() {
-      account.deposit(100.0 + i * 10);
-      account.withdraw(50.0 + i * 5);
+      try {
+        account.deposit(100.0 + i * 10);
+        account.withdraw(50.0 + i * 5);
+      } catch (const LockTimeoutException &e) {
+        std::cerr << "Thread " << i
+                  << " failed due to lock timeout: " << e.what() << std::endl;
+        // Continue with other operations or abort gracefully
+      } catch (const std::exception &e) {
+        std::cerr << "Thread " << i
+                  << " failed with unexpected error: " << e.what() << std::endl;
+      }
     });
   }
 
@@ -360,19 +369,35 @@ int main() {
   // Worker threads that acquire and release connections
   for (int i = 0; i < 3; ++i) {
     workers.emplace_back([&pool, i]() {
-      std::string conn = pool.acquireConnection();
-      if (!conn.empty()) {
-        // Simulate work with connection
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        pool.releaseConnection(conn);
+      try {
+        std::string conn = pool.acquireConnection();
+        if (!conn.empty()) {
+          // Simulate work with connection
+          std::this_thread::sleep_for(std::chrono::milliseconds(50));
+          pool.releaseConnection(conn);
+        }
+      } catch (const LockTimeoutException &e) {
+        std::cerr << "Worker thread " << i
+                  << " failed due to lock timeout: " << e.what() << std::endl;
+      } catch (const std::exception &e) {
+        std::cerr << "Worker thread " << i
+                  << " failed with unexpected error: " << e.what() << std::endl;
       }
     });
   }
 
   // Configuration update thread
   workers.emplace_back([&pool]() {
-    std::this_thread::sleep_for(std::chrono::milliseconds(25));
-    pool.updateConfig(15, 3000);
+    try {
+      std::this_thread::sleep_for(std::chrono::milliseconds(25));
+      pool.updateConfig(15, 3000);
+    } catch (const LockTimeoutException &e) {
+      std::cerr << "Config update thread failed due to lock timeout: "
+                << e.what() << std::endl;
+    } catch (const std::exception &e) {
+      std::cerr << "Config update thread failed with unexpected error: "
+                << e.what() << std::endl;
+    }
   });
 
   for (auto &w : workers) {

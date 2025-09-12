@@ -108,7 +108,7 @@ public:
   void unregisterConfigChangeCallback(const std::string &section);
 
   // Get raw JSON configuration
-  nlohmann::json getJsonConfig() const;
+  const nlohmann::json &getJsonConfig() const;
 
   // Configuration access with validation
   template <typename T>
@@ -131,6 +131,7 @@ private:
                      std::equal_to<>>
       changeCallbacks;
   std::string configFilePath;
+  nlohmann::json rawConfig_; // Store the raw JSON configuration
 
   bool parseConfigFile(const std::string &configPath);
   void flattenJson(const nlohmann::json &json, const std::string &prefix,

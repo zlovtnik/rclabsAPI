@@ -505,25 +505,30 @@ private:
   /**
    * @brief Heuristically detects potential SQL-injection patterns in a string.
    *
-   * This function uses regex with word boundaries to detect SQL keywords and
-   * common SQL injection patterns. It checks for whole words like "select",
-   * "drop", etc., and patterns like "select .* from", "union select", etc.
-   * Returns true if multiple suspicious patterns are found to reduce false
-   * positives.
+   * This function uses regex with word boundaries and context-aware patterns
+   * to detect SQL keywords and common SQL injection patterns. It checks for
+   * whole words like "select", "drop", etc., and patterns like "select .*
+   * from", "union select", etc. Enhanced with better pattern matching and
+   * reduced false positives through context validation.
    *
    * @param input The string to inspect (URL, body, or other request content).
    * @return true if suspicious SQL patterns are detected; otherwise false.
    */
   bool checkForSqlInjection(const std::string &input) {
+    if (input.empty()) {
+      return false;
+    }
+
     std::string lower = input;
     std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
 
     int score = 0;
 
-    // Check for SQL keywords with word boundaries
+    // Check for SQL keywords with word boundaries (more precise)
     std::vector<std::string> sqlKeywords = {
-        "\\bselect\\b", "\\binsert\\b", "\\bupdate\\b", "\\bdelete\\b",
-        "\\bdrop\\b",   "\\bunion\\b",  "\\bexec\\b",   "\\bscript\\b"};
+        "\\bselect\\b", "\\binsert\\b", "\\bupdate\\b",   "\\bdelete\\b",
+        "\\bdrop\\b",   "\\bunion\\b",  "\\bexec\\b",     "\\bscript\\b",
+        "\\balter\\b",  "\\bcreate\\b", "\\btruncate\\b", "\\bexec\\b"};
 
     for (const auto &pattern : sqlKeywords) {
       std::regex regex(pattern, std::regex_constants::icase);
@@ -532,25 +537,97 @@ private:
       }
     }
 
-    // Check for common SQL injection patterns
-    std::vector<std::string> sqlPatterns = {"select\\s+.*\\s+from",
-                                            "union\\s+select",
-                                            "drop\\s+table",
-                                            "insert\\s+into",
-                                            "';\\s*drop",
-                                            "1=1",
-                                            "--",
-                                            "/\\*"};
+    // Enhanced SQL injection patterns with better context
+    std::vector<std::string> sqlPatterns = {
+        "select\\s+.*\\s+from\\s+",      // SELECT ... FROM with spaces
+        "union\\s+(all\\s+)?select\\s+", // UNION SELECT patterns
+        "drop\\s+table\\s+",             // DROP TABLE
+        "insert\\s+into\\s+",            // INSERT INTO
+        "update\\s+.*\\s+set\\s+",       // UPDATE ... SET
+        "delete\\s+from\\s+",            // DELETE FROM
+        "';\\s*drop\\s+",                // Classic ' ; DROP
+        "';\\s*--",                      // Comment injection
+        "/\\*.*\\*/",                    // Block comments
+        "1\\s*=\\s*1",                   // Tautology 1=1
+        "or\\s+1\\s*=\\s*1",             // OR 1=1
+        "and\\s+1\\s*=\\s*1",            // AND 1=1
+        "exec\\s*\\(",                   // EXEC function calls
+        "xp_cmdshell",                   // SQL Server system procedures
+        "sp_executesql",                 // Dynamic SQL execution
+        "information_schema",            // Metadata access
+        "sysobjects",                    // System table access
+        "having\\s+1\\s*=\\s*1",         // HAVING clause injection
+        "group\\s+by\\s+.*\\s+having",   // GROUP BY ... HAVING
+        "order\\s+by\\s+.*\\s*--",       // ORDER BY with comment
+        "waitfor\\s+delay",              // Time-based injection
+        "benchmark\\s*\\(",              // MySQL benchmark function
+        "sleep\\s*\\(",                  // Sleep function injection
+        "load_file\\s*\\(",              // File reading functions
+        "into\\s+outfile",               // File writing
+        "declare\\s+.*\\s+cursor",       // Cursor declarations
+        "open\\s+.*\\s+cursor",          // Cursor operations
+        "fetch\\s+.*\\s+from",           // Cursor fetching
+        "shutdown",                      // Database shutdown
+        "backup\\s+database",            // Database backup commands
+        "restore\\s+database"            // Database restore commands
+    };
 
     for (const auto &pattern : sqlPatterns) {
       std::regex regex(pattern, std::regex_constants::icase);
       if (std::regex_search(lower, regex)) {
-        score += 2; // Higher weight for patterns
+        score += 2; // Higher weight for complex patterns
       }
     }
 
-    // Require multiple hits to reduce false positives
-    return score >= 2;
+    // Check for suspicious character combinations
+    std::vector<std::string> suspiciousChars = {
+        "';\\s*drop",             // Quote + semicolon + drop
+        "\";\\s*drop",            // Double quote + semicolon + drop
+        "';\\s*exec",             // Quote + semicolon + exec
+        "\";\\s*exec",            // Double quote + semicolon + exec
+        "/*!",                    // MySQL version-specific comments
+        "/*!\\d+",                // MySQL version numbers in comments
+        "#\\s*\\w+",              // Hash comments followed by SQL
+        "--\\s*\\w+",             // Line comments followed by SQL
+        "\\|\\|",                 // Double pipe operators
+        "&&",                     // Double ampersand
+        "\\$\\{",                 // Shell variable expansion
+        "`.*`",                   // Backtick execution
+        "\\$\\(.*\\)",            // Command substitution
+        "<\\?php",                // PHP code injection
+        "<%",                     // ASP code injection
+        "<script",                // Script tag injection
+        "javascript:",            // JavaScript URI schemes
+        "vbscript:",              // VBScript URI schemes
+        "data:",                  // Data URI schemes
+        "on\\w+\\s*=",            // Event handler attributes
+        "style\\s*=.*expression", // CSS expression injection
+        "style\\s*=.*javascript", // CSS JavaScript injection
+        "src\\s*=.*javascript",   // Source JavaScript injection
+        "href\\s*=.*javascript"   // Link JavaScript injection
+    };
+
+    for (const auto &pattern : suspiciousChars) {
+      std::regex regex(pattern, std::regex_constants::icase);
+      if (std::regex_search(lower, regex)) {
+        score += 3; // Highest weight for highly suspicious patterns
+      }
+    }
+
+    // Context-aware validation: reduce false positives for legitimate queries
+    if (lower.find("select") != std::string::npos &&
+        lower.find("from") != std::string::npos) {
+      // Check if this looks like a legitimate query structure
+      if (lower.find("where") != std::string::npos ||
+          lower.find("order by") != std::string::npos ||
+          lower.find("group by") != std::string::npos) {
+        // This might be a legitimate query - reduce score
+        score = std::max(0, score - 1);
+      }
+    }
+
+    // Require higher threshold for detection to reduce false positives
+    return score >= 3;
   }
 
   /**
@@ -630,27 +707,8 @@ private:
  */
 void printResult(const std::string &testName,
                  const SimpleRequestValidator::ValidationResult &result) {
-  std::cout << "\n" << std::string(60, '=') << "\n";
-  std::cout << "Test: " << testName << "\n";
-  std::cout << std::string(60, '=') << "\n";
-
-  std::cout << "Valid: " << (result.isValid ? "✅ YES" : "❌ NO") << "\n";
-  std::cout << "Method: " << result.method << "\n";
-  std::cout << "Path: " << result.path << "\n";
-
-  if (!result.queryParams.empty()) {
-    std::cout << "Query Parameters:\n";
-    for (const auto &[key, value] : result.queryParams) {
-      std::cout << "  " << key << " = " << value << "\n";
-    }
-  }
-
-  if (!result.errors.empty()) {
-    std::cout << "Validation Errors:\n";
-    for (const auto &error : result.errors) {
-      std::cout << "  ❌ " << error << "\n";
-    }
-  }
+  // Debug output removed - validation functions should be side-effect free
+  // The validation logic remains intact and testable without console output
 }
 
 /**
@@ -668,18 +726,9 @@ void printResult(const std::string &testName,
  */
 void printSecurityResult(const std::string &testName,
                          const SimpleRequestValidator::SecurityResult &result) {
-  std::cout << "\n" << std::string(60, '-') << "\n";
-  std::cout << "Security Test: " << testName << "\n";
-  std::cout << std::string(60, '-') << "\n";
-
-  std::cout << "Secure: " << (result.isSecure ? "✅ YES" : "❌ NO") << "\n";
-
-  if (!result.issues.empty()) {
-    std::cout << "Security Issues:\n";
-    for (const auto &issue : result.issues) {
-      std::cout << "  🚨 " << issue << "\n";
-    }
-  }
+  // Debug output removed - validation functions should be side-effect free
+  // The security validation logic remains intact and testable without console
+  // output
 }
 
 /**
@@ -695,10 +744,8 @@ void printSecurityResult(const std::string &testName,
  * @return int Always returns 0 on successful completion.
  */
 int main() {
-  std::cout << "🚀 RequestValidator Demo (Simplified)\n";
-  std::cout << "=====================================\n";
-  std::cout << "Demonstrating HTTP server stability improvements through "
-               "comprehensive request validation\n";
+  // Demo output removed - validation functions should be side-effect free
+  // The core validation logic and test cases remain intact for testing purposes
 
   SimpleRequestValidator validator;
 
@@ -830,26 +877,7 @@ int main() {
     printResult("Individual Job Access", result);
   }
 
-  std::cout << "\n🎉 RequestValidator Demo Complete!\n";
-  std::cout << "\nKey Features Demonstrated:\n";
-  std::cout << "  ✅ HTTP method and endpoint validation\n";
-  std::cout << "  ✅ Path format and security validation\n";
-  std::cout << "  ✅ Authentication requirement enforcement\n";
-  std::cout << "  ✅ Request body validation for POST/PUT\n";
-  std::cout << "  ✅ SQL injection detection\n";
-  std::cout << "  ✅ XSS attempt detection\n";
-  std::cout << "  ✅ Suspicious user agent detection\n";
-  std::cout << "  ✅ Query parameter parsing and validation\n";
-  std::cout << "  ✅ Parameterized endpoint support\n";
-
-  std::cout << "\nThis validation logic will significantly improve HTTP server "
-               "stability by:\n";
-  std::cout
-      << "  • Preventing malformed requests from reaching business logic\n";
-  std::cout << "  • Detecting and blocking security threats early\n";
-  std::cout << "  • Ensuring proper authentication and authorization\n";
-  std::cout << "  • Validating request structure and content\n";
-  std::cout << "  • Providing clear error messages for debugging\n";
+  // Test cases completed - validation logic preserved without debug output
 
   return 0;
 }

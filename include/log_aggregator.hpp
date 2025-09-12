@@ -14,6 +14,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "logger.hpp"
@@ -141,6 +142,45 @@ private:
   }
 };
 
+// RAII wrapper for CURL handles
+class CurlHandle {
+public:
+  CurlHandle() : handle_(curl_easy_init()) {
+    if (!handle_) {
+      throw std::runtime_error("Failed to initialize CURL handle");
+    }
+  }
+
+  CurlHandle(const CurlHandle &) = delete;
+  CurlHandle &operator=(const CurlHandle &) = delete;
+
+  CurlHandle(CurlHandle &&other) noexcept : handle_(other.handle_) {
+    other.handle_ = nullptr;
+  }
+
+  CurlHandle &operator=(CurlHandle &&other) noexcept {
+    if (this != &other) {
+      if (handle_) {
+        curl_easy_cleanup(handle_);
+      }
+      handle_ = other.handle_;
+      other.handle_ = nullptr;
+    }
+    return *this;
+  }
+
+  ~CurlHandle() {
+    if (handle_) {
+      curl_easy_cleanup(handle_);
+    }
+  }
+
+  CURL *get() const { return handle_; }
+
+private:
+  CURL *handle_;
+};
+
 // Main log aggregator class
 class LogAggregator {
 public:
@@ -246,7 +286,7 @@ private:
   AggregatorStats stats_;
 
   // CURL handle for HTTP requests
-  CURL *curl_handle_;
+  CurlHandle curl_handle_;
 
   // File streams for file destinations
   std::unordered_map<std::string, std::ofstream> file_streams_;

@@ -34,14 +34,10 @@ bool LogAggregator::initialize() {
     return true; // Already initialized
   }
 
-  // Initialize CURL
+  // Initialize CURL global state
   curl_global_init(CURL_GLOBAL_DEFAULT);
-  curl_handle_ = curl_easy_init();
 
-  if (!curl_handle_) {
-    std::cerr << "Failed to initialize CURL for log aggregation" << std::endl;
-    return false;
-  }
+  // CURL handle is automatically initialized by CurlHandle RAII wrapper
 
   // Start processing thread
   running_ = true;
@@ -74,11 +70,7 @@ void LogAggregator::shutdown() {
   }
 
   // Cleanup CURL
-  if (curl_handle_) {
-    curl_easy_cleanup(curl_handle_);
-    curl_handle_ = nullptr;
-  }
-
+  // CurlHandle automatically cleans up the CURL handle
   curl_global_cleanup();
   running_ = false;
 }
@@ -212,7 +204,7 @@ bool LogAggregator::shipToDestination(
 bool LogAggregator::shipToElasticsearch(
     const LogDestinationConfig &dest,
     const std::vector<StructuredLogEntry> &batch) {
-  if (!curl_handle_)
+  if (!curl_handle_.get())
     return false;
 
   // Create bulk request body
@@ -242,7 +234,7 @@ bool LogAggregator::shipToElasticsearch(
 bool LogAggregator::shipToHttpEndpoint(
     const LogDestinationConfig &dest,
     const std::vector<StructuredLogEntry> &batch) {
-  if (!curl_handle_)
+  if (!curl_handle_.get())
     return false;
 
   // Create JSON array of log entries
@@ -334,7 +326,7 @@ bool LogAggregator::shipToCloudWatch(
     const std::vector<StructuredLogEntry> &batch) {
   // Note: This is a simplified implementation
   // In a real implementation, you'd use AWS SDK for CloudWatch Logs
-  if (!curl_handle_)
+  if (!curl_handle_.get())
     return false;
 
   nlohmann::json cloudwatch_batch = {{"logGroupName", "etlplus-logs"},
@@ -362,7 +354,7 @@ bool LogAggregator::shipToCloudWatch(
 
 bool LogAggregator::shipToSplunk(const LogDestinationConfig &dest,
                                  const std::vector<StructuredLogEntry> &batch) {
-  if (!curl_handle_)
+  if (!curl_handle_.get())
     return false;
 
   // Create JSON array for Splunk HEC
@@ -387,19 +379,19 @@ bool LogAggregator::makeHttpRequest(
     const std::string &url, const std::string &method, const std::string &data,
     const std::unordered_map<std::string, std::string> &headers,
     std::string &response) {
-  if (!curl_handle_)
+  if (!curl_handle_.get())
     return false;
 
-  curl_easy_reset(curl_handle_);
+  curl_easy_reset(curl_handle_.get());
 
   // Set URL
-  curl_easy_setopt(curl_handle_, CURLOPT_URL, url.c_str());
+  curl_easy_setopt(curl_handle_.get(), CURLOPT_URL, url.c_str());
 
   // Set method
   if (method == "POST") {
-    curl_easy_setopt(curl_handle_, CURLOPT_POST, 1L);
-    curl_easy_setopt(curl_handle_, CURLOPT_POSTFIELDS, data.c_str());
-    curl_easy_setopt(curl_handle_, CURLOPT_POSTFIELDSIZE, data.length());
+    curl_easy_setopt(curl_handle_.get(), CURLOPT_POST, 1L);
+    curl_easy_setopt(curl_handle_.get(), CURLOPT_POSTFIELDS, data.c_str());
+    curl_easy_setopt(curl_handle_.get(), CURLOPT_POSTFIELDSIZE, data.length());
   }
 
   // Set headers
@@ -408,18 +400,18 @@ bool LogAggregator::makeHttpRequest(
     std::string header = key + ": " + value;
     header_list = curl_slist_append(header_list, header.c_str());
   }
-  curl_easy_setopt(curl_handle_, CURLOPT_HTTPHEADER, header_list);
+  curl_easy_setopt(curl_handle_.get(), CURLOPT_HTTPHEADER, header_list);
 
   // Set response callback
-  curl_easy_setopt(curl_handle_, CURLOPT_WRITEFUNCTION, writeCallback);
-  curl_easy_setopt(curl_handle_, CURLOPT_WRITEDATA, &response);
+  curl_easy_setopt(curl_handle_.get(), CURLOPT_WRITEFUNCTION, writeCallback);
+  curl_easy_setopt(curl_handle_.get(), CURLOPT_WRITEDATA, &response);
 
   // Set timeouts
-  curl_easy_setopt(curl_handle_, CURLOPT_TIMEOUT, 30L);
-  curl_easy_setopt(curl_handle_, CURLOPT_CONNECTTIMEOUT, 10L);
+  curl_easy_setopt(curl_handle_.get(), CURLOPT_TIMEOUT, 30L);
+  curl_easy_setopt(curl_handle_.get(), CURLOPT_CONNECTTIMEOUT, 10L);
 
   // Perform request
-  CURLcode res = curl_easy_perform(curl_handle_);
+  CURLcode res = curl_easy_perform(curl_handle_.get());
 
   // Cleanup
   if (header_list) {

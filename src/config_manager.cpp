@@ -79,29 +79,11 @@ double ConfigManager::getDouble(const std::string &key,
   return defaultValue;
 }
 
-nlohmann::json ConfigManager::getJsonConfig() const {
+const nlohmann::json &ConfigManager::getJsonConfig() const {
   etl_plus::ScopedTimedLock<std::timed_mutex> lock(
       configMutex, std::chrono::milliseconds(5000), "configMutex");
 
-  // Re-parse the config file to get the raw JSON
-  if (configFilePath.empty()) {
-    return nlohmann::json();
-  }
-
-  std::ifstream file(configFilePath);
-  if (!file.is_open()) {
-    return nlohmann::json();
-  }
-
-  try {
-    nlohmann::json jsonConfig;
-    file >> jsonConfig;
-    return jsonConfig;
-  } catch (const std::exception &e) {
-    LOG_ERROR("ConfigManager", "Failed to parse JSON config for raw access: " +
-                                   std::string(e.what()));
-    return nlohmann::json();
-  }
+  return rawConfig_;
 }
 
 std::unordered_set<std::string, TransparentStringHash, std::equal_to<>>
@@ -428,6 +410,9 @@ bool ConfigManager::parseConfigFile(const std::string &configPath) {
   try {
     nlohmann::json jsonConfig;
     file >> jsonConfig;
+
+    // Store the raw JSON configuration
+    rawConfig_ = jsonConfig;
 
     // Clear existing config data
     configData.clear();

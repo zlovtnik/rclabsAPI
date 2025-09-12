@@ -38,11 +38,10 @@ void example_direct_template_usage() {
       "Failed to process record: {}", "job_123", "invalid_data");
 
   // Context-aware logging
-  std::unordered_map<std::string, std::string, TransparentStringHash,
-                     std::equal_to<>>
-      context = {{"user_id", "12345"},
-                 {"session_id", "abc-def-ghi"},
-                 {"operation", "data_transform"}};
+  std::unordered_map<std::string, std::string> context = {
+      {"user_id", "12345"},
+      {"session_id", "abc-def-ghi"},
+      {"operation", "data_transform"}};
   etl::ComponentLogger<etl::DataTransformer>::infoWithContext(
       "Data transformation completed", context);
 }
