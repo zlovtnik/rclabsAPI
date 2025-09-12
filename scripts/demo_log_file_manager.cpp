@@ -5,6 +5,20 @@
 #include <iostream>
 #include <thread>
 
+/**
+ * @brief Demo program that exercises LogFileManager end-to-end.
+ *
+ * Configures a LogFileManager, ensures demo directories exist, initializes the
+ * default log file, writes multiple messages to trigger rotation, lists current
+ * and archived files, forces a rotation, archives a test file (with optional
+ * compression according to configuration), prints observed metrics, and
+ * performs cleanup of temporary files.
+ *
+ * The program prints progress to stdout/stderr and returns 0 on success.
+ * Returns 1 if the log file manager fails to initialize.
+ *
+ * @return int Exit status (0 = success, 1 = initialization failure).
+ */
 int main() {
   std::cout << "=== LogFileManager Demo ===" << std::endl;
 

@@ -6,7 +6,21 @@
 
 namespace http = boost::beast::http;
 
-// Helper function to create HTTP requests for testing
+/**
+ * @brief Construct a Boost.Beast HTTP request suitable for tests.
+ *
+ * Creates an http::request<string_body> with the given HTTP method and target,
+ * sets HTTP/1.1, assigns the optional body, applies any provided headers, and
+ * calls prepare_payload() before returning.
+ *
+ * @param method HTTP method name ("GET", "POST", "PUT", "DELETE", "PATCH").
+ *               Comparison is case-sensitive and unrecognized values leave the
+ *               request method unset.
+ * @param target Request target (path and optional query string), e.g. "/api/health".
+ * @param body Optional request body; assigned to the request's string_body.
+ * @param headers Optional list of header name/value pairs to set on the request.
+ * @return http::request<http::string_body> Fully prepared request ready for use.
+ */
 http::request<http::string_body> createTestRequest(
     const std::string &method, const std::string &target,
     const std::string &body = "",
@@ -39,6 +53,18 @@ http::request<http::string_body> createTestRequest(
   return req;
 }
 
+/**
+ * @brief Print a formatted summary of a validation result to standard output.
+ *
+ * Prints a human-readable report for a single test run: test header, overall validity,
+ * HTTP method, extracted path, query parameters (if any), up to the first five headers,
+ * validation errors (if any), and the full JSON representation produced by
+ * RequestValidator::ValidationResult::toJsonString().
+ *
+ * @param testName Descriptive name of the test displayed in the report header.
+ * @param result Validation result produced by RequestValidator; its contents are read
+ *               and rendered (including queryParams, headers, errors and toJsonString()).
+ */
 void printValidationResult(const std::string &testName,
                            const RequestValidator::ValidationResult &result) {
   std::cout << "\n" << std::string(60, '=') << "\n";
@@ -77,6 +103,16 @@ void printValidationResult(const std::string &testName,
   std::cout << "\nJSON Result: " << result.toJsonString() << "\n";
 }
 
+/**
+ * @brief Print a formatted summary of a security validation result to stdout.
+ *
+ * Prints a header with the provided test name, whether the request was considered secure,
+ * the client IP and user agent, the rate-limit status, and any detected security issues.
+ * Output is written to std::cout.
+ *
+ * @param testName Short label for the test shown in the printed header.
+ * @param result Security validation result produced by RequestValidator.
+ */
 void printSecurityResult(
     const std::string &testName,
     const RequestValidator::SecurityValidationResult &result) {
@@ -98,6 +134,22 @@ void printSecurityResult(
   }
 }
 
+/**
+ * @brief Demo harness that exercises the RequestValidator and its utilities.
+ *
+ * Runs a sequence of validation and security test cases against a RequestValidator
+ * instance configured with sample limits and protections (size, headers,
+ * query params, XSS/SQL protections, and rate limiting). The demo builds and
+ * validates example HTTP requests (valid and invalid), performs security
+ * checks, simulates rate-limiting from a client IP, prints formatted results
+ * and final statistics, and demonstrates path-parsing helper methods.
+ *
+ * The function prints human-readable output to stdout describing each test's
+ * outcome and the final summary; it does not modify external state beyond
+ * console output.
+ *
+ * @return int Exit status code (0 on successful completion of the demo).
+ */
 int main() {
   std::cout << "🚀 RequestValidator Demo\n";
   std::cout << "========================\n";

@@ -5,7 +5,13 @@
 #include <memory>
 #include <unordered_map>
 
-// Test helper functions and string conversion utilities
+/**
+ * @brief Run basic unit tests for helper validations and string utilities.
+ *
+ * Verifies that InputValidator::isValidJobId accepts valid job IDs (e.g. "job_123", "JOB_456")
+ * and rejects invalid ones (empty string, strings containing '/'). Prints a start message
+ * and a success message to stdout. Uses assertions and will abort the test run on failure.
+ */
 void testHelperFunctions() {
   std::cout << "Testing helper functions..." << std::endl;
 
@@ -18,6 +24,15 @@ void testHelperFunctions() {
   std::cout << "✓ Helper functions test passed" << std::endl;
 }
 
+/**
+ * @brief Runs unit tests for monitoring-parameter input validation.
+ *
+ * Executes a set of assertions that exercise InputValidator::validateMonitoringParams
+ * with representative parameter maps: a valid set, an invalid status, a non-numeric
+ * limit, and a limit value outside the allowed range. The function prints progress
+ * messages to stdout and uses assertions to enforce expected outcomes; assertion
+ * failures will terminate the test run.
+ */
 void testInputValidation() {
   std::cout << "Testing input validation for monitoring parameters..."
             << std::endl;
@@ -59,6 +74,16 @@ void testInputValidation() {
   std::cout << "✓ Input validation test passed" << std::endl;
 }
 
+/**
+ * @brief Runs unit tests for metrics query parameter validation.
+ *
+ * Exercises InputValidator::validateMetricsParams with representative inputs:
+ * - a valid parameters set (expects valid)
+ * - a parameters set with an invalid `metric_type` (expects invalid)
+ * - a parameters set with an invalid `time_range` (expects invalid)
+ *
+ * Uses assertions to enforce expected outcomes; a failed assertion will abort the test run.
+ */
 void testMetricsParamsValidation() {
   std::cout << "Testing metrics parameters validation..." << std::endl;
 
@@ -112,6 +137,15 @@ void testPathValidation() {
   std::cout << "✓ Path validation test passed" << std::endl;
 }
 
+/**
+ * @brief Runs unit tests for job query parameter validation.
+ *
+ * Executes positive and negative assertions against InputValidator::validateJobQueryParams:
+ * - verifies that a well-formed query map (status, limit, offset, job_id) is accepted,
+ * - verifies that invalid status and non-numeric limit are rejected.
+ *
+ * The function prints progress to stdout and uses assert(), so failures will abort the test run.
+ */
 void testJobQueryValidation() {
   std::cout << "Testing job query parameters validation..." << std::endl;
 
@@ -135,6 +169,14 @@ void testJobQueryValidation() {
   std::cout << "✓ Job query validation test passed" << std::endl;
 }
 
+/**
+ * @brief Runs assertions verifying HTTP method validation logic.
+ *
+ * Executes a set of assertions against InputValidator::isValidHttpMethod to
+ * confirm that recognized methods (e.g., "GET", "POST") are accepted when
+ * included in the allowed set and that unrecognized or disallowed methods are
+ * rejected. Aborts the test run on assertion failure.
+ */
 void testHTTPMethodValidation() {
   std::cout << "Testing HTTP method validation..." << std::endl;
 
@@ -152,6 +194,18 @@ void testHTTPMethodValidation() {
   std::cout << "✓ HTTP method validation test passed" << std::endl;
 }
 
+/**
+ * @brief Runs unit checks for content-type validation in InputValidator.
+ *
+ * Executes a set of assertions that verify known-valid content types
+ * ("application/json", "application/x-www-form-urlencoded",
+ * "application/json; charset=utf-8") are accepted and known-invalid inputs
+ * (empty string, "text/plain", "invalid/type") are rejected.
+ *
+ * Side effects:
+ * - Prints progress and result messages to standard output.
+ * - Uses assert; a failed assertion will abort the test run.
+ */
 void testContentTypeValidation() {
   std::cout << "Testing content type validation..." << std::endl;
 
@@ -169,6 +223,16 @@ void testContentTypeValidation() {
   std::cout << "✓ Content type validation test passed" << std::endl;
 }
 
+/**
+ * @brief Verifies presence and basic behavior of endpoint-specific validators.
+ *
+ * Runs lightweight checks to ensure the monitoring, metrics, and job-query
+ * parameter validators exist and accept an empty parameter set. Uses assertions
+ * to enforce that each validator returns a valid result for an empty map.
+ *
+ * @note This function prints progress to stdout and will abort the process if
+ * any assertion fails.
+ */
 void testAPIEndpointStructure() {
   std::cout << "Testing API endpoint structure requirements..." << std::endl;
 
@@ -190,6 +254,18 @@ void testAPIEndpointStructure() {
   std::cout << "✓ API endpoint structure test passed" << std::endl;
 }
 
+/**
+ * @brief Test runner for enhanced REST API endpoint validation.
+ *
+ * Executes the suite of validation unit tests (helper validations, parameter
+ * validators, path/method/content-type checks and endpoint-specific validators),
+ * prints progress and a summary to standard output, and reports failures to
+ * standard error.
+ *
+ * On success the function prints a summary of implemented endpoints and returns
+ * 0. If any test throws an exception or an assertion fails, the exception is
+ * reported to stderr and the function returns 1.
+ */
 int main() {
   std::cout << "Running Enhanced REST API Endpoints Validation Tests..."
             << std::endl;

@@ -81,12 +81,43 @@ struct LoadTestMetrics {
 
 class LoadTester {
 public:
-  LoadTester(const LoadTestConfig &config) : config_(config) {}
+  /**
+ * @brief Constructs a LoadTester with the given configuration.
+ *
+ * Initializes a LoadTester instance using the provided LoadTestConfig which
+ * determines test parameters (server URL, thread counts, durations, feature
+ * toggles, and report path).
+ *
+ * @param config Configuration values used to drive the load test; stored by copy.
+ */
+LoadTester(const LoadTestConfig &config) : config_(config) {}
+  /**
+   * @brief Destructor for LoadTester.
+   *
+   * Releases global libcurl resources by calling curl_global_cleanup().
+   */
   ~LoadTester() {
     // Cleanup CURL global state
     curl_global_cleanup();
   }
 
+  /**
+   * @brief Orchestrates and runs the full load test.
+   *
+   * Initializes subsystems, starts resource monitoring, launches worker threads to generate HTTP
+   * load (with configured ramp-up/delays), waits for completion, stops monitoring, computes
+   * aggregated statistics, and emits the final JSON report and console summary.
+   *
+   * Side effects:
+   * - Initializes optional subsystems (CURL, database/cache, system metrics) via initializeComponents().
+   * - Spawns a monitoring thread and multiple worker threads that update shared metrics.
+   * - Updates metrics_.startTime and metrics_.endTime.
+   * - Writes a JSON report and prints a console summary through generateReport().
+   *
+   * Notes:
+   * - Thread synchronization and metrics aggregation are handled internally; callers need only construct
+   *   the LoadTester with a configured LoadTestConfig and call this method.
+   */
   void runLoadTest() {
     std::cout << "\n=== Advanced Load Testing Suite ===\n";
     std::cout << "Server URL: " << config_.serverUrl << "\n";
@@ -129,6 +160,28 @@ private:
   std::unique_ptr<CacheManager> cacheManager_;
   std::unique_ptr<SystemMetrics> systemMetrics_;
 
+  /**
+   * @brief Initialize optional subsystems and global libraries required for the load test.
+   *
+   * Sets up the database manager, cache manager (optionally Redis-backed), system metrics
+   * collector, and performs global libcurl initialization.
+   *
+   * Detailed behavior:
+   * - If database load is enabled, reads DB connection parameters from environment
+   *   variables (DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD). DB_PASSWORD is
+   *   required; if it is missing the function prints an error and returns early
+   *   without completing remaining initialization.
+   * - If cache load is enabled and the binary was compiled with ETL_ENABLE_REDIS,
+   *   a RedisCache is created and provided to CacheManager; if Redis support is not
+   *   compiled in, CacheManager is still constructed and a notice is printed.
+   * - If resource monitoring is enabled, instantiates the SystemMetrics helper.
+   * - Calls curl_global_init(CURL_GLOBAL_ALL) to initialize libcurl for subsequent HTTP use.
+   *
+   * Side effects:
+   * - May print warnings or errors to stdout/stderr on missing environment variables
+   *   or failed subsystem initialization.
+   * - Initializes global CURL state.
+   */
   void initializeComponents() {
     // Initialize database manager
     if (config_.enableDatabaseLoad) {
@@ -181,6 +234,17 @@ private:
     curl_global_init(CURL_GLOBAL_ALL);
   }
 
+  /**
+   * @brief Worker loop executed by each load-generator thread.
+   *
+   * Launches a per-thread ramp-up delay, then issues up to `config_.requestsPerThread`
+   * calls to makeRequest() unless monitoring_ is cleared. Inserts a short (10 ms)
+   * pause between requests to better simulate realistic client behavior.
+   *
+   * @param threadId Zero-based index of this worker thread; used to compute the
+   *                 staggered ramp-up delay so threads reach full load over
+   *                 config_.rampUpTimeSeconds.
+   */
   void workerThread(int threadId) {
     // Ramp up delay
     if (config_.rampUpTimeSeconds > 0) {
@@ -200,6 +264,26 @@ private:
     }
   }
 
+  /**
+   * @brief Executes a single HTTP request for the load test and records metrics.
+   *
+   * Performs one HTTP call to a randomly chosen endpoint on the configured server,
+   * measures response time (ms), updates thread-safe metrics (counts and response
+   * time vectors), and classifies the result as successful, timed out, or failed.
+   * When enabled and available, may also invoke performDatabaseLoad() and
+   * performCacheLoad() to simulate additional subsystem load.
+   *
+   * Side effects:
+   * - Increments metrics_.totalRequests and one of metrics_.successfulRequests,
+   *   metrics_.timeoutRequests (+ metrics_.failedRequests), or metrics_.failedRequests.
+   * - Appends the measured response time to metrics_.responseTimes and updates
+   *   metrics_.minResponseTime / metrics_.maxResponseTime (protected by metricsMutex_).
+   * - May interact with dbManager_ and cacheManager_ (if configured and healthy).
+   *
+   * Notes:
+   * - Uses libcurl for the HTTP request with a 10s timeout and no signals.
+   * - Uses a thread-local PRNG to select the endpoint.
+   */
   void makeRequest(int threadId, int requestId) {
     metrics_.totalRequests++;
 
@@ -280,6 +364,21 @@ private:
     }
   }
 
+  /**
+   * @brief Performs a small simulated database workload to exercise the connection pool.
+   *
+   * Executes a single lightweight query ("SELECT 1") via the configured DatabaseManager to
+   * verify connectivity and exercise the pool. Increments the metrics_.databaseQueries counter
+   * for telemetry. Exceptions thrown by the query are caught and suppressed (no exception is propagated).
+   *
+   * Preconditions:
+   * - dbManager_ should be initialized and connected; if it is null or not connected the function
+   *   will not perform a query but still increments the database query counter.
+   *
+   * Side effects:
+   * - Increments metrics_.databaseQueries.
+   * - May perform I/O via dbManager_->selectQuery.
+   */
   void performDatabaseLoad() {
     // Simulate database queries
     metrics_.databaseQueries++;
@@ -295,6 +394,17 @@ private:
     }
   }
 
+  /**
+   * @brief Simulates a cache workload for a single operation.
+   *
+   * Generates a thread-local random test key, attempts to retrieve it from the cache,
+   * and updates metrics: increments cacheHits on a hit or cacheMisses and stores
+   * the test payload in the cache on a miss.
+   *
+   * Side effects:
+   * - Reads from and possibly writes to the cache via cacheManager_.
+   * - Increments metrics_.cacheHits or metrics_.cacheMisses.
+   */
   void performCacheLoad() {
     // Simulate cache operations with thread-safe RNG
     static thread_local std::mt19937 rng(std::random_device{}());
@@ -315,6 +425,23 @@ private:
     }
   }
 
+  /**
+   * @brief Periodically samples system and connection metrics while monitoring is enabled.
+   *
+   * Runs a loop driven by the atomic flag `monitoring_`. Once started, the function
+   * samples CPU and memory usage from `systemMetrics_` (if available) and records
+   * the values into `metrics_` while updating peak CPU and memory; it also samples
+   * active database connection counts from `dbManager_` (if available) and records
+   * those values and the peak active connections. All updates to non-atomic metric
+   * fields are protected by `metricsMutex_`. The loop sleeps for one second between samples.
+   *
+   * Side effects:
+   * - Appends samples to metrics_.cpuUsage, metrics_.memoryUsage, and metrics_.activeConnections.
+   * - Updates metrics_.peakCpuUsage, metrics_.peakMemoryUsageMB, and metrics_.peakActiveConnections.
+   *
+   * This function does not return a value and does not throw. It relies on external
+   * components (`systemMetrics_`, `dbManager_`) being valid if present.
+   */
   void monitorResources() {
     while (monitoring_.load()) {
       if (systemMetrics_) {
@@ -350,6 +477,18 @@ private:
     }
   }
 
+  /**
+   * @brief Compute summary statistics for collected response times.
+   *
+   * Calculates average, 95th, and 99th percentile response times from the
+   * metrics_.responseTimes sample set and stores the results in the
+   * metrics_ structure (avgResponseTime, p95ResponseTime, p99ResponseTime).
+   *
+   * The function acquires metricsMutex_ before reading/writing shared metric
+   * fields. If no response times are available, statistical fields are left
+   * unchanged. Percentiles are derived by sorting the sample vector and using
+   * the nearest-index method (no interpolation).
+   */
   void calculateStatistics() {
     std::lock_guard<std::mutex> lock(metricsMutex_);
 
@@ -377,6 +516,17 @@ private:
     }
   }
 
+  /**
+   * @brief Generates a JSON load-test report and prints a console summary.
+   *
+   * @details
+   * Builds a JSON object from the collected metrics (duration, request counts,
+   * response-time statistics, throughput, database and cache stats, and peak
+   * resource usage), writes it to the file path specified by the test
+   * configuration, and emits a human-readable summary to stdout. Cache hit rate
+   * is included in the report only when cache activity was recorded. Console
+   * output uses snapshot values for atomic counters to present consistent totals.
+   */
   void generateReport() {
     nlohmann::json report;
 
@@ -473,6 +623,29 @@ private:
   std::mutex metricsMutex_;
 };
 
+/**
+ * @brief Entry point for the advanced load testing utility.
+ *
+ * Parses command-line options, validates them, constructs a LoadTestConfig,
+ * and runs a multi-threaded load test via LoadTester.
+ *
+ * Supported command-line options:
+ *  - --url <serverUrl>         : Target server base URL to test.
+ *  - --threads <N>            : Number of worker threads (positive integer).
+ *  - --requests <M>           : Requests per thread (positive integer).
+ *  - --duration <seconds>     : Total test duration in seconds (positive integer).
+ *  - --no-db                  : Disable simulated database workload.
+ *  - --no-cache               : Disable simulated cache workload.
+ *  - --no-monitor             : Disable resource monitoring.
+ *  - --report <file>          : Output JSON report file path.
+ *
+ * Numeric options are validated to be positive integers; invalid values
+ * cause the program to print an error message and exit with status 1.
+ *
+ * @param argc Number of command-line arguments.
+ * @param argv Array of command-line argument strings.
+ * @return int Exit code (0 on success, 1 on invalid command-line input).
+ */
 int main(int argc, char *argv[]) {
   LoadTestConfig config;
 

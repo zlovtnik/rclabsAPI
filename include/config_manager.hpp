@@ -117,7 +117,13 @@ public:
       const std::function<bool(const T &)> &validator = nullptr) const;
 
 private:
-  ConfigManager() = default;
+  /**
+ * @brief Default constructor.
+ *
+ * Private and defaulted to enforce the singleton pattern; use ConfigManager::getInstance()
+ * to obtain the single shared instance.
+ */
+ConfigManager() = default;
   std::unordered_map<std::string, std::string, TransparentStringHash,
                      std::equal_to<>>
       configData;
@@ -153,6 +159,22 @@ private:
 
 // Template method implementation
 template <typename T>
+/**
+ * @brief Retrieve a typed configuration value for a key with optional runtime validation.
+ *
+ * Retrieves the configuration value for @p key, using the overload-specific getter for the
+ * requested template type T (supported: std::string, int, bool, double). If the key is absent
+ * the provided @p defaultValue is returned. If a @p validator is supplied and returns false for
+ * the retrieved value, @p defaultValue is returned instead.
+ *
+ * @tparam T The requested return type. Only `std::string`, `int`, `bool`, and `double` are supported;
+ *           requesting any other type triggers a compile-time error.
+ * @param key Configuration key to look up.
+ * @param defaultValue Value returned when the key is missing or validation fails.
+ * @param validator Optional predicate to validate the retrieved value; called only if the value was
+ *                  successfully retrieved. If `validator` returns false, @p defaultValue is returned.
+ * @return T The configuration value (or @p defaultValue when missing or invalid).
+ */
 T ConfigManager::getValidatedValue(
     const std::string &key, const T &defaultValue,
     const std::function<bool(const T &)> &validator) const {

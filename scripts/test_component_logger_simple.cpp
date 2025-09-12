@@ -7,36 +7,95 @@ using namespace etl;
 // Mock logger functions for testing (since we can't link full logger)
 namespace etl {
 template <typename Component>
+/**
+ * @brief Emit a debug-level log message for the specified component.
+ *
+ * Writes a formatted debug message to stdout in the form:
+ * `[DEBUG][component] message`
+ *
+ * @param component Null-terminated component name used in the log tag.
+ * @param message The message body to be logged.
+ */
 void ComponentLogger<Component>::log_debug(const char *component,
                                            const std::string &message) {
   std::cout << "[DEBUG][" << component << "] " << message << std::endl;
 }
 
 template <typename Component>
+/**
+ * @brief Output an informational log message for a component to standard output.
+ *
+ * Writes a formatted info-level message to stdout in the form:
+ * `[INFO][<component>] <message>`.
+ *
+ * @param component Null-terminated C string identifying the component name.
+ * @param message   Message text to be logged.
+ */
 void ComponentLogger<Component>::log_info(const char *component,
                                           const std::string &message) {
   std::cout << "[INFO][" << component << "] " << message << std::endl;
 }
 
 template <typename Component>
+/**
+ * @brief Writes a warning-level log message for the given component to stdout.
+ *
+ * Formats output as: [WARN][component] message
+ *
+ * @param component Null-terminated component name.
+ * @param message Message text to log.
+ */
 void ComponentLogger<Component>::log_warn(const char *component,
                                           const std::string &message) {
   std::cout << "[WARN][" << component << "] " << message << std::endl;
 }
 
 template <typename Component>
+/**
+ * @brief Logs an error message for a component to standard output.
+ *
+ * Writes a formatted error entry to stdout in the form:
+ * [ERROR][component] message
+ *
+ * @param component Null-terminated component name.
+ * @param message Message text to log.
+ */
 void ComponentLogger<Component>::log_error(const char *component,
                                            const std::string &message) {
   std::cout << "[ERROR][" << component << "] " << message << std::endl;
 }
 
 template <typename Component>
+/**
+ * @brief Logs a fatal-level message for the specified component.
+ *
+ * Writes a formatted fatal message to standard output.
+ *
+ * @param component Null-terminated component name used in the message tag.
+ * @param message The message text to log.
+ *
+ * @example
+ * ComponentLogger<MyComponent>::log_fatal("MyComponent", "unrecoverable error");
+ *
+ * Output format:
+ * [FATAL][component] message
+ */
 void ComponentLogger<Component>::log_fatal(const char *component,
                                            const std::string &message) {
   std::cout << "[FATAL][" << component << "] " << message << std::endl;
 }
 
 template <typename Component>
+/**
+ * @brief Logs an informational message for a component scoped to a job.
+ *
+ * Writes an INFO-level message to standard output using the format:
+ * [INFO][<component>][Job:<jobId>] <message>
+ *
+ * @param component Null-terminated component name.
+ * @param message Message text to log.
+ * @param jobId Identifier of the job associated with the message.
+ */
 void ComponentLogger<Component>::log_info_job(const char *component,
                                               const std::string &message,
                                               const std::string &jobId) {
@@ -45,6 +104,16 @@ void ComponentLogger<Component>::log_info_job(const char *component,
 }
 
 template <typename Component>
+/**
+ * @brief Log an error-level message associated with a specific job for a component.
+ *
+ * Writes a formatted error entry to standard output using the format:
+ * `[ERROR][<component>][Job:<jobId>] <message>`
+ *
+ * @param component Null-terminated component name emitting the log.
+ * @param message Human-readable error message to record.
+ * @param jobId Identifier of the job associated with this message.
+ */
 void ComponentLogger<Component>::log_error_job(const char *component,
                                                const std::string &message,
                                                const std::string &jobId) {
@@ -53,6 +122,16 @@ void ComponentLogger<Component>::log_error_job(const char *component,
 }
 
 template <typename Component>
+/**
+ * @brief Logs a debug-level message for a specific component and job.
+ *
+ * Outputs a formatted debug message to standard output in the form:
+ * `[DEBUG][<component>][Job:<jobId>] <message>`
+ *
+ * @param component Null-terminated C string identifying the component.
+ * @param message The message text to log.
+ * @param jobId Identifier of the job associated with the message.
+ */
 void ComponentLogger<Component>::log_debug_job(const char *component,
                                                const std::string &message,
                                                const std::string &jobId) {
@@ -61,13 +140,32 @@ void ComponentLogger<Component>::log_debug_job(const char *component,
 }
 
 template <typename Component>
+/**
+ * @brief Log a warning message associated with a specific job to standard output.
+ *
+ * Writes a formatted warning line to stdout in the form:
+ * [WARN][<component>][Job:<jobId>] <message>
+ *
+ * @param component Null-terminated component name.
+ * @param message Text of the warning message.
+ * @param jobId Identifier of the job to associate with the message.
+ */
 void ComponentLogger<Component>::log_warn_job(const char *component,
                                               const std::string &message,
                                               const std::string &jobId) {
   std::cout << "[WARN][" << component << "][Job:" << jobId << "] " << message
             << std::endl;
 }
-} // namespace etl
+} /**
+ * @brief Test harness exercising the ComponentLogger template system.
+ *
+ * Runs a sequence of mock logging scenarios that validate compile-time
+ * component name resolution, type-safe logging methods, job-scoped logging
+ * variants, formatted logging, and a set of component alias loggers. All
+ * output is written to standard output for manual or automated verification.
+ *
+ * @return int Returns 0 on successful completion of all test steps.
+ */
 
 int main() {
   std::cout << "=== ComponentLogger Template System Test ===" << std::endl;

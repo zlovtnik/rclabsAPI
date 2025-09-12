@@ -11,8 +11,21 @@ using namespace ::testing;
 
 class SystemMetricsTest : public ::testing::Test {
 protected:
-  void SetUp() override { metrics = std::make_unique<SystemMetrics>(); }
+  /**
+ * @brief Test fixture setup: create a fresh SystemMetrics instance.
+ *
+ * Called before each test to allocate and initialize a new SystemMetrics
+ * object stored in the fixture's `metrics` member.
+ */
+void SetUp() override { metrics = std::make_unique<SystemMetrics>(); }
 
+  /**
+   * @brief Test fixture teardown: stop system metrics monitoring if active.
+   *
+   * Ensures that any active SystemMetrics monitoring started during a test is
+   * stopped before the next test runs. Safe to call whether monitoring is
+   * active or not.
+   */
   void TearDown() override {
     if (metrics && metrics->isMonitoring()) {
       metrics->stopMonitoring();
@@ -24,10 +37,23 @@ protected:
 
 class JobMetricsCollectorTest : public ::testing::Test {
 protected:
+  /**
+   * @brief Test fixture setup: create a JobMetricsCollector for tests.
+   *
+   * Constructs a JobMetricsCollector with job id "test_job_123" and stores it
+   * in the fixture's `collector` unique_ptr for use by individual test cases.
+   */
   void SetUp() override {
     collector = std::make_unique<JobMetricsCollector>("test_job_123");
   }
 
+  /**
+   * @brief Test fixture teardown that stops active job metrics collection.
+   *
+   * If a JobMetricsCollector instance exists and is currently collecting, this
+   * stops collection to ensure a clean test teardown and release of any
+   * background resources.
+   */
   void TearDown() override {
     if (collector && collector->isCollecting()) {
       collector->stopCollection();

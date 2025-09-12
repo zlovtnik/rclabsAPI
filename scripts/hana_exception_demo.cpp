@@ -3,7 +3,24 @@
 #include <boost/beast/http.hpp>
 #include <iostream>
 
-// Example of how Hana improves real exception handling
+/**
+ * @brief Demonstrates using a Hana-based exception registry to handle ETL exceptions.
+ *
+ * This function showcases registering type-specific handlers with a HanaExceptionRegistry,
+ * then simulating three ETL exception scenarios (validation, system, and business).
+ * For each simulated exception it invokes the registry to produce an HTTP-like response
+ * and writes the response bodies to standard output. It also performs compile-time
+ * checks via static_assert to verify that a specific exception type is registered
+ * and that its mapped HTTP status is as expected.
+ *
+ * Side effects:
+ * - Registers handlers on a local HanaExceptionRegistry instance.
+ * - Writes multiple diagnostic/response lines to std::cout.
+ * - Triggers compile-time assertions (static_assert) for registration and status mapping.
+ *
+ * This function does not return a value and does not propagate the simulated exceptions
+ * (they are thrown and caught internally).
+ */
 void demonstrate_functional_hana_usage() {
   using namespace ETLPlus::ExceptionHandling;
 
@@ -61,6 +78,14 @@ void demonstrate_functional_hana_usage() {
   std::cout << "=== Hana Integration Provides Real Functional Benefits ===\n";
 }
 
+/**
+ * @brief Program entry point that runs the Hana-based exception handling demonstration.
+ *
+ * Calls demonstrate_functional_hana_usage() to register handlers, exercise exception
+ * scenarios, and print resulting HTTP-like responses to stdout.
+ *
+ * @return int Exit status (0 indicates successful completion of the demo).
+ */
 int main() {
   demonstrate_functional_hana_usage();
   return 0;

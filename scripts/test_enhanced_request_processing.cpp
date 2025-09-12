@@ -19,8 +19,25 @@
  */
 class EnhancedRequestProcessingTest {
 public:
-  EnhancedRequestProcessingTest() {}
+  /**
+ * @brief Default constructor for the EnhancedRequestProcessingTest suite.
+ *
+ * Constructs an instance of the test harness used to run integration-style
+ * tests for server configuration, concurrency, and memory-optimization
+ * behaviors. Minimal initialization is performed here; individual test setup
+ * occurs inside each test method.
+ */
+EnhancedRequestProcessingTest() {}
 
+  /**
+   * @brief Tests server setup using a memory-optimized ServerConfig and verifies key configuration values.
+   *
+   * Creates a ServerConfig tuned for memory-optimized request processing (1MB max body, constrained
+   * connection and queue sizes), instantiates an HttpServer with that config, assigns the test
+   * request handler, and asserts that the running server's configuration matches the expected
+   * maxQueueSize and maxQueueWaitTime. The function allocates and assigns to the test fixture's
+   * server_ member and will abort via assert() if the verifications fail.
+   */
   void testMemoryOptimizedRequestProcessing() {
     std::cout << "Testing memory-optimized request processing..." << std::endl;
 
@@ -47,6 +64,17 @@ public:
     std::cout << "✓ Memory optimization configuration test passed" << std::endl;
   }
 
+  /**
+   * @brief Tests request queuing behavior when the server's connection pool is constrained.
+   *
+   * Creates a ServerConfig with a deliberately small connection pool and queue limits,
+   * instantiates an HttpServer with that config, attaches the test request handler,
+   * and verifies the created ConnectionPoolManager exposes the expected max connections
+   * and max queue size.
+   *
+   * This function uses runtime assertions to validate the pool manager state; assertion
+   * failures will abort the test.
+   */
   void testRequestQueueingUnderLoad() {
     std::cout << "Testing request queuing under high load..." << std::endl;
 
@@ -77,6 +105,15 @@ public:
     std::cout << "✓ Request queuing configuration test passed" << std::endl;
   }
 
+  /**
+   * @brief Tests server behavior when the connection pool and queue are exhausted.
+   *
+   * Creates an HttpServer with intentionally tiny connection and queue limits,
+   * attaches the test request handler, and validates that the server's
+   * ConnectionPoolManager reports the configured max connections and queue size.
+   * Also asserts that rejected-request statistics start at zero. Uses assertions
+   * for validations and prints progress messages.
+   */
   void testPoolExhaustionErrorHandling() {
     std::cout << "Testing pool exhaustion error handling..." << std::endl;
 
@@ -111,6 +148,16 @@ public:
     std::cout << "✓ Pool exhaustion error handling test passed" << std::endl;
   }
 
+  /**
+   * @brief Verifies that connection pool statistics can be read safely from multiple threads.
+   *
+   * Starts an HttpServer configured for high concurrency and, if a ConnectionPoolManager
+   * is available, launches multiple asynchronous tasks that concurrently read pool
+   * statistics and assert basic consistency invariants (total == active + idle,
+   * reuse count >= 0, queue size >= 0). Uses assertions to detect race conditions or
+   * inconsistent statistics; the test sets up the server and attaches the test handler
+   * as a side effect.
+   */
   void testThreadSafeConcurrentProcessing() {
     std::cout << "Testing thread-safe concurrent request processing..."
               << std::endl;
@@ -174,6 +221,22 @@ public:
     std::cout << "✓ Thread-safe concurrent processing test passed" << std::endl;
   }
 
+  /**
+   * @brief Runs integration checks for ServerConfig validation, defaults, and warnings.
+   *
+   * Performs three related checks against ServerConfig behavior:
+   * 1. Constructs an invalid configuration (zero queue size and negative wait time),
+   *    validates it, and asserts that validation fails with at least two errors.
+   * 2. Calls applyDefaults() on the invalid configuration and asserts that the
+   *    queue size and wait time are corrected to positive values.
+   * 3. Builds an otherwise-valid configuration with excessively large queue size
+   *    and wait time, validates it, and asserts that validation succeeds but
+   *    produces warnings.
+   *
+   * Side effects:
+   * - Writes progress/status messages to stdout.
+   * - Uses assert() for test verification; a failed assertion aborts the test.
+   */
   void testConfigurationValidation() {
     std::cout << "Testing enhanced configuration validation..." << std::endl;
 
@@ -211,6 +274,20 @@ public:
     std::cout << "✓ Enhanced configuration validation test passed" << std::endl;
   }
 
+  /**
+   * @brief Tests that server configuration enables memory allocation optimizations for small request bodies.
+   *
+   * Sets up an HttpServer with a ServerConfig tuned for small request bodies and verifies the configuration
+   * is preserved by the running server. The test assigns the request handler and asserts that
+   * maxRequestBodySize equals the configured small size (4 KiB).
+   *
+   * Side effects:
+   * - Constructs and stores a server instance in the test fixture's `server_`.
+   * - Attaches `handler_` to the server.
+   *
+   * Behavior:
+   * - Uses an assertion to validate the retrieved configuration; a failed assertion indicates test failure.
+   */
   void testMemoryAllocationOptimizations() {
     std::cout << "Testing memory allocation optimizations..." << std::endl;
 
@@ -235,6 +312,13 @@ public:
     std::cout << "✓ Memory allocation optimizations test passed" << std::endl;
   }
 
+  /**
+   * @brief Stops the test server (if running) and resets the request handler state.
+   *
+   * If a server instance exists and reports it is running, this will stop the server
+   * and assert that it is no longer running. If a handler exists, its internal
+   * request count is reset. Safe to call when either the server or handler is null.
+   */
   void cleanup() {
     if (server_ && server_->isRunning()) {
       std::cout << "Stopping server..." << std::endl;
@@ -248,6 +332,13 @@ public:
     }
   }
 
+  /**
+   * @brief Execute the full suite of enhanced request processing integration tests.
+   *
+   * Runs each test in sequence, performing cleanup between tests. Progress and
+   * results are written to standard output. If any test throws, this function
+   * performs cleanup and rethrows the exception to the caller.
+   */
   void runAllTests() {
     std::cout << "Running Enhanced Request Processing Integration Tests..."
               << std::endl;
@@ -293,6 +384,15 @@ public:
   }
 };
 
+/**
+ * @brief Program entry point that runs the enhanced request processing test suite.
+ *
+ * Initializes logging (INFO level), constructs an EnhancedRequestProcessingTest
+ * instance, and executes all tests via runAllTests(). Exceptions are caught,
+ * reported to stderr, and cause a non-zero exit status.
+ *
+ * @return int 0 on success; 1 if any exception is thrown during test execution.
+ */
 int main() {
   try {
     // Set up logging

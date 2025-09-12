@@ -21,11 +21,36 @@ public:
   AuthManager(std::shared_ptr<DatabaseManager> dbManager);
   ~AuthManager();
 
-  // Non-copyable/non-movable to avoid duplicating sensitive key material
+  /**
+ * @brief Deleted copy constructor to prevent copying of AuthManager instances.
+ *
+ * Prevents accidental duplication of sensitive internal state (e.g., secret key
+ * material). AuthManager instances are non-copyable.
+ */
   AuthManager(const AuthManager &) = delete;
-  AuthManager &operator=(const AuthManager &) = delete;
-  AuthManager(AuthManager &&) = delete;
-  AuthManager &operator=(AuthManager &&) = delete;
+  /**
+ * @brief Deleted copy-assignment operator to prevent copying of AuthManager.
+ *
+ * AuthManager holds sensitive key material and database-backed resources; copying or
+ * assigning an instance is disallowed to avoid duplicating or accidentally sharing
+ * those secrets and resources.
+ */
+AuthManager &operator=(const AuthManager &) = delete;
+  /**
+ * @brief Deleted move constructor to prevent moving instances.
+ *
+ * Prevents transfer of ownership of internal sensitive resources (for example,
+ * JWT secret key material). AuthManager objects are intentionally neither copyable
+ * nor movable.
+ */
+AuthManager(AuthManager &&) = delete;
+  /**
+ * @brief Deleted move assignment operator.
+ *
+ * AuthManager is intentionally non-movable to prevent duplication or inadvertent
+ * transfer of sensitive key material and associated resources.
+ */
+AuthManager &operator=(AuthManager &&) = delete;
 
   // User management
   bool createUser(const std::string &username, const std::string &email,

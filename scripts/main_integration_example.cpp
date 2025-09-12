@@ -88,7 +88,20 @@ LOG_INFO("Main", "Job monitor service started successfully");
  * }
  */
 
-// Example of how other components can trigger notifications:
+/**
+ * @brief Example snippets showing how other components can trigger notifications.
+ *
+ * This function contains commented example calls illustrating typical usages of
+ * the NotificationService from different parts of the system:
+ * - Sending job-failure alerts from an ETL job manager.
+ * - Performing resource checks (memory/CPU) from monitoring components.
+ * - Sending system error alerts from any component.
+ * - Constructing and sending a custom NotificationMessage with fields such as
+ *   id, type, priority, subject, message, timestamps, retry counts, and methods.
+ *
+ * The examples are illustrative and intentionally commented out; the function
+ * itself performs no runtime actions.
+ */
 
 void exampleNotificationUsage() {
   // From ETLJobManager when a job fails:

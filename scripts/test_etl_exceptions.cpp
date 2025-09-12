@@ -36,6 +36,14 @@ void testBasicETLException() {
   std::cout << "✓ Basic ETLException tests passed" << std::endl;
 }
 
+/**
+ * @brief Runs unit tests that validate ValidationException behavior.
+ *
+ * Exercises ValidationException construction, accessors, automatic context
+ * population, and the createValidationError utility; uses assertions to
+ * verify expected error codes, messages, field/value accessors, and context
+ * entries. Prints test progress and a success indicator.
+ */
 void testValidationException() {
   std::cout << "Testing ValidationException functionality..." << std::endl;
 
@@ -96,6 +104,19 @@ void testSystemException() {
   std::cout << "✓ SystemException tests passed" << std::endl;
 }
 
+/**
+ * @brief Executes unit tests validating BusinessException behavior.
+ *
+ * Verifies that a BusinessException constructed with an error code, message,
+ * and operation exposes the correct code, message, and operation accessors,
+ * and that its context is automatically populated with an "operation" entry.
+ * Also verifies the helper factory createBusinessError produces an exception
+ * whose operation is set and whose message contains the expected operation and
+ * failure reason.
+ *
+ * The function uses assertions and will abort on test failure. It prints
+ * progress to stdout as a side effect.
+ */
 void testBusinessException() {
   std::cout << "Testing BusinessException functionality..." << std::endl;
 
@@ -122,6 +143,14 @@ void testBusinessException() {
   std::cout << "✓ BusinessException tests passed" << std::endl;
 }
 
+/**
+ * @brief Validates human-readable descriptions for selected ErrorCode values.
+ *
+ * Runs assertions that verify getErrorCodeDescription() returns the expected
+ * strings for a handful of representative error codes (INVALID_INPUT,
+ * UNAUTHORIZED, DATABASE_ERROR, JOB_NOT_FOUND). Prints progress and a success
+ * message; an assertion failure will terminate the test.
+ */
 void testErrorCodes() {
   std::cout << "Testing error code descriptions..." << std::endl;
 
@@ -138,6 +167,20 @@ void testErrorCodes() {
   std::cout << "✓ Error code description tests passed" << std::endl;
 }
 
+/**
+ * @brief Runs tests that verify exception serialization to log and JSON formats.
+ *
+ * Constructs a ValidationException with a specific error code, message, field,
+ * and value, adds an extra context entry, and then asserts that:
+ * - the human-readable log string produced by toLogString() contains the
+ *   exception type, numeric code, message, field/value entries, and added
+ *   context;
+ * - the JSON string produced by toJsonString() contains the expected top-level
+ *   fields (type, code, message, correlation_id, timestamp, context).
+ *
+ * The function writes progress messages to stdout and uses assert() for
+ * verification (will abort the program if a check fails).
+ */
 void testSerialization() {
   std::cout << "Testing exception serialization..." << std::endl;
 
@@ -166,6 +209,20 @@ void testSerialization() {
   std::cout << "✓ Serialization tests passed" << std::endl;
 }
 
+/**
+ * @brief Runs unit tests for exception type predicates and template-based casting.
+ *
+ * Executes a set of assertions that verify:
+ * - The runtime type predicates (`isValidationError`, `isSystemError`, `isBusinessError`)
+ *   correctly identify ValidationException, SystemException, BusinessException and non-ETL
+ *   exceptions (e.g., std::runtime_error).
+ * - The template helper `asException<T>` returns a non-null pointer for a matching type and
+ *   null for mismatched types.
+ *
+ * Side effects:
+ * - Prints progress and result messages to stdout.
+ * - Uses `assert` to enforce test expectations (will abort on failure).
+ */
 void testTypeChecking() {
   std::cout << "Testing exception type checking..." << std::endl;
 
@@ -202,6 +259,16 @@ void testTypeChecking() {
   std::cout << "✓ Type checking tests passed" << std::endl;
 }
 
+/**
+ * @brief Verifies exception inheritance and polymorphic behavior for ETL exceptions.
+ *
+ * Runs assertions to confirm that ValidationException, SystemException, and
+ * BusinessException instances:
+ * - Can be caught by reference as ETLException and preserve their error code and message.
+ * - Can be caught as std::exception and expose the expected what() message.
+ *
+ * Intended for use in the test suite; failures are reported via assert().
+ */
 void testInheritance() {
   std::cout << "Testing exception inheritance..." << std::endl;
 
@@ -249,6 +316,19 @@ void testInheritance() {
   std::cout << "✓ Inheritance tests passed" << std::endl;
 }
 
+/**
+ * @brief Entry point for the ETL exception system test suite and usage demo.
+ *
+ * Runs the full set of unit tests that validate the ETL exception hierarchy
+ * (ETLException, ValidationException, SystemException, BusinessException),
+ * their error-code descriptions, serialization, type-checking, and inheritance.
+ * On successful completion prints a consolidated success banner and then
+ * demonstrates three usage examples that create and catch a validation,
+ * system, and business exception and print their log strings.
+ *
+ * @return int 0 if all tests complete and examples run successfully; 1 if an
+ * uncaught std::exception is encountered during the test run.
+ */
 int main() {
   std::cout << "ETL Exception System Test Suite" << std::endl;
   std::cout << "================================" << std::endl;

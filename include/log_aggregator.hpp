@@ -76,7 +76,19 @@ struct StructuredLogEntry {
   std::unordered_map<std::string, std::string> metadata;
   nlohmann::json structured_data;
 
-  // Convert to JSON for shipping
+  /**
+   * @brief Serialize the structured log entry into a JSON object suitable for shipping.
+   *
+   * Produces a JSON object containing the canonical fields used by downstream sinks:
+   * - "@timestamp": timestamp string
+   * - "level": human-readable level (via levelToString)
+   * - "component", "message", "thread_id", "process_id"
+   *
+   * The "metadata" field is included only if metadata is non-empty. The "data" field
+   * is included only if structured_data is non-empty.
+   *
+   * @return nlohmann::json JSON representation of this StructuredLogEntry.
+   */
   nlohmann::json toJson() const {
     nlohmann::json json_entry;
     json_entry["@timestamp"] = timestamp;
@@ -98,6 +110,14 @@ struct StructuredLogEntry {
   }
 
 private:
+  /**
+   * @brief Convert a LogLevel enum value to its uppercase string representation.
+   *
+   * Converts LogLevel::DEBUG/INFO/WARN/ERROR/FATAL to "DEBUG"/"INFO"/"WARN"/"ERROR"/"FATAL".
+   *
+   * @param level Log level to convert.
+   * @return std::string Uppercase textual name of the level; returns "UNKNOWN" for unrecognized values.
+   */
   std::string levelToString(LogLevel level) const {
     switch (level) {
     case LogLevel::DEBUG:
@@ -146,7 +166,17 @@ public:
     std::chrono::steady_clock::time_point start_time;
   };
 
-  const AggregatorStats &getStats() const { return stats_; }
+  /**
+ * @brief Access the aggregator's runtime statistics.
+ *
+ * Returns a const reference to the internal AggregatorStats structure which contains
+ * atomic counters (total_entries_processed, entries_shipped, entries_failed, batches_sent)
+ * and the start_time. The reference refers to the aggregator's internal state and remains
+ * valid for the lifetime of the LogAggregator instance.
+ *
+ * @return const AggregatorStats& Reference to the current aggregator statistics.
+ */
+const AggregatorStats &getStats() const { return stats_; }
 
 private:
   // Worker thread for processing log batches

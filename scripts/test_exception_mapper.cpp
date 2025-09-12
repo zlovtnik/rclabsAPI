@@ -6,6 +6,15 @@
 
 using namespace ETLPlus::ExceptionHandling;
 
+/**
+ * @brief Unit test that verifies mapping of a ValidationException to an HTTP response.
+ *
+ * Constructs a ValidationException with ERROR_CODE::INVALID_INPUT and verifies that
+ * ExceptionMapper::mapToResponse produces a 400 (bad_request) response with
+ * "application/json" content type. The test uses assertions to validate the
+ * response and prints the mapped status and body to stdout. Assertions will
+ * terminate the test on failure.
+ */
 void testBasicExceptionMapping() {
   std::cout << "Testing basic exception mapping..." << std::endl;
 
@@ -27,6 +36,14 @@ void testBasicExceptionMapping() {
   std::cout << "Response body: " << response.body() << std::endl;
 }
 
+/**
+ * @brief Tests mapping of a SystemException to an HTTP service-unavailable response.
+ *
+ * Constructs a SystemException with ErrorCode::DATABASE_ERROR and verifies that
+ * ExceptionMapper::mapToResponse produces an HTTP 503 (service_unavailable) response.
+ * The test uses an assertion to enforce the expected status and writes the mapped
+ * status and response body to stdout.
+ */
 void testSystemExceptionMapping() {
   std::cout << "\nTesting system exception mapping..." << std::endl;
 
@@ -46,6 +63,13 @@ void testSystemExceptionMapping() {
   std::cout << "Response body: " << response.body() << std::endl;
 }
 
+/**
+ * @brief Tests that a BusinessException is mapped to an HTTP 404 response.
+ *
+ * Constructs a BusinessException (ErrorCode::JOB_NOT_FOUND) with context, uses
+ * ExceptionMapper::mapToResponse to convert it to an HTTP response, and asserts
+ * the resulting status is 404 (not_found). Prints the mapped status and body.
+ */
 void testBusinessExceptionMapping() {
   std::cout << "\nTesting business exception mapping..." << std::endl;
 
@@ -65,6 +89,15 @@ void testBusinessExceptionMapping() {
   std::cout << "Response body: " << response.body() << std::endl;
 }
 
+/**
+ * @brief Tests that a user-registered custom handler is invoked when mapping a specific error code.
+ *
+ * Registers a custom handler for etl::ErrorCode::RATE_LIMIT_EXCEEDED that produces an HTTP 429
+ * response with a Retry-After header and JSON body, then maps a SystemException with that error
+ * code and asserts the mapped response has status 429 and the expected Retry-After header.
+ *
+ * Side effects: prints progress and the mapped response to stdout and uses assert to enforce expectations.
+ */
 void testCustomHandler() {
   std::cout << "\nTesting custom exception handler..." << std::endl;
 
@@ -140,6 +173,17 @@ void testStandardExceptionMapping() {
   std::cout << "Response body: " << response.body() << std::endl;
 }
 
+/**
+ * @brief Runs unit tests for HTTP response utility builders.
+ *
+ * Exercises createRateLimitResponse and createMaintenanceResponse, asserting
+ * that the produced HTTP responses have the expected status codes and headers:
+ * - Rate-limit response: HTTP 429 (Too Many Requests) and a Retry-After header
+ *   matching the provided value.
+ * - Maintenance response: HTTP 503 (Service Unavailable).
+ *
+ * Uses assert() for validation; a failed assertion will terminate the test run.
+ */
 void testUtilityFunctions() {
   std::cout << "\nTesting utility functions..." << std::endl;
 
@@ -158,6 +202,15 @@ void testUtilityFunctions() {
   std::cout << "Utility functions working correctly" << std::endl;
 }
 
+/**
+ * @brief Runs the ExceptionMapper test suite.
+ *
+ * Executes all test cases for ETLPlus::ExceptionHandling::ExceptionMapper in sequence and reports overall success.
+ * Prints a header at start and a success message on completion. Any std::exception thrown by the tests is
+ * caught, its message is printed to stderr, and the process exits with a non-zero status.
+ *
+ * @return int Exit code: 0 if all tests pass; 1 if a std::exception is caught during test execution.
+ */
 int main() {
   try {
     std::cout << "=== ExceptionMapper Test Suite ===" << std::endl;

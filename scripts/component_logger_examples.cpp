@@ -8,7 +8,16 @@
 #include "component_logger.hpp"
 #include <iostream>
 
-// Example of using ComponentLogger directly with template parameter
+/**
+ * @brief Demonstrates direct, type-safe usage of ComponentLogger with templates.
+ *
+ * Shows examples of:
+ * - Direct template instantiation for component-level logging (info/debug/warn).
+ * - Job-specific logging helpers (infoJob/errorJob) with positional parameters.
+ * - Context-aware logging using a string->string map with a transparent hash.
+ *
+ * Also prints a section header to stdout for the example output.
+ */
 void example_direct_template_usage() {
   std::cout << "\n=== Direct Template Usage Examples ===" << std::endl;
 
@@ -36,7 +45,13 @@ void example_direct_template_usage() {
       "Data transformation completed", context);
 }
 
-// Example of using convenient type aliases
+/**
+ * @brief Demonstrates logging via predefined type aliases.
+ *
+ * Prints a header and issues example log calls using the project's etl::* logger
+ * type aliases to show concise, type-safe usage for regular and job-specific
+ * logging at various levels (info, debug, warn, error).
+ */
 void example_type_aliases() {
   std::cout << "\n=== Type Alias Usage Examples ===" << std::endl;
 
@@ -55,7 +70,16 @@ void example_type_aliases() {
                               3, 1000);
 }
 
-// Example of using convenience macros (for gradual migration)
+/**
+ * @brief Demonstrates logging via backward-compatible convenience macros.
+ *
+ * Prints a header and exercises the convenience macros that wrap the new
+ * template-based ComponentLogger API: general-level macros (info/debug/warn/error/fatal)
+ * and job-specific macros that accept a job identifier followed by formatting args.
+ *
+ * This function is purely demonstrative and has no return value or side effects
+ * beyond writing to stdout via the logging macros.
+ */
 void example_convenience_macros() {
   std::cout << "\n=== Convenience Macro Usage Examples ===" << std::endl;
 
@@ -71,7 +95,14 @@ void example_convenience_macros() {
   ETL_LOG_DEBUG_JOB("Memory usage: {} MB", "job_789", 256);
 }
 
-// Example of template-based macros for new components
+/**
+ * @brief Demonstrates usage of template-based logging macros for components.
+ *
+ * Shows examples of generic component logging macros (COMPONENT_LOG_*)
+ * and job-specific variants (COMPONENT_LOG_*_JOB) invoked with explicit
+ * component types, format-style messages, and argument lists. Includes
+ * samples for debug/info/warn/error/fatal levels and job-scoped logging.
+ */
 void example_template_macros() {
   std::cout << "\n=== Template-Based Macro Examples ===" << std::endl;
 
@@ -91,7 +122,14 @@ void example_template_macros() {
                          "job_999");
 }
 
-// Performance comparison example
+/**
+ * @brief Demonstrates performance and metrics logging examples.
+ *
+ * Prints a header to stdout and emits a set of example performance and metric
+ * log events using the template-based loggers (ETLJobLogger, DatabaseLogger,
+ * SystemMetricsLogger). Intended to show usage of logPerformance and
+ * logMetric APIs for performance timing and numeric metrics.
+ */
 void example_performance_features() {
   std::cout << "\n=== Performance and Metrics Examples ===" << std::endl;
 
@@ -108,6 +146,16 @@ void example_performance_features() {
 // Migration example - Before and After
 namespace migration_example {
 
+/**
+ * @brief Demonstrates the deprecated, hardcoded macro-based logging approach.
+ *
+ * This stub shows the old pattern where log macros accepted literal component
+ * names (strings) instead of type-safe component types. The code is commented
+ * out and has no runtime effect; it is kept for historical/migration reference.
+ *
+ * @deprecated Use the template-based ComponentLogger API (type-safe loggers and
+ *             the backward-compatible template macros) instead.
+ */
 void old_macro_approach() {
   // OLD WAY (deprecated) - hardcoded component strings, no type safety
   // LOG_INFO("ConfigManager", "Configuration loaded");
@@ -115,6 +163,14 @@ void old_macro_approach() {
   // LOG_ERROR("ETLJobManager", "Job failed");
 }
 
+/**
+ * @brief Demonstrates the new template-based logging API and its backward-compatible macros.
+ *
+ * Shows usage of compile-time, type-safe ComponentLogger template aliases (ConfigLogger,
+ * DatabaseLogger, ETLJobLogger) for common log levels (info, debug, error) and the
+ * equivalent backward-compatible macro forms (COMPONENT_LOG_*). This is an example/demo
+ * helper that emits the shown log messages at runtime; it has no return value.
+ */
 void new_template_approach() {
   // NEW WAY - compile-time type safety, performance optimized
   etl::ConfigLogger::info("Configuration loaded");
@@ -126,7 +182,19 @@ void new_template_approach() {
   COMPONENT_LOG_DEBUG(etl::DatabaseManager, "Connection established");
   COMPONENT_LOG_ERROR(etl::ETLJobManager, "Job failed");
 }
-} // namespace migration_example
+} /**
+ * @brief Runs the ComponentLogger template system examples and prints a summary.
+ *
+ * Executes a sequence of demonstration functions that showcase direct template usage,
+ * type aliases, convenience macros, template-based macros, and performance/metrics features.
+ * After running the examples, prints a short list of the primary benefits of the template-based
+ * logging system.
+ *
+ * Side effects:
+ * - Writes example headers, results, and the benefits summary to stdout.
+ *
+ * @return int Exit code (0 on successful completion).
+ */
 
 int main() {
   std::cout << "=== ComponentLogger Template System Examples ===" << std::endl;

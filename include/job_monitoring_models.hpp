@@ -225,7 +225,22 @@ formatTimestamp(const std::chrono::system_clock::time_point &timePoint);
 std::chrono::system_clock::time_point
 parseTimestamp(const std::string &timestampStr);
 
-// Inline implementation of escapeJsonString
+/**
+ * @brief Escape a string so it is safe to embed in JSON string literals.
+ *
+ * Converts characters that must be escaped in JSON strings to their escaped
+ * forms:
+ * - double quote (") -> `\"`
+ * - backslash (\) -> `\\`
+ * - backspace, form feed, newline, carriage return, tab -> `\b`, `\f`, `\n`, `\r`, `\t`
+ * - control characters with codepoint < 0x20 -> `\uXXXX` (4-digit, zero-padded hexadecimal)
+ *
+ * The function treats characters as unsigned when checking for control codes to
+ * avoid sign-extension issues on platforms with signed `char`.
+ *
+ * @param str The input string to be escaped.
+ * @return std::string The escaped string suitable for inclusion as a JSON string value.
+ */
 inline std::string escapeJsonString(const std::string &str) {
   std::string result;
   result.reserve(str.length() + 20); // Reserve some extra space for escapes

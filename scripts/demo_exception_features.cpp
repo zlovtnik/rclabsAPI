@@ -5,6 +5,16 @@
 
 using namespace etl;
 
+/**
+ * @brief Demonstrates wrapping a low-level exception inside a higher-level system exception and surfacing its context.
+ *
+ * This demo simulates a database failure by throwing a SystemException for a database error,
+ * catches it, builds an ErrorContext containing the original error message and code, and
+ * rethrows a higher-level SystemException (internal error) that carries that context.
+ * The outer catch prints the resulting exception as JSON and enumerates the context entries.
+ *
+ * Side effects: writes demo headers, the exception JSON, and context key/value pairs to stdout.
+ */
 void demonstrateExceptionChaining() {
   try {
     try {
@@ -36,6 +46,21 @@ void demonstrateExceptionChaining() {
   }
 }
 
+/**
+ * @brief Demonstrates a simple manual retry loop for transient failures.
+ *
+ * Runs up to three attempts to simulate an operation that may fail with a
+ * network-related ETL/SystemException. On each attempt it prints the attempt
+ * number; if an attempt fails and there are remaining retries it prints a
+ * retry message and continues. If the final attempt fails, the exception is
+ * rethrown and then caught by the outer handler which prints a final failure
+ * message.
+ *
+ * Side effects:
+ * - Writes status and error messages to std::cout.
+ * - May throw an ETLException from the final failed attempt (which is caught
+ *   within the function to print the final failure message).
+ */
 void demonstrateRetryLogic() {
   std::cout << "\n=== Retry Logic Demo ===" << std::endl;
 
@@ -65,6 +90,15 @@ void demonstrateRetryLogic() {
   }
 }
 
+/**
+ * @brief Demonstrates handling and printing three ETL exception types.
+ *
+ * Prints a header then exercises ValidationException, SystemException, and
+ * BusinessException by throwing each one, catching it as ETLException, and
+ * outputting its JSON representation to standard output. Used for demo/testing
+ * of exception formatting and basic catch behavior; all throws are handled
+ * locally (no exceptions propagate).
+ */
 void demonstrateBasicExceptions() {
   std::cout << "\n=== Basic Exception Demo ===" << std::endl;
 
@@ -91,6 +125,15 @@ void demonstrateBasicExceptions() {
   }
 }
 
+/**
+ * @brief Entry point for the ETL Plus Exception Handling System demo.
+ *
+ * Runs three demonstration scenarios that exercise exception chaining, retry logic,
+ * and basic exception types, printing human-readable headers and JSON/text outputs
+ * to stdout. After executing the demos, prints a completion message.
+ *
+ * @return int Exit status code (0 on successful completion).
+ */
 int main() {
   std::cout << "ETL Plus Exception Handling System Demo" << std::endl;
   std::cout << "=======================================" << std::endl;
