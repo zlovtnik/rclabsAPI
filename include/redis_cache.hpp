@@ -24,14 +24,17 @@ struct RedisConfig {
   std::chrono::seconds connectionTimeout = std::chrono::seconds(5);
   int maxRetries = 3;
   std::chrono::milliseconds retryDelay = std::chrono::milliseconds(100);
-  bool enableConnectionPool = true;
-  int poolSize = 5;
+  bool enableConnectionPool = true; // TODO: Implement connection pooling
+  int poolSize = 5; // TODO: Implement connection pooling
 };
 
 class RedisCache {
 public:
   explicit RedisCache(const RedisConfig &config);
   ~RedisCache();
+
+  // Thread-safety: All public methods are thread-safe and can be called concurrently
+  // Hiredis contexts are not thread-safe internally, so all operations are protected by mutex_
 
   // Delete copy and move operations
   RedisCache(const RedisCache &) = delete;
@@ -48,20 +51,20 @@ public:
   // Basic operations
   bool set(const std::string &key, const std::string &value,
            std::optional<std::chrono::seconds> ttl = std::nullopt);
-  std::string get(const std::string &key);
+  std::optional<std::string> get(const std::string &key);
   bool del(const std::string &key);
   bool exists(const std::string &key);
-  std::vector<std::string> keys(const std::string &pattern);
+  std::vector<std::string> keys(const std::string &pattern); // Uses SCAN internally for production safety
 
   // JSON operations
   bool setJson(const std::string &key, const nlohmann::json &value,
                std::optional<std::chrono::seconds> ttl = std::nullopt);
-  nlohmann::json getJson(const std::string &key);
+  std::optional<nlohmann::json> getJson(const std::string &key);
 
   // Hash operations
   bool hset(const std::string &key, const std::string &field,
             const std::string &value);
-  std::string hget(const std::string &key, const std::string &field);
+  std::optional<std::string> hget(const std::string &key, const std::string &field);
   bool hdel(const std::string &key, const std::string &field);
   std::vector<std::string> hkeys(const std::string &key);
   std::vector<std::string> hvals(const std::string &key);
@@ -69,15 +72,15 @@ public:
   // List operations
   bool lpush(const std::string &key, const std::string &value);
   bool rpush(const std::string &key, const std::string &value);
-  std::string lpop(const std::string &key);
-  std::string rpop(const std::string &key);
-  std::vector<std::string> lrange(const std::string &key, int start, int end);
+  std::optional<std::string> lpop(const std::string &key);
+  std::optional<std::string> rpop(const std::string &key);
+  std::vector<std::string> lrange(const std::string &key, int start, int end); // Use batched operations for large lists
 
   // Set operations
   bool sadd(const std::string &key, const std::string &member);
   bool srem(const std::string &key, const std::string &member);
   bool sismember(const std::string &key, const std::string &member);
-  std::vector<std::string> smembers(const std::string &key);
+  std::vector<std::string> smembers(const std::string &key); // Use batched operations for large sets
 
   // Cache-specific operations
   bool setWithTags(const std::string &key, const std::string &value,
