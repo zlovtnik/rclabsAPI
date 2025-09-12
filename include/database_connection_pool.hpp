@@ -115,6 +115,8 @@ private:
   std::atomic<bool> running_{false};
   std::atomic<bool> shutdown_{false};
   std::thread healthCheckThread_;
+  std::mutex healthMutex_;
+  std::condition_variable healthCV_;
 
   // Metrics
   mutable std::mutex metricsMutex_;
