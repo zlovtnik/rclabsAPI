@@ -102,6 +102,8 @@ private:
         }
         // Invalid hex sequence - treat as literal
         result += input[i];
+      } else if (input[i] == '+') {
+        result += ' '; // Handle '+' as space for URL decoding
       } else {
         result += input[i];
       }
@@ -153,6 +155,28 @@ private:
     if (normalized.empty())
       normalized = "/";
     return normalized;
+  }
+
+  /**
+   * @brief Perform iterative percent-decoding until no changes occur.
+   * 
+   * Repeatedly percent-decodes the input string until no further changes
+   * are made or a safe iteration limit is reached to prevent infinite loops.
+   * This prevents double-encoded traversal attacks.
+   */
+  std::string iterativePercentDecode(const std::string &input) {
+    std::string current = input;
+    std::string previous;
+    int iterations = 0;
+    const int maxIterations = 5; // Safety limit
+    
+    do {
+      previous = current;
+      current = percentDecode(current);
+      iterations++;
+    } while (current != previous && iterations < maxIterations);
+    
+    return current;
   }
 
 public:
@@ -225,21 +249,25 @@ public:
     // Enhanced path traversal check + canonical path derivation
     std::string canonicalPath = result.path;
     {
-      // Percent-decode the path
-      std::string decodedPath = percentDecode(result.path);
+      // Iteratively percent-decode the path to prevent double-encoded traversal
+      std::string decodedPath = iterativePercentDecode(result.path);
 
-      // Check traversal at segment boundaries only
+      // Normalize the fully-decoded path
+      std::string normalizedPath = normalizePath(decodedPath);
+
+      // Check for traversal patterns in both decoded and normalized paths
       if (decodedPath.find("/../") != std::string::npos ||
           (decodedPath.size() >= 3 &&
            decodedPath.rfind("/..", decodedPath.size() - 3) !=
                std::string::npos) ||
-          decodedPath.rfind("../", 0) == 0) {
+          decodedPath.rfind("../", 0) == 0 ||
+          normalizedPath.find("..") != std::string::npos) {
         result.addError(
             "Path traversal not allowed (percent-encoded or direct)");
       }
 
-      // Normalize and keep for subsequent checks
-      canonicalPath = normalizePath(decodedPath);
+      // Use normalized path for subsequent checks
+      canonicalPath = normalizedPath;
     }
 
     // Validate endpoint
@@ -334,35 +362,6 @@ public:
   }
 
 private:
-  /**
-   * @brief URL-decode a string, handling percent-encoded sequences and '+' to
-   * space.
-   */
-  std::string urlDecode(const std::string &str) {
-    std::string result;
-    result.reserve(str.size());
-    for (size_t i = 0; i < str.size(); ++i) {
-      if (str[i] == '%') {
-        if (i + 2 < str.size()) {
-          int value;
-          std::istringstream iss(str.substr(i + 1, 2));
-          if (iss >> std::hex >> value) {
-            result += static_cast<char>(value);
-            i += 2;
-          } else {
-            result += str[i];
-          }
-        } else {
-          result += str[i];
-        }
-      } else if (str[i] == '+') {
-        result += ' ';
-      } else {
-        result += str[i];
-      }
-    }
-    return result;
-  }
 
   /**
    * @brief Parse a URL query string into key/value pairs.
@@ -391,7 +390,7 @@ private:
       if (equalPos != std::string::npos) {
         std::string key = pair.substr(0, equalPos);
         std::string value = pair.substr(equalPos + 1);
-        params[urlDecode(key)] = urlDecode(value);
+        params[percentDecode(key)] = percentDecode(value);
       }
     }
 
@@ -451,7 +450,7 @@ private:
       return method == "POST";
     }
     if (path == "/api/auth/profile" || path == "/api/logs" ||
-        path == "/api/health") {
+        path == "/api/health" || path == "/api/monitor/status") {
       return method == "GET";
     }
     if (path == "/api/jobs") {
@@ -740,8 +739,24 @@ private:
  */
 void printResult(const std::string &testName,
                  const SimpleRequestValidator::ValidationResult &result) {
-  // Debug output removed - validation functions should be side-effect free
-  // The validation logic remains intact and testable without console output
+  std::cout << "=== " << testName << " ===" << std::endl;
+  std::cout << (result.isValid ? "SECURE" : "NOT SECURE") << std::endl;
+  std::cout << "Method: " << result.method << ", Path: " << result.path << std::endl;
+  
+  if (!result.queryParams.empty()) {
+    std::cout << "Query params: ";
+    for (const auto& param : result.queryParams) {
+      std::cout << param.first << "=" << param.second << " ";
+    }
+    std::cout << std::endl;
+  }
+  
+  if (!result.errors.empty()) {
+    for (const auto& error : result.errors) {
+      std::cout << "🚨 " << error << std::endl;
+    }
+  }
+  std::cout << std::endl;
 }
 
 /**
@@ -759,9 +774,15 @@ void printResult(const std::string &testName,
  */
 void printSecurityResult(const std::string &testName,
                          const SimpleRequestValidator::SecurityResult &result) {
-  // Debug output removed - validation functions should be side-effect free
-  // The security validation logic remains intact and testable without console
-  // output
+  std::cout << "=== " << testName << " ===" << std::endl;
+  std::cout << (result.isSecure ? "SECURE" : "NOT SECURE") << std::endl;
+  
+  if (!result.issues.empty()) {
+    for (const auto& issue : result.issues) {
+      std::cout << "🚨 " << issue << std::endl;
+    }
+  }
+  std::cout << std::endl;
 }
 
 /**

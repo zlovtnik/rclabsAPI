@@ -54,6 +54,11 @@ public:
     bool includeTimestamp = true;
     bool includeRequestId = false;
     ContentType defaultContentType = ContentType::JSON;
+    
+    // CORS configuration
+    std::string corsAllowedOrigin = "https://localhost:3000"; // Restrictive default
+    std::string corsAllowedMethods = "GET, POST, OPTIONS";
+    std::string corsAllowedHeaders = "Content-Type, Authorization";
   };
 
 private:
@@ -347,7 +352,7 @@ public:
    */
   Response methodNotAllowed(const std::string &method,
                             const std::string &endpoint) {
-    setHeader("Allow", "GET, POST, PUT, OPTIONS");
+    setHeader("Allow", "GET, POST, PUT, DELETE, OPTIONS");
     return error(Status::METHOD_NOT_ALLOWED,
                  "Method " + method + " not allowed for " + endpoint);
   }
@@ -507,11 +512,11 @@ private:
 
     // Apply CORS headers if enabled
     if (config_.enableCors) {
-      response.headers["Access-Control-Allow-Origin"] = "*";
-      response.headers["Access-Control-Allow-Methods"] =
-          "GET, POST, PUT, DELETE, OPTIONS";
-      response.headers["Access-Control-Allow-Headers"] =
-          "Content-Type, Authorization";
+      // Use configurable CORS settings instead of wildcard
+      response.headers["Access-Control-Allow-Origin"] = config_.corsAllowedOrigin;
+      response.headers["Access-Control-Allow-Methods"] = config_.corsAllowedMethods;
+      response.headers["Access-Control-Allow-Headers"] = config_.corsAllowedHeaders;
+      response.headers["Access-Control-Allow-Credentials"] = "true";
     }
 
     // Apply security headers
@@ -567,6 +572,7 @@ private:
   std::string escapeJson(const std::string &input) const {
     std::ostringstream escaped;
     for (char c : input) {
+      unsigned char uc = static_cast<unsigned char>(c);
       switch (c) {
       case '"':
         escaped << "\\\"";
@@ -584,7 +590,14 @@ private:
         escaped << "\\t";
         break;
       default:
-        escaped << c;
+        // Escape control characters (0x00-0x1F) as \u00XX
+        if (uc < 0x20) {
+          escaped << "\\u00";
+          escaped << std::hex << std::uppercase << std::setfill('0') << std::setw(2) << static_cast<int>(uc);
+          escaped << std::dec; // Reset to decimal
+        } else {
+          escaped << c;
+        }
         break;
       }
     }
