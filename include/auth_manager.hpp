@@ -21,6 +21,12 @@ public:
   AuthManager(std::shared_ptr<DatabaseManager> dbManager);
   ~AuthManager();
 
+  // Non-copyable/non-movable to avoid duplicating sensitive key material
+  AuthManager(const AuthManager&) = delete;
+  AuthManager& operator=(const AuthManager&) = delete;
+  AuthManager(AuthManager&&) = delete;
+  AuthManager& operator=(AuthManager&&) = delete;
+
   // User management
   bool createUser(const std::string &username, const std::string &email,
                   const std::string &password);

@@ -637,7 +637,7 @@ void ConnectionPoolManager::sendErrorResponse(tcp::socket &socket,
 
     // Create a simple HTTP error response
     std::string response = "HTTP/1.1 503 Service Unavailable\r\n"
-                           "Content-Type: application/json\r\n"
+                           "Content-Type: application/json; charset=utf-8\r\n"
                            "Content-Length: " +
                            std::to_string(body.length()) +
                            "\r\n"

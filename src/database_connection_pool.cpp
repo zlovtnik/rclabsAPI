@@ -84,7 +84,6 @@ std::shared_ptr<pqxx::connection> DatabaseConnectionPool::acquireConnection() {
     lock.unlock();
 
     std::shared_ptr<pqxx::connection> conn;
-    std::shared_ptr<PooledConnection> pooledConn;
     try {
       conn = createConnection();
       if (conn) {

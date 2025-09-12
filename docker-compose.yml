@@ -23,15 +23,15 @@ services:
   redis:
     image: redis:7-alpine
     container_name: etl_redis
-    ports:
-      - "6379:6379"
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
     volumes:
       - redis_data:/data
-      - ./redis.conf:/etc/redis/redis.conf
-    command: redis-server /etc/redis/redis.conf
+      - ./redis.conf:/etc/redis/redis.conf:ro
+    command: ["redis-server", "/etc/redis/redis.conf", "--requirepass", "${REDIS_PASSWORD}"]
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", 'if [ -n "$$REDIS_PASSWORD" ]; then redis-cli -a "$$REDIS_PASSWORD" ping; else redis-cli ping; fi']
       interval: 10s
       timeout: 3s
       retries: 3
@@ -56,7 +56,6 @@ services:
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       - JWT_SECRET=development-jwt-secret-key-for-local-testing
-      - ETL_ENABLE_REDIS=1
     volumes:
       - ./logs:/app/logs
       - ./config:/app/config:ro

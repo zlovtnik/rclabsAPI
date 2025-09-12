@@ -277,9 +277,6 @@ else()
     message(STATUS "Using hiredis library: ${HIREDIS_LIBRARIES}")
 endif()
 
-# Expose Redis feature flag
-add_compile_definitions(ETL_ENABLE_REDIS=$<BOOL:${HIREDIS_FOUND}>)
-
 # Create a shared library for common sources to avoid recompilation
 set(COMMON_SOURCES
     src/logger.cpp
@@ -373,6 +370,9 @@ target_link_libraries(etl_common PUBLIC
     OpenSSL::SSL
     OpenSSL::Crypto
 )
+
+# Expose Redis feature flag (target-scoped)
+target_compile_definitions(etl_common PUBLIC ETL_ENABLE_REDIS=$<BOOL:${HIREDIS_FOUND}>)
 
 # Main executable - now much simpler
 add_executable(ETLPlusBackend 

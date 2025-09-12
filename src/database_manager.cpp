@@ -163,7 +163,11 @@ bool DatabaseManager::executeQuery(const std::string &query, const std::vector<s
   try {
     auto conn = pImpl->connectionPool->acquireConnection();
     pqxx::work txn(*conn);
-    txn.exec_params(query, params.begin(), params.end());
+    pqxx::params pqxx_params;
+    for (const auto& param : params) {
+      pqxx_params.append(param);
+    }
+    txn.exec_params(query, pqxx_params);
     txn.commit();
     pImpl->connectionPool->releaseConnection(conn);
     DB_LOG_DEBUG("Parameterized query executed successfully");
@@ -233,7 +237,11 @@ DatabaseManager::selectQuery(const std::string &query, const std::vector<std::st
   try {
     auto conn = pImpl->connectionPool->acquireConnection();
     pqxx::work txn(*conn);
-    pqxx::result result = txn.exec_params(query, params.begin(), params.end());
+    pqxx::params pqxx_params;
+    for (const auto& param : params) {
+      pqxx_params.append(param);
+    }
+    pqxx::result result = txn.exec_params(query, pqxx_params);
     txn.commit();
     pImpl->connectionPool->releaseConnection(conn);
 

@@ -8,7 +8,9 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#if defined(__unix__) || defined(__APPLE__)
 #include <sys/mman.h>
+#endif
 #include <iostream>
 #include <random>
 #include <sstream>
@@ -55,9 +57,12 @@ AuthManager::AuthManager(std::shared_ptr<DatabaseManager> dbManager)
   // Securely zero the temporary string
   std::fill(jwtSecretKey.begin(), jwtSecretKey.end(), '\0');
   // Lock the secret in memory
-  if (mlock(jwtSecretKey_.data(), jwtSecretKey_.size()) != 0) {
+#if defined(__unix__) || defined(__APPLE__)
+  if (!jwtSecretKey_.empty() &&
+      mlock(jwtSecretKey_.data(), jwtSecretKey_.size()) != 0) {
     AUTH_LOG_WARN("Failed to lock JWT secret in memory");
   }
+#endif
 #endif
 
   // Note: Default admin user creation is now handled by database schema
@@ -67,7 +72,12 @@ AuthManager::AuthManager(std::shared_ptr<DatabaseManager> dbManager)
 
 AuthManager::~AuthManager() {
 #if ETL_ENABLE_JWT
-  // Securely zero the JWT secret
+  // Unlock and zero the JWT secret
+#if defined(__unix__) || defined(__APPLE__)
+  if (!jwtSecretKey_.empty()) {
+    munlock(jwtSecretKey_.data(), jwtSecretKey_.size());
+  }
+#endif
   std::fill(jwtSecretKey_.begin(), jwtSecretKey_.end(), '\0');
 #endif
 }
@@ -141,8 +151,7 @@ bool AuthManager::authenticateUser(std::string_view username,
     return false;
   }
 
-  AUTH_LOG_INFO("Authenticated user: " + std::string(username) +
-                " with password");
+  AUTH_LOG_INFO("Authenticated user: " + std::string(username));
   return true;
 }
 

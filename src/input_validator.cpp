@@ -695,8 +695,8 @@ bool InputValidator::containsXss(const std::string &input) {
   std::transform(lowerInput.begin(), lowerInput.end(), lowerInput.begin(),
                  ::tolower);
 
-  // Expanded XSS patterns including encoded variants
-  std::vector<std::string> xssPatterns = {
+  // Static set for O(1) lookups instead of linear search
+  static const std::unordered_set<std::string> xssPatterns = {
       "<script", "</script>", "javascript:", "onload=", "onerror=",
       "onclick=", "onmouseover=", "<iframe", "eval(", "alert(",
       "vbscript:", "data:text/html", "data:text/javascript",

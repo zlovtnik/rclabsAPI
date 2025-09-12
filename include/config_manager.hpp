@@ -124,7 +124,8 @@ private:
 
   bool parseConfigFile(const std::string &configPath);
   void flattenJson(const nlohmann::json &json, const std::string &prefix,
-                   int currentDepth, int maxDepth, std::set<const void*> &visited);
+                   int currentDepth, int maxDepth,
+                   std::unordered_set<const nlohmann::json*> &visited);
   LogLevel parseLogLevel(const std::string &levelStr) const;
   LogFormat parseLogFormat(const std::string &formatStr) const;
 

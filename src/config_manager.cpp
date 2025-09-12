@@ -401,7 +401,7 @@ bool ConfigManager::parseConfigFile(const std::string &configPath) {
     configData.clear();
 
     // Flatten JSON into dot-separated keys
-    std::set<const void*> visited;
+    std::unordered_set<const nlohmann::json*> visited;
     flattenJson(jsonConfig, "", 0, 100, visited);
 
     return true;
@@ -413,7 +413,7 @@ bool ConfigManager::parseConfigFile(const std::string &configPath) {
 
 void ConfigManager::flattenJson(const nlohmann::json &json,
                                 const std::string &prefix, int currentDepth,
-                                int maxDepth, std::set<const void*> &visited) {
+                                int maxDepth, std::unordered_set<const nlohmann::json*> &visited) {
   if (currentDepth >= maxDepth) {
     std::string key = prefix.empty() ? "deep_nested" : prefix + ".deep_nested";
     configData[key] = json.dump();
@@ -421,7 +421,7 @@ void ConfigManager::flattenJson(const nlohmann::json &json,
   }
 
   // Check for circular reference
-  const void* jsonPtr = &json;
+  const nlohmann::json* jsonPtr = &json;
   if (visited.find(jsonPtr) != visited.end()) {
     std::string key = prefix.empty() ? "circular_ref" : prefix + ".circular_ref";
     configData[key] = "circular reference detected";
@@ -443,9 +443,9 @@ void ConfigManager::flattenJson(const nlohmann::json &json,
       if (it->is_string()) {
         configData[key] = it->get<std::string>();
       } else if (it->is_number_integer()) {
-        configData[key] = std::to_string(it->get<int>());
+        configData[key] = std::to_string(it->get<long long>());
       } else if (it->is_number_float()) {
-        configData[key] = std::to_string(it->get<double>());
+        configData[key] = it->dump();
       } else if (it->is_boolean()) {
         configData[key] = it->get<bool>() ? "true" : "false";
       } else {
