@@ -2,7 +2,20 @@
 #include <iostream>
 #include <string>
 
-// Simple test to verify the template system works
+/**
+ * @brief Entry-point test that exercises the component- and job-scoped logging macros.
+ *
+ * Runs a short sequence that prints section headers to stdout and invokes several
+ * component-specific and job-specific logging macros to verify the template-based
+ * logging system produces output for INFO and DEBUG levels.
+ *
+ * Side effects:
+ * - Writes human-readable section headers and a final pass message to stdout.
+ * - Invokes logging macros (e.g., CONFIG_LOG_INFO, DB_LOG_DEBUG, ETL_LOG_*_JOB),
+ *   which emit log entries through the project's logging system.
+ *
+ * @return int Returns 0 on successful completion.
+ */
 int main() {
   std::cout << "=== Component Logger Template System Test ===" << std::endl;
 

@@ -5,6 +5,18 @@
 
 class ConfigManagerMonitoringTest : public ::testing::Test {
 protected:
+  /**
+   * @brief Test fixture setup: prepares a temporary config environment and loads it.
+   *
+   * Creates a temporary directory and writes a test configuration file (test_config.json),
+   * then obtains the ConfigManager singleton and loads the written config file so tests
+   * start with a known configuration state.
+   *
+   * Side effects:
+   * - Creates the directory referenced by `testDir`.
+   * - Writes `testConfigFile` into that directory.
+   * - Initializes `configManager` by loading the configuration into the ConfigManager singleton.
+   */
   void SetUp() override {
     // Create a temporary directory for test files
     testDir = std::filesystem::temp_directory_path() / "etlplus_config_test";
@@ -24,6 +36,13 @@ protected:
     std::filesystem::remove_all(testDir);
   }
 
+  /**
+   * @brief Creates a standard test configuration file at testConfigFile.
+   *
+   * Writes a JSON configuration used by the test suite containing server,
+   * database, and monitoring sections (websocket, job_tracking, notifications).
+   * Existing file at testConfigFile will be overwritten.
+   */
   void createTestConfigFile() {
     std::ofstream file(testConfigFile);
     file << R"({
@@ -64,6 +83,13 @@ protected:
     file.close();
   }
 
+  /**
+   * @brief Writes a deliberately invalid monitoring JSON configuration to the testConfigFile.
+   *
+   * The file contains invalid numeric values for websocket and job_tracking sections
+   * (e.g., negative port, zero/negative intervals and sizes) intended to trigger
+   * validation errors in tests that load and validate configuration data.
+   */
   void createInvalidConfigFile() {
     std::ofstream file(testConfigFile);
     file << R"({
@@ -556,6 +582,15 @@ TEST_F(ConfigManagerMonitoringTest,
   EXPECT_EQ(value, "true"); // From config file
 }
 
+/**
+ * @brief Entry point for the Google Test runner.
+ *
+ * Initializes Google Test with command-line arguments and runs all registered tests.
+ *
+ * @param argc Number of command-line arguments.
+ * @param argv Array of command-line argument strings.
+ * @return int Test runner exit code (0 on success, non-zero on failure).
+ */
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

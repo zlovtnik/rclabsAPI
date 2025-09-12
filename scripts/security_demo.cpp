@@ -19,13 +19,24 @@ using namespace ETLPlus::Auth;
 using namespace ETLPlus::SSL;
 
 /**
- * Security Features Demonstration
+ * @brief Entry point for the Security Features Demonstration program.
  *
- * This program demonstrates the comprehensive security enhancements:
- * 1. Input validation and sanitization
- * 2. SSL/TLS configuration
- * 3. JWT key management
- * 4. Security auditing
+ * Runs a sequence of security feature demos (input validation & sanitization,
+ * SSL/TLS configuration validation, JWT key management, and security auditing),
+ * generates a detailed audit report, and attempts to persist that report to
+ * disk with robust path handling and fallbacks.
+ *
+ * The function prints progress and results to stdout/stderr, reads the
+ * DEMO_JWT_SECRET environment variable if present to seed the demo JWT key,
+ * and uses std::filesystem::temp_directory_path() with fallbacks (HOME or
+ * current working directory) to determine where to save a timestamped report
+ * under a "security_reports" subdirectory. If file writing fails, it falls
+ * back to writing the full report to stdout. Exceptions thrown during file
+ * operations are caught and handled so the program still produces output.
+ *
+ * @param argc Number of command-line arguments (unused by the demo).
+ * @param argv Command-line arguments (unused by the demo).
+ * @return int Always returns 0 on completion.
  */
 
 int main(int argc, char *argv[]) {

@@ -10,6 +10,14 @@ private:
   std::filesystem::path testConfigFile;
   ConfigManager *configManager;
 
+  /**
+   * @brief Create a JSON test configuration file at the path stored in testConfigFile.
+   *
+   * Writes a predefined JSON configuration (server and monitoring sections including
+   * websocket, job_tracking, and notifications) to the member path testConfigFile.
+   *
+   * @note This will overwrite any existing file at testConfigFile.
+   */
   void createTestConfigFile() {
     std::ofstream file(testConfigFile);
     file << R"({
@@ -46,6 +54,23 @@ private:
   }
 
 public:
+  /**
+   * @brief Prepare the temporary environment and load the test configuration.
+   *
+   * Creates a temporary directory (temp_directory_path()/etlplus_config_demo), writes the test
+   * JSON configuration file (demo_config.json) via createTestConfigFile(), obtains the
+   * ConfigManager singleton, and loads the configuration from that file.
+   *
+   * Side effects:
+   * - Sets the member variables `testDir` and `testConfigFile`.
+   * - Creates filesystem directories and writes the test config file.
+   * - Initializes `configManager` to point at ConfigManager::getInstance().
+   *
+   * Any exceptions thrown during setup are caught; an error is printed and the function
+   * returns false in that case.
+   *
+   * @return true if the configuration was successfully loaded; false on failure or exception.
+   */
   bool setUp() {
     try {
       testDir = std::filesystem::temp_directory_path() / "etlplus_config_demo";
@@ -62,6 +87,13 @@ public:
     }
   }
 
+  /**
+   * @brief Clean up the temporary test directory used by the demo.
+   *
+   * Attempts to remove the directory referenced by `testDir` and all of its contents.
+   * Any exceptions thrown during removal are caught; on failure an error message is
+   * written to standard error but the exception is not propagated.
+   */
   void tearDown() {
     try {
       std::filesystem::remove_all(testDir);
@@ -70,6 +102,21 @@ public:
     }
   }
 
+  /**
+   * @brief Retrieve the WebSocket configuration and verify it matches expected test values.
+   *
+   * Retrieves the current WebSocket configuration from the global ConfigManager and validates
+   * that the fields match the test fixture's expected values.
+   *
+   * Expected values checked:
+   * - enabled == true
+   * - port == 8081
+   * - maxConnections == 100
+   * - heartbeatInterval == 30
+   * - messageQueueSize == 1000
+   *
+   * @return true if all fields equal the expected values; false otherwise.
+   */
   bool testWebSocketConfigRetrieval() {
     std::cout << "\n=== Testing WebSocket Configuration Retrieval ===\n";
 
@@ -93,6 +140,18 @@ public:
     return success;
   }
 
+  /**
+   * @brief Retrieves the Job Tracking configuration from the ConfigManager, validates it against expected values, and reports the result.
+   *
+   * Retrieves the current job tracking configuration, prints key fields (progress update interval, log streaming enabled,
+   * metrics collection enabled, and timeout warning threshold), and checks that they match the expected values:
+   * progressUpdateInterval == 5, logStreamingEnabled == true, metricsCollectionEnabled == true, timeoutWarningThreshold == 25.
+   *
+   * Side effects:
+   * - Prints diagnostic information and a PASS/FAIL summary to standard output.
+   *
+   * @return true if the retrieved configuration matches the expected values; false otherwise.
+   */
   bool testJobTrackingConfigRetrieval() {
     std::cout << "\n=== Testing Job Tracking Configuration Retrieval ===\n";
 
@@ -118,6 +177,19 @@ public:
     return success;
   }
 
+  /**
+   * @brief Retrieve the full monitoring configuration and validate key fields.
+   *
+   * Retrieves the monitoring configuration from the global ConfigManager, prints
+   * selected fields (WebSocket port and Job Tracking progress update interval),
+   * and verifies they match expected test values.
+   *
+   * The test expects:
+   * - websocket.port == 8081
+   * - jobTracking.progressUpdateInterval == 5
+   *
+   * @return true if the retrieved configuration matches the expected values; false otherwise.
+   */
   bool testMonitoringConfigRetrieval() {
     std::cout << "\n=== Testing Full Monitoring Configuration Retrieval ===\n";
 
@@ -136,6 +208,18 @@ public:
     return success;
   }
 
+  /**
+   * @brief Runs validation for the monitoring configuration and reports results.
+   *
+   * Calls the ConfigManager's validateMonitoringConfig(), prints a summary of
+   * the validation (validity, counts of errors and warnings, and their messages),
+   * and returns whether the configuration is valid.
+   *
+   * Side effects:
+   *  - Writes validation output to stdout.
+   *
+   * @return true if the monitoring configuration is valid; otherwise false.
+   */
   bool testConfigurationValidation() {
     std::cout << "\n=== Testing Configuration Validation ===\n";
 
@@ -164,6 +248,17 @@ public:
     return result.isValid;
   }
 
+  /**
+   * @brief Verify that invalid monitoring configurations are detected.
+   *
+   * Constructs invalid WebSocketConfig and JobTrackingConfig instances, invokes
+   * their validate() methods, and checks that each validation result is marked
+   * invalid and contains a sufficient number of errors (at least 3 errors for
+   * the WebSocket config and at least 2 errors for the Job Tracking config).
+   *
+   * @return true if both validations are invalid and meet the minimum error
+   * counts; false otherwise.
+   */
   bool testInvalidConfigurationValidation() {
     std::cout << "\n=== Testing Invalid Configuration Validation ===\n";
 
@@ -198,6 +293,20 @@ public:
     return success;
   }
 
+  /**
+   * @brief Tests dynamic update of the WebSocket configuration via the ConfigManager.
+   *
+   * Performs an in-process update of the WebSocket configuration (changes port and
+   * maxConnections), attempts to persist the change through the ConfigManager,
+   * then reads back the configuration to verify the new values were applied.
+   *
+   * The function has a side effect on the ConfigManager state by calling
+   * updateWebSocketConfig().
+   *
+   * @return true if the update was accepted and the persisted configuration
+   *         reflects the new port and maxConnections; false if the update was
+   *         rejected or the persisted configuration does not match the expected values.
+   */
   bool testDynamicConfigurationUpdate() {
     std::cout << "\n=== Testing Dynamic Configuration Updates ===\n";
 
@@ -230,6 +339,18 @@ public:
     return false;
   }
 
+  /**
+   * @brief Verifies that attempting to apply an invalid dynamic WebSocket configuration is rejected
+   *        and does not mutate the active configuration.
+   *
+   * Attempts to update the singleton ConfigManager's WebSocket configuration with an obviously
+   * invalid entry (port set to -1). The test checks that the update call returns false
+   * (rejection) and that the currently active WebSocket configuration remains unchanged
+   * (its port is not -1).
+   *
+   * @return true if the invalid update was rejected and the active configuration remained unchanged;
+   *         false otherwise.
+   */
   bool testInvalidDynamicConfigurationUpdate() {
     std::cout << "\n=== Testing Invalid Dynamic Configuration Updates ===\n";
 
@@ -253,6 +374,15 @@ public:
     return success;
   }
 
+  /**
+   * @brief Tests that registered configuration-change callbacks are invoked when a config section is updated.
+   *
+   * Registers a temporary callback named "test_callback" with the ConfigManager, updates the Job Tracking
+   * configuration to trigger the callback, then unregisters the callback. The test passes if the callback
+   * was invoked and the reported section name equals "job_tracking".
+   *
+   * @return true if the callback was invoked and the received section equals "job_tracking"; false otherwise.
+   */
   bool testConfigurationChangeCallback() {
     std::cout << "\n=== Testing Configuration Change Callbacks ===\n";
 
@@ -289,6 +419,22 @@ public:
     return success;
   }
 
+  /**
+   * @brief Exercises template-based validated value retrieval from the ConfigManager.
+   *
+   * Retrieves three configuration values using the templated getValidatedValue:
+   * - an integer port at "monitoring.websocket.port" (uses 8080 default and a
+   *   predicate that accepts 1..65535),
+   * - a boolean enabled flag at "monitoring.websocket.enabled" (default false),
+   * - a string address at "server.address" (default "localhost").
+   *
+   * Each retrieved value is printed to stdout. The function considers the test
+   * successful if the resolved port is > 0, the enabled flag is true, and the
+   * address is non-empty.
+   *
+   * @return true if all retrieved values pass the basic checks (port > 0,
+   *         enabled == true, non-empty address); otherwise false.
+   */
   bool testTemplateValidation() {
     std::cout << "\n=== Testing Template-based Validated Value Retrieval ===\n";
 
@@ -314,6 +460,23 @@ public:
     return success;
   }
 
+  /**
+   * @brief Runs the full suite of configuration-related tests and reports the aggregate result.
+   *
+   * Executes each individual test case in a fixed sequence:
+   * - WebSocket configuration retrieval
+   * - Job tracking configuration retrieval
+   * - Full monitoring configuration retrieval
+   * - Configuration validation
+   * - Invalid-configuration detection
+   * - Dynamic configuration updates (valid and invalid)
+   * - Configuration change callback handling
+   * - Template-based validated value retrieval
+   *
+   * The function prints a header, per-suite summary lines and a final overall result to stdout.
+   *
+   * @return true if all tests passed; false if any test failed.
+   */
   bool runAllTests() {
     std::cout << "==========================================\n";
     std::cout << "Configuration Management Demo & Testing\n";
@@ -340,6 +503,18 @@ public:
   }
 };
 
+/**
+ * @brief Test harness entry point for the ConfigMonitoringDemo suite.
+ *
+ * Initializes a ConfigMonitoringDemo instance, sets up the test environment,
+ * runs the full set of configuration tests, performs cleanup, and returns an
+ * appropriate process exit code.
+ *
+ * The function returns 0 when all tests pass and 1 on any failure (including
+ * setup failure).
+ *
+ * @return int Process exit code: 0 on success, 1 on failure.
+ */
 int main() {
   ConfigMonitoringDemo demo;
 

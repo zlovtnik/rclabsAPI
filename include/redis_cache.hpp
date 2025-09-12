@@ -37,7 +37,12 @@ public:
   // concurrently Hiredis contexts are not thread-safe internally, so all
   // operations are protected by mutex_
 
-  // Delete copy and move operations
+  /**
+ * @brief Deleted copy constructor to make RedisCache non-copyable.
+ *
+ * RedisCache manages exclusive resources (connection context and synchronization primitives)
+ * and must not be copied.
+ */
   RedisCache(const RedisCache &) = delete;
   RedisCache &operator=(const RedisCache &) = delete;
   RedisCache(RedisCache &&) = delete;

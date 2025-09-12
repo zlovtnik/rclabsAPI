@@ -10,6 +10,13 @@ using tcp = boost::asio::ip::tcp;
 
 class ConnectionPoolManagerSimpleTest : public ::testing::Test {
 protected:
+  /**
+   * @brief Test fixture setup: initializes timeout manager and default pool settings.
+   *
+   * Called before each test. Constructs a TimeoutManager using the fixture's IO context
+   * and sets the default connection-pool configuration used by tests:
+   * minimum connections = 2, maximum connections = 5, idle timeout = 10 seconds.
+   */
   void SetUp() override {
     timeoutManager_ = std::make_shared<TimeoutManager>(ioc_);
 
@@ -19,6 +26,16 @@ protected:
     idleTimeout_ = std::chrono::seconds(10);
   }
 
+  /**
+   * @brief Tear down the test fixture.
+   *
+   * Stops and cleans up resources created during SetUp:
+   * - If a ConnectionPoolManager was created, calls its shutdown().
+   * - Stops the Boost.AsIO io_context.
+   * - Joins the IO thread if it is joinable.
+   *
+   * Safe to call when no pool manager or IO thread exists.
+   */
   void TearDown() override {
     if (poolManager_) {
       poolManager_->shutdown();
@@ -29,6 +46,14 @@ protected:
     }
   }
 
+  /**
+   * @brief Constructs a ConnectionPoolManager for tests and stores it in poolManager_.
+   *
+   * Creates a ConnectionPoolManager using the fixture's ioc_, minConnections_, maxConnections_,
+   * idleTimeout_, and timeoutManager_. The session handler and wsManager are passed as null
+   * because tests exercise pool behavior only. MonitorConfig is created with a null monitor
+   * and QueueConfig is initialized to capacity 100 with a 30-second idle queue timeout.
+   */
   void createPoolManager() {
     // Use null pointers for handler and wsManager since we're only testing pool
     // logic
@@ -38,6 +63,14 @@ protected:
         ConnectionPoolManager::QueueConfig{100, std::chrono::seconds(30)});
   }
 
+  /**
+   * @brief Starts the Boost.Asio IO context loop in a dedicated thread.
+   *
+   * Launches a new std::thread that calls ioc_.run() and stores it in the
+   * ioThread_ member. The thread will block running the IO context until the
+   * context is stopped; the caller is responsible for stopping the IO context
+   * and joining ioThread_ (e.g., in TearDown).
+   */
   void startIoContext() {
     ioThread_ = std::thread([this]() { ioc_.run(); });
   }
@@ -147,6 +180,14 @@ TEST_F(ConnectionPoolManagerSimpleTest, ReleaseNullSessionHandledGracefully) {
   EXPECT_EQ(poolManager_->getIdleConnections(), 0);
 }
 
+/**
+ * @brief Program entry point: initializes Google Test and runs all tests.
+ *
+ * Initializes the Google Test framework with the provided command-line arguments
+ * and executes the test suite.
+ *
+ * @return int Result code from RUN_ALL_TESTS() (0 on success, non-zero on failure).
+ */
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

@@ -15,9 +15,28 @@ private:
   std::string accountId_;
 
 public:
-  BankAccount(const std::string &id, double initialBalance)
+  /**
+       * @brief Construct a BankAccount with the given identifier and starting balance.
+       *
+       * @param id Account identifier (string).
+       * @param initialBalance Starting balance for the account.
+       */
+      BankAccount(const std::string &id, double initialBalance)
       : balance_(initialBalance), accountId_(id) {}
 
+  /**
+   * @brief Attempt to withdraw an amount from the account.
+   *
+   * Acquires the account's balance mutex with a 1-second timed lock, simulates
+   * a short processing delay (1 ms), and if the current balance is sufficient
+   * deducts the amount and returns true. If the balance is insufficient the
+   * balance is unchanged and the function returns false. The function prints
+   * a message describing the outcome.
+   *
+   * @param amount Withdrawal amount in the account currency.
+   * @return true if the withdrawal succeeded and the balance was decreased.
+   * @return false if the withdrawal failed due to insufficient funds.
+   */
   bool withdraw(double amount) {
     ScopedTimedLock lock(balanceMutex_, std::chrono::milliseconds(1000),
                          "withdraw_" + accountId_);
@@ -36,6 +55,14 @@ public:
     return false;
   }
 
+  /**
+   * @brief Atomically adds funds to the account balance.
+   *
+   * Acquires the account's timed mutex (up to 1 second) to protect the balance, simulates a short processing delay,
+   * increments the stored balance by the given amount, and prints the updated balance to stdout.
+   *
+   * @param amount Amount to deposit; added to the account's balance.
+   */
   void deposit(double amount) {
     ScopedTimedLock lock(balanceMutex_, std::chrono::milliseconds(1000),
                          "deposit_" + accountId_);
@@ -47,6 +74,16 @@ public:
               << ". New balance: $" << balance_ << std::endl;
   }
 
+  /**
+   * @brief Returns the current account balance.
+   *
+   * Attempts to acquire the account's balance mutex with a 500 ms timed lock and then
+   * returns the protected balance value. This const accessor uses a `const_cast` to
+   * obtain the non-const mutex so it may block (up to the timeout) while synchronizing
+   * access with other threads.
+   *
+   * @return double Current balance.
+   */
   double getBalance() const {
     ScopedTimedLock lock(const_cast<StateMutex &>(balanceMutex_),
                          std::chrono::milliseconds(500),
@@ -71,6 +108,13 @@ private:
   std::atomic<int> activeConnections_{0};
 
 public:
+  /**
+   * @brief Constructs a ConnectionPool and populates the pool with initial connections.
+   *
+   * Initializes the availableConnections_ container with five connection identifiers
+   * ("conn_0" through "conn_4"). Other members (config_ defaults and activeConnections_)
+   * remain at their default-initialized values.
+   */
   ConnectionPool() {
     // Initialize with some connections
     for (int i = 0; i < 5; ++i) {
@@ -78,6 +122,16 @@ public:
     }
   }
 
+  /**
+   * @brief Atomically update the connection pool configuration.
+   *
+   * Acquires an exclusive timed lock on the configuration mutex (1 second)
+   * and updates the stored maxConnections and timeoutMs values. The new
+   * configuration is also written to standard output.
+   *
+   * @param maxConn Maximum number of connections.
+   * @param timeout Connection timeout in milliseconds.
+   */
   void updateConfig(int maxConn, int timeout) {
     // Exclusive access to config (writer lock)
     ScopedTimedLock configLock(configMutex_, std::chrono::milliseconds(1000),
@@ -90,6 +144,23 @@ public:
               << "ms" << std::endl;
   }
 
+  /**
+   * @brief Acquire a connection identifier from the pool.
+   *
+   * Attempts to read the current configuration (shared timed read) and then
+   * obtains exclusive access to the pool container to remove and return one
+   * available connection identifier.
+   *
+   * If a connection is successfully acquired, it is removed from the pool and
+   * the internal active connection counter is incremented; the connection id is
+   * returned. If no connections are available, an empty string is returned.
+   *
+   * The method uses timed locks when accessing configuration (500 ms) and the
+   * pool container (1000 ms).
+   *
+   * @return std::string The acquired connection identifier, or an empty string if
+   * none are available.
+   */
   std::string acquireConnection() {
     // Read config (shared lock - multiple readers allowed)
     ScopedTimedSharedLock configLock(
@@ -114,6 +185,15 @@ public:
     return conn;
   }
 
+  /**
+   * @brief Releases a previously acquired connection back into the pool.
+   *
+   * Acquires an exclusive timed lock on the pool container (up to 1000 ms) and
+   * returns the connection identifier to the list of available connections.
+   * The function also decrements the pool's active-connection counter.
+   *
+   * @param conn Connection identifier to release back into the pool.
+   */
   void releaseConnection(const std::string &conn) {
     ScopedTimedLock poolLock(poolMutex_, std::chrono::milliseconds(1000),
                              "pool_release");
@@ -125,10 +205,31 @@ public:
               << " (Active: " << activeConnections_.load() << ")" << std::endl;
   }
 
-  int getActiveCount() const { return activeConnections_.load(); }
+  /**
+ * @brief Returns the current number of active (in-use) connections.
+ *
+ * This is a snapshot read of an internal atomic counter and is safe to call
+ * concurrently. The returned value may immediately become stale as connections
+ * are acquired or released by other threads.
+ *
+ * @return int Current number of active connections.
+ */
+int getActiveCount() const { return activeConnections_.load(); }
 };
 
-// Demonstrate lock timeout handling
+/**
+ * @brief Demonstrates timed-lock behavior and timeout handling.
+ *
+ * Runs two threads contending on a std::timed_mutex: a "slow" thread that
+ * holds the lock for ~2 seconds using ScopedTimedLock and a "fast" thread
+ * that attempts to acquire the same lock with a short timeout. Shows the
+ * expected LockTimeoutException when the fast thread times out and prints
+ * progress and results to stdout.
+ *
+ * Side effects:
+ * - Spawns two threads and writes diagnostic messages to stdout.
+ * - Waits for both threads to join before returning.
+ */
 void demonstrateLockTimeout() {
   std::cout << "\n=== Lock Timeout Demonstration ===" << std::endl;
 
@@ -164,7 +265,18 @@ void demonstrateLockTimeout() {
   fastThread.join();
 }
 
-// Demonstrate deadlock prevention
+/**
+ * @brief Demonstrates deadlock prevention via consistent lock ordering.
+ *
+ * Attempts two locking sequences on a pair of mutex types (configuration-level
+ * and container-level) to show the effect of a global lock ordering rule:
+ * the correct ordering (config then container) acquires both locks successfully,
+ * while the reversed ordering triggers the deadlock detector and throws
+ * DeadlockException.
+ *
+ * The function prints status messages and catches DeadlockException for the
+ * failing scenario to confirm the prevention behavior.
+ */
 void demonstrateDeadlockPrevention() {
   std::cout << "\n=== Deadlock Prevention Demonstration ===" << std::endl;
 
@@ -194,6 +306,20 @@ void demonstrateDeadlockPrevention() {
   }
 }
 
+/**
+ * @brief Entry point for the Lock Utils demonstration program.
+ *
+ * Runs four demonstrations that exercise the locking utilities and instrumentation:
+ * 1) Concurrent BankAccount deposits/withdrawals.
+ * 2) ConnectionPool usage with proper lock ordering and a config update.
+ * 3) Lock timeout behavior.
+ * 4) Deadlock-prevention demonstration.
+ *
+ * Also enables LockMonitor and DeadlockDetector, prints runtime statistics gathered
+ * by LockMonitor, and outputs progress/results to stdout.
+ *
+ * @return int Program exit status (returns 0 on successful completion).
+ */
 int main() {
   std::cout << "Lock Utils Demo" << std::endl;
   std::cout << "===============" << std::endl;

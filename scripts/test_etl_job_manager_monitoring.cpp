@@ -12,7 +12,13 @@
 // JobMonitorServiceInterface definition for testing
 class JobMonitorServiceInterface {
 public:
-  virtual ~JobMonitorServiceInterface() = default;
+  /**
+ * @brief Virtual default destructor for the interface.
+ *
+ * Ensures derived implementations are correctly destroyed when deleted
+ * through a pointer to JobMonitorServiceInterface.
+ */
+virtual ~JobMonitorServiceInterface() = default;
   virtual void onJobStatusChanged(const std::string &jobId, JobStatus oldStatus,
                                   JobStatus newStatus) = 0;
   virtual void onJobProgressUpdated(const std::string &jobId,
@@ -40,8 +46,24 @@ public:
   std::vector<StatusChangeEvent> statusChanges;
   std::vector<ProgressUpdateEvent> progressUpdates;
 
-  virtual ~MockJobMonitorService() = default;
+  /**
+ * @brief Default virtual destructor.
+ *
+ * Ensures derived mock implementations are properly destroyed through base
+ * pointers. No additional cleanup is performed by the base class.
+ */
+virtual ~MockJobMonitorService() = default;
 
+  /**
+   * @brief Record a job status transition in the mock monitor.
+   *
+   * Creates a StatusChangeEvent containing the job identifier, the previous
+   * and new JobStatus values, and a timestamp (std::chrono::system_clock::now()),
+   * then appends it to the mock's internal statusChanges list.
+   *
+   * @param oldStatus The previous job status (state before the change).
+   * @param newStatus The new job status (state after the change).
+   */
   virtual void onJobStatusChanged(const std::string &jobId, JobStatus oldStatus,
                                   JobStatus newStatus) {
     StatusChangeEvent event;
@@ -56,6 +78,18 @@ public:
               << static_cast<int>(newStatus) << std::endl;
   }
 
+  /**
+   * @brief Record a job progress update in the mock monitor.
+   *
+   * Appends a ProgressUpdateEvent (including the current system timestamp) to
+   * the mock's progressUpdates storage for the specified job. The event carries
+   * the reported completion percentage and a short description of the current
+   * processing step.
+   *
+   * @param jobId Identifier of the job being updated.
+   * @param progressPercent Completion percentage (expected 0–100).
+   * @param currentStep Short description of the current processing step.
+   */
   virtual void onJobProgressUpdated(const std::string &jobId,
                                     int progressPercent,
                                     const std::string &currentStep) {
@@ -71,12 +105,28 @@ public:
               << std::endl;
   }
 
+  /**
+   * @brief Clear all recorded status change and progress update events.
+   *
+   * Removes all entries from the mock's internal event stores, resetting its
+   * observed state so subsequent assertions start from an empty history.
+   */
   void reset() {
     statusChanges.clear();
     progressUpdates.clear();
   }
 
-  // Helper methods for testing
+  /**
+   * @brief Checks whether a recorded status-change event matches a specific transition for a job.
+   *
+   * Searches the captured statusChanges for an event with the given job ID whose previous
+   * status equals `from` and whose new status equals `to`.
+   *
+   * @param jobId Identifier of the job to check.
+   * @param from Expected previous JobStatus.
+   * @param to Expected new JobStatus.
+   * @return true if a matching status-change event exists; false otherwise.
+   */
   bool hasStatusChange(const std::string &jobId, JobStatus from,
                        JobStatus to) const {
     for (const auto &event : statusChanges) {
@@ -88,6 +138,17 @@ public:
     return false;
   }
 
+  /**
+   * @brief Checks whether a specific progress update was recorded for a job.
+   *
+   * Searches the stored progress update events for an entry that exactly matches
+   * the given job ID, progress percentage, and step string.
+   *
+   * @param jobId Identifier of the job to look up.
+   * @param progress Progress percentage to match (exact integer equality).
+   * @param step Exact step description to match (string equality, case-sensitive).
+   * @return true if a matching progress update exists; false otherwise.
+   */
   bool hasProgressUpdate(const std::string &jobId, int progress,
                          const std::string &step) const {
     for (const auto &event : progressUpdates) {
@@ -99,14 +160,29 @@ public:
     return false;
   }
 
-  size_t getStatusChangeCount() const { return statusChanges.size(); }
-  size_t getProgressUpdateCount() const { return progressUpdates.size(); }
+  /**
+ * @brief Returns the number of recorded job status change events.
+ *
+ * @return size_t Count of StatusChangeEvent entries in the mock.
+ */
+size_t getStatusChangeCount() const { return statusChanges.size(); }
+  /**
+ * @brief Get the number of recorded progress update events.
+ *
+ * @return size_t Number of progress updates stored in the mock.
+ */
+size_t getProgressUpdateCount() const { return progressUpdates.size(); }
 };
 
 // Adapter to make MockJobMonitorService compatible with the interface
 class JobMonitorService {
 public:
-  virtual ~JobMonitorService() = default;
+  /**
+ * @brief Virtual destructor for JobMonitorService.
+ *
+ * Ensures proper polymorphic destruction of derived monitor service implementations.
+ */
+virtual ~JobMonitorService() = default;
   virtual void onJobStatusChanged(const std::string &jobId, JobStatus oldStatus,
                                   JobStatus newStatus) = 0;
   virtual void onJobProgressUpdated(const std::string &jobId,
@@ -119,20 +195,52 @@ private:
   std::shared_ptr<MockJobMonitorService> mock_;
 
 public:
-  MockJobMonitorServiceAdapter(std::shared_ptr<MockJobMonitorService> mock)
+  /**
+       * @brief Constructs an adapter that delegates monitoring callbacks to the given mock service.
+       *
+       * The adapter retains a shared reference to the provided MockJobMonitorService and forwards
+       * onJobStatusChanged and onJobProgressUpdated calls to it.
+       */
+      MockJobMonitorServiceAdapter(std::shared_ptr<MockJobMonitorService> mock)
       : mock_(mock) {}
 
+  /**
+   * @brief Forwarding adapter that notifies the underlying mock of a job status change.
+   *
+   * Delegates the status-change callback to the wrapped MockJobMonitorService instance.
+   *
+   * @param jobId Identifier of the job whose status changed.
+   * @param oldStatus Previous job status.
+   * @param newStatus New job status.
+   */
   void onJobStatusChanged(const std::string &jobId, JobStatus oldStatus,
                           JobStatus newStatus) override {
     mock_->onJobStatusChanged(jobId, oldStatus, newStatus);
   }
 
+  /**
+   * @brief Forwards a job progress update to the underlying mock monitor.
+   *
+   * This override delegates the progress notification to the wrapped MockJobMonitorService instance.
+   *
+   * @param jobId Identifier of the job whose progress changed.
+   * @param progressPercent Progress percentage (0-100).
+   * @param currentStep Short description of the current processing step.
+   */
   void onJobProgressUpdated(const std::string &jobId, int progressPercent,
                             const std::string &currentStep) override {
     mock_->onJobProgressUpdated(jobId, progressPercent, currentStep);
   }
 };
 
+/**
+ * @brief Tests that job status updates are published to an attached monitor.
+ *
+ * Schedules a test job with the ETLJobManager, attaches a MockJobMonitorService
+ * (via its adapter), publishes RUNNING and COMPLETED status updates for the
+ * job, and asserts that the mock recorded the expected status transitions
+ * (PENDING→RUNNING and RUNNING→COMPLETED) and at least two status-change events.
+ */
 void testJobStatusEventPublishing() {
   std::cout << "\n=== Testing Job Status Event Publishing ===" << std::endl;
 
@@ -173,6 +281,16 @@ void testJobStatusEventPublishing() {
   std::cout << "✓ Job status event publishing test passed" << std::endl;
 }
 
+/**
+ * @brief Tests that ETLJobManager publishes job progress events to an attached monitor.
+ *
+ * Creates a MockJobMonitorService and adapter, attaches it to an ETLJobManager, publishes
+ * a sequence of progress updates (0, 25, 50, 75, 100) for a test job, and asserts that
+ * the mock captured all five progress events with the expected progress values and step
+ * descriptions.
+ *
+ * @note This is a unit test: it uses assertions to validate behavior and will abort on failure.
+ */
 void testJobProgressEventPublishing() {
   std::cout << "\n=== Testing Job Progress Event Publishing ===" << std::endl;
 
@@ -206,6 +324,19 @@ void testJobProgressEventPublishing() {
   std::cout << "✓ Job progress event publishing test passed" << std::endl;
 }
 
+/**
+ * @brief Runs an integration-style test that verifies ETL job execution emits monitoring events.
+ *
+ * This test configures a mock JobMonitorService, connects a test database, starts an ETLJobManager,
+ * schedules both an EXTRACT job and a FULL_ETL job, and asserts that the mock monitor receives the
+ * expected status transitions and progress updates for each job. The manager is stopped at the end
+ * of the test.
+ *
+ * Side effects:
+ * - Opens a database connection via DatabaseManager.
+ * - Starts and stops an ETLJobManager.
+ * - Schedules and executes asynchronous jobs which generate monitor callbacks.
+ */
 void testJobExecutionWithMonitoring() {
   std::cout << "\n=== Testing Job Execution with Monitoring ===" << std::endl;
 
@@ -288,6 +419,16 @@ void testJobExecutionWithMonitoring() {
   std::cout << "✓ Job execution with monitoring test passed" << std::endl;
 }
 
+/**
+ * @brief Runs an integration-style test verifying ETL job execution when no monitoring service is attached.
+ *
+ * This test sets up a DatabaseManager and DataTransformer, connects to a test database,
+ * starts an ETLJobManager without attaching any JobMonitorService, schedules a simple
+ * EXTRACT job, waits for completion, and asserts that the job exists and reached
+ * JobStatus::COMPLETED. The test starts and stops the ETLJobManager as part of its lifecycle.
+ *
+ * Note: the test uses assertions for verification and will terminate the process if a check fails.
+ */
 void testJobExecutionWithoutMonitoring() {
   std::cout << "\n=== Testing Job Execution without Monitoring ==="
             << std::endl;
@@ -330,6 +471,19 @@ void testJobExecutionWithoutMonitoring() {
   std::cout << "✓ Job execution without monitoring test passed" << std::endl;
 }
 
+/**
+ * @brief Tests integration between ETLJobManager and a JobMonitorService adapter.
+ *
+ * Schedules a TRANSFORM job on a manager that has been attached to a MockJobMonitorService
+ * (via MockJobMonitorServiceAdapter), then publishes a RUNNING status, a 50% progress
+ * update with the step message "Halfway through transformation", and a COMPLETED status.
+ * Asserts that the mock monitor observed at least two status changes and at least one
+ * progress update.
+ *
+ * This function has side effects: it mutates the provided ETLJobManager by setting its
+ * monitor service, scheduling a job, and publishing status/progress events. It uses
+ * assertions to validate that events were received by the mock monitor.
+ */
 void testMonitorServiceIntegration() {
   std::cout << "\n=== Testing Monitor Service Integration ===" << std::endl;
 
@@ -370,6 +524,18 @@ void testMonitorServiceIntegration() {
   std::cout << "✓ Monitor service integration test passed" << std::endl;
 }
 
+/**
+ * @brief Test runner for the ETL Job Manager monitoring subsystem.
+ *
+ * Configures the test logger, executes the suite of monitoring tests
+ * (status publishing, progress publishing, execution with/without monitoring,
+ * and monitor integration), and reports overall success or failure.
+ *
+ * On success prints a celebratory message and returns 0. If any test throws
+ * an exception the function prints an error message to stderr and returns 1.
+ *
+ * @return int Exit code: 0 if all tests pass, 1 on any exception.
+ */
 int main() {
   std::cout << "Starting ETL Job Manager Monitoring Tests..." << std::endl;
 
