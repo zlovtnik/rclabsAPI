@@ -282,6 +282,8 @@ set(COMMON_SOURCES
     src/logger.cpp
     src/log_handler.cpp
     src/log_file_manager.cpp
+    src/log_aggregator.cpp
+    src/log_aggregation_config.cpp
     src/config_manager.cpp
     src/database_manager.cpp
     src/database_connection_pool.cpp
@@ -403,8 +405,20 @@ add_custom_target(copy_configs ALL
     COMMENT "Copying configuration files to build directory"
 )
 
-# Add a dependency so the executable depends on config files being copied
-add_dependencies(ETLPlusBackend copy_configs)
+# Add log aggregation test executable
+add_executable(test_log_aggregation
+    src/test_log_aggregation.cpp
+)
+
+target_include_directories(test_log_aggregation PRIVATE
+    include
+    ${Boost_INCLUDE_DIRS}
+)
+target_link_libraries(test_log_aggregation etl_common)
+
+set_target_properties(test_log_aggregation PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
 
 # Add commands to copy any additional config files if they exist
 file(GLOB CONFIG_FILES "${CMAKE_SOURCE_DIR}/config/*")

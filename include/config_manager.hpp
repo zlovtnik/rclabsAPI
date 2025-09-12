@@ -107,10 +107,14 @@ public:
                                     const ConfigChangeCallback &callback);
   void unregisterConfigChangeCallback(const std::string &section);
 
+  // Get raw JSON configuration
+  nlohmann::json getJsonConfig() const;
+
   // Configuration access with validation
   template <typename T>
-  T getValidatedValue(const std::string &key, const T &defaultValue,
-                      std::function<bool(const T &)> validator = nullptr) const;
+  T getValidatedValue(
+      const std::string &key, const T &defaultValue,
+      const std::function<bool(const T &)> &validator = nullptr) const;
 
 private:
   ConfigManager() = default;
@@ -151,7 +155,7 @@ private:
 template <typename T>
 T ConfigManager::getValidatedValue(
     const std::string &key, const T &defaultValue,
-    std::function<bool(const T &)> validator) const {
+    const std::function<bool(const T &)> &validator) const {
   T value;
 
   // Get value based on type
