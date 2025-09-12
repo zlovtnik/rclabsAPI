@@ -648,7 +648,7 @@ WebSocketMessage WebSocketMessage::fromJson(const std::string &json) {
 
   std::regex typeRegex("\"type\"\\s*:\\s*\"([^\"]*)\"");
   std::regex timestampRegex("\"timestamp\"\\s*:\\s*\"([^\"]*)\"");
-  std::regex dataRegex("\"data\"\\s*:\\s*(\\{.*\\})");
+  std::regex dataRegex("\"data\"\\s*:\\s*(\\{.*?\\})");
   std::regex targetJobIdRegex("\"targetJobId\"\\s*:\\s*\"([^\"]*)\"");
   std::regex targetLevelRegex("\"targetLevel\"\\s*:\\s*\"([^\"]*)\"");
 
