@@ -1,5 +1,10 @@
 # Optimized Dockerfile for Render.com deployment
 # Multi-stage build to minimize final image size
+
+# Stage to try copying pre-built executable
+FROM scratch AS prebuilt
+COPY build/bin/ETLPlusBackend /ETLPlusBackend
+
 FROM ubuntu:22.04 AS builder
 
 # Install minimal build dependencies
@@ -19,19 +24,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy only necessary files for build
+# Copy pre-built executable if it exists
+COPY --from=prebuilt /ETLPlusBackend ./bin/ETLPlusBackend
+
+# Copy source files for building
 COPY CMakeLists.txt .
 COPY src/ src/
 COPY include/ include/
 COPY config/ config/
 
-# Build with size optimization
-RUN cmake -B build \
-    -DCMAKE_BUILD_TYPE=MinSizeRel \
-    -DCMAKE_CXX_FLAGS="-Os -s -DNDEBUG" \
-    -DCMAKE_EXE_LINKER_FLAGS="-s" \
-    && cmake --build build --parallel 2 \
-    && strip build/bin/ETLPlusBackend
+# Build with size optimization (only if executable doesn't exist)
+RUN if [ ! -f "./bin/ETLPlusBackend" ]; then \
+        echo "Building executable from source"; \
+        cmake -B build \
+            -DCMAKE_BUILD_TYPE=MinSizeRel \
+            -DCMAKE_CXX_FLAGS="-Os -s -DNDEBUG" \
+            -DCMAKE_EXE_LINKER_FLAGS="-s" \
+        && cmake --build build --parallel 2 \
+        && mkdir -p bin \
+        && cp build/bin/ETLPlusBackend bin/; \
+    else \
+        echo "Using pre-built executable from build folder"; \
+    fi
 
 # Minimal runtime stage
 FROM ubuntu:22.04 AS runtime
@@ -54,7 +68,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy minimal files
-COPY --from=builder /app/build/bin/ETLPlusBackend ./
+COPY --from=builder /app/bin/ETLPlusBackend ./
 COPY --from=builder /app/config/ ./config/
 
 # Create logs directory

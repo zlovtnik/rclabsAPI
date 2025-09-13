@@ -80,8 +80,8 @@ public:
         std::string message;
         auto buffers = buffer->data();
         message.reserve(buffer->size());
-        for (auto const& buf : buffers) {
-          message.append(static_cast<const char*>(buf.data()), buf.size());
+        for (auto const &buf : buffers) {
+          message.append(static_cast<const char *>(buf.data()), buf.size());
         }
         buffer->consume(buffer->size());
 
