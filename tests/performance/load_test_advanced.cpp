@@ -350,10 +350,12 @@ private:
       curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
 
       // Set write callback to discard response body and avoid output pollution
-      curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, [](char* ptr, size_t size, size_t nmemb, void* userdata) -> size_t {
-        // Discard the data by returning the size (no-op callback)
-        return size * nmemb;
-      });
+      curl_easy_setopt(
+          curl, CURLOPT_WRITEFUNCTION,
+          [](char *ptr, size_t size, size_t nmemb, void *userdata) -> size_t {
+            // Discard the data by returning the size (no-op callback)
+            return size * nmemb;
+          });
       curl_easy_setopt(curl, CURLOPT_WRITEDATA, nullptr);
 
       CURLcode res = curl_easy_perform(curl);

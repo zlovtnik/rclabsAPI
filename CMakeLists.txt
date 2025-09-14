@@ -529,6 +529,10 @@ if(GTest_FOUND AND ENABLE_TESTS)
   create_test_executable(test_connection_pool_manager_simple tests/unit/test_connection_pool_manager_simple.cpp)
   target_link_libraries(test_connection_pool_manager_simple GTest::gtest GTest::gtest_main)
 
+  # Connection pool enhancements unit tests
+  create_test_executable(test_connection_pool_enhancements tests/unit/test_connection_pool_enhancements.cpp)
+  target_link_libraries(test_connection_pool_enhancements GTest::gtest GTest::gtest_main)
+
   # Real-time monitoring integration test (working version)
   create_test_executable(test_real_time_monitoring_integration tests/unit/test_real_time_monitoring_integration.cpp)
   target_link_libraries(test_real_time_monitoring_integration GTest::gtest GTest::gtest_main)
