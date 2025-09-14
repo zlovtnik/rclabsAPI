@@ -7,6 +7,9 @@
 #include <thread>
 #include <vector>
 
+// Google Test framework
+#include <gtest/gtest.h>
+
 // Include the performance monitor header
 #include "../include/performance_monitor.hpp"
 
