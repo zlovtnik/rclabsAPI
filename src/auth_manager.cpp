@@ -1,7 +1,9 @@
 #include "auth_manager.hpp"
 #include "logger.hpp"
+#ifdef ETL_ENABLE_POSTGRESQL
 #include "session_repository.hpp"
 #include "user_repository.hpp"
+#endif
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -20,6 +22,7 @@
 #endif
 #include <nlohmann/json.hpp>
 
+#ifdef ETL_ENABLE_POSTGRESQL
 AuthManager::AuthManager(std::shared_ptr<DatabaseManager> dbManager)
     : userRepo_(std::make_shared<UserRepository>(dbManager)),
       sessionRepo_(std::make_shared<SessionRepository>(dbManager)) {
@@ -71,6 +74,46 @@ AuthManager::AuthManager(std::shared_ptr<DatabaseManager> dbManager)
   // initialization
   AUTH_LOG_DEBUG("Authentication manager initialization completed");
 }
+#endif
+
+#ifndef ETL_ENABLE_POSTGRESQL
+AuthManager::AuthManager() : userRepo_(nullptr), sessionRepo_(nullptr) {
+  AUTH_LOG_INFO("Initializing authentication manager (PostgreSQL disabled)");
+#if ETL_ENABLE_JWT
+  // Load JWT secret from environment variable or file
+  std::string jwtSecretKey;
+  const char *secret = std::getenv("JWT_SECRET_KEY");
+  if (secret) {
+    jwtSecretKey = secret;
+  } else {
+    // Try loading from file
+    const char *secretFile = std::getenv("JWT_SECRET_KEY_FILE");
+    if (secretFile) {
+      std::ifstream file(secretFile);
+      if (file.is_open()) {
+        std::getline(file, jwtSecretKey);
+        file.close();
+      }
+    }
+  }
+
+  if (!jwtSecretKey.empty()) {
+    jwtSecretKey_ = jwtSecretKey;
+    AUTH_LOG_INFO("JWT secret loaded successfully");
+
+    // Lock the secret in memory if possible
+#if defined(__unix__) || defined(__APPLE__)
+    if (mlock(jwtSecretKey_.data(), jwtSecretKey_.size()) != 0) {
+      AUTH_LOG_WARN("Failed to lock JWT secret in memory");
+    }
+#endif
+  } else {
+    AUTH_LOG_WARN("No JWT secret found - JWT authentication will be disabled");
+  }
+#endif
+  AUTH_LOG_DEBUG("Authentication manager initialization completed");
+}
+#endif
 
 AuthManager::~AuthManager() {
 #if ETL_ENABLE_JWT
@@ -397,7 +440,7 @@ std::string AuthManager::generateSessionId() const {
   return ss.str();
 }
 
-#if ETL_ENABLE_JWT
+#if ETL_ENABLE_JWT && ETL_ENABLE_POSTGRESQL
 std::string AuthManager::generateJWTToken(const std::string &userId) {
   auto user = userRepo_->getUserById(userId);
   if (!user || !user->isActive) {

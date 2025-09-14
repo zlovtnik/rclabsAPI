@@ -129,7 +129,7 @@ endif()
 # Try to find libpqxx (PostgreSQL C++ client library)
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
-    pkg_check_modules(LIBPQXX QUIET libpqxx>=7.0)
+    pkg_check_modules(LIBPQXX QUIET libpqxx>=6.4)
 endif()
 
 if(NOT LIBPQXX_FOUND)
@@ -159,7 +159,7 @@ if(NOT LIBPQXX_FOUND)
         # Use the full path for reliable linking
         set(LIBPQXX_LIBRARIES ${LIBPQXX_LIBRARIES})
     else()
-        message(STATUS "libpqxx not found, PostgreSQL integration will be disabled")
+        message(FATAL_ERROR "libpqxx not found. PostgreSQL support is required for this application. Please install libpqxx-dev.")
         set(LIBPQXX_LIBRARIES "")
         set(LIBPQXX_INCLUDE_DIRS "")
     endif()
@@ -377,6 +377,9 @@ target_link_libraries(etl_common PUBLIC
 # Expose Redis feature flag (target-scoped)
 target_compile_definitions(etl_common PUBLIC ETL_ENABLE_REDIS=$<BOOL:${HIREDIS_FOUND}>)
 
+# Expose PostgreSQL feature flag (target-scoped)
+target_compile_definitions(etl_common PUBLIC ETL_ENABLE_POSTGRESQL=$<BOOL:${LIBPQXX_FOUND}>)
+
 # Main executable - now much simpler
 add_executable(ETLPlusBackend 
     src/main.cpp
@@ -434,61 +437,82 @@ endforeach()
 
 # Macro to create test executables more efficiently
 macro(create_test_executable target_name script_file)
-    add_executable(${target_name} ${script_file})
-    target_include_directories(${target_name} PRIVATE include)
-    target_link_libraries(${target_name} etl_common GTest::gtest GTest::gtest_main)
+    if(ENABLE_TESTS AND GTest_FOUND)
+        add_executable(${target_name} ${script_file})
+        target_include_directories(${target_name} PRIVATE include)
+        target_link_libraries(${target_name} etl_common GTest::gtest GTest::gtest_main)
+    else()
+        message(STATUS "Tests disabled or GTest not found - skipping test executable: ${target_name}")
+    endif()
 endmacro()
 
 # Create all test executables using the shared library
-create_test_executable(test_websocket_basic tests/unit/test_websocket_basic.cpp)
-create_test_executable(test_websocket_integration tests/unit/test_websocket_integration.cpp)
-create_test_executable(test_websocket_manager_enhanced tests/unit/test_websocket_manager_enhanced.cpp)
-create_test_executable(test_websocket_filtering_demo tests/unit/test_websocket_filtering_demo.cpp)
-create_test_executable(test_websocket_filtering_unit tests/unit/test_websocket_filtering_unit.cpp)
-create_test_executable(test_websocket_error_handling tests/unit/test_websocket_error_handling.cpp)
-create_test_executable(test_websocket_race_condition_fix tests/unit/test_websocket_race_condition_fix.cpp)
-create_test_executable(test_job_monitoring_models tests/unit/test_job_monitoring_models.cpp)
-create_test_executable(test_etl_job_manager_monitoring tests/unit/test_etl_job_manager_monitoring.cpp)
-if(ENABLE_TESTS)
-  create_test_executable(test_cache_warmup tests/unit/test_cache_warmup.cpp)
-  create_test_executable(test_optional_ttl tests/unit/test_optional_ttl.cpp)
-endif()
-create_test_executable(test_job_monitor_service tests/unit/test_job_monitor_service.cpp)
-create_test_executable(test_job_monitor_service_simple tests/unit/test_job_monitor_service_simple.cpp)
-create_test_executable(test_job_monitor_service_error_handling tests/unit/test_job_monitor_service_error_handling.cpp)
-create_test_executable(test_log_streaming_simple tests/unit/test_log_streaming_simple.cpp)
-create_test_executable(test_log_streaming_integration tests/unit/test_log_streaming_integration.cpp)
-create_test_executable(test_log_streaming_demo tests/unit/test_log_streaming_demo.cpp)
-create_test_executable(test_real_time_monitoring_workflow tests/unit/test_real_time_monitoring_workflow.cpp)
-create_test_executable(test_enhanced_rest_endpoints_simple tests/unit/test_enhanced_rest_endpoints_simple.cpp)
-create_test_executable(test_error_code_consolidation tests/unit/test_error_code_consolidation.cpp)
-create_test_executable(hana_exception_demo demos/hana_exception_demo.cpp)
-create_test_executable(test_config_management_demo tests/unit/test_config_management_demo.cpp)
-create_test_executable(test_config_simple tests/unit/test_config_simple.cpp)
-create_test_executable(test_server_config_and_metrics tests/unit/test_server_config_and_metrics.cpp)
-create_test_executable(test_pooled_session tests/unit/test_pooled_session.cpp)
-create_test_executable(test_pooled_session_integration tests/unit/test_pooled_session_integration.cpp)
-create_test_executable(test_concurrent_request_handling tests/unit/test_concurrent_request_handling.cpp)
-target_link_libraries(test_concurrent_request_handling GTest::gtest GTest::gtest_main)
-create_test_executable(demo_request_validator demos/demo_request_validator.cpp)
-create_test_executable(demo_response_builder_simple demos/demo_response_builder_simple.cpp)
-create_test_executable(demo_exception_mapper_integration demos/demo_exception_mapper_integration.cpp)
-create_test_executable(test_exception_mapper tests/unit/test_exception_mapper.cpp)
-create_test_executable(test_request_handler_refactored tests/unit/test_request_handler_refactored.cpp)
-if(ENABLE_TESTS AND JWT_CPP_FOUND)
-  create_test_executable(security_demo demos/security_demo.cpp)
-endif()
-create_test_executable(load_test_advanced tests/performance/load_test_advanced.cpp)
-if(ENABLE_TESTS AND JWT_CPP_FOUND)
-  create_test_executable(test_jwt_auth tests/unit/test_jwt_auth.cpp)
-endif()
-if(ENABLE_TESTS)
-  create_test_executable(test_lock_utils tests/unit/test_lock_utils.cpp)
-  create_test_executable(demo_lock_utils demos/demo_lock_utils.cpp)
-endif()
+# (moved into conditional block below)
 
 # GTest-based targets
 if(GTest_FOUND AND ENABLE_TESTS)
+  # Basic websocket tests
+  create_test_executable(test_websocket_basic tests/unit/test_websocket_basic.cpp)
+  create_test_executable(test_websocket_integration tests/unit/test_websocket_integration.cpp)
+  create_test_executable(test_websocket_manager_enhanced tests/unit/test_websocket_manager_enhanced.cpp)
+  create_test_executable(test_websocket_filtering_demo tests/unit/test_websocket_filtering_demo.cpp)
+  create_test_executable(test_websocket_filtering_unit tests/unit/test_websocket_filtering_unit.cpp)
+  create_test_executable(test_websocket_error_handling tests/unit/test_websocket_error_handling.cpp)
+  create_test_executable(test_websocket_race_condition_fix tests/unit/test_websocket_race_condition_fix.cpp)
+
+  # Job monitoring tests
+  create_test_executable(test_job_monitoring_models tests/unit/test_job_monitoring_models.cpp)
+  create_test_executable(test_etl_job_manager_monitoring tests/unit/test_etl_job_manager_monitoring.cpp)
+  create_test_executable(test_cache_warmup tests/unit/test_cache_warmup.cpp)
+  create_test_executable(test_optional_ttl tests/unit/test_optional_ttl.cpp)
+
+  # Job monitor service tests
+  create_test_executable(test_job_monitor_service tests/unit/test_job_monitor_service.cpp)
+  create_test_executable(test_job_monitor_service_simple tests/unit/test_job_monitor_service_simple.cpp)
+  create_test_executable(test_job_monitor_service_error_handling tests/unit/test_job_monitor_service_error_handling.cpp)
+
+  # Log streaming tests
+  create_test_executable(test_log_streaming_simple tests/unit/test_log_streaming_simple.cpp)
+  create_test_executable(test_log_streaming_integration tests/unit/test_log_streaming_integration.cpp)
+  create_test_executable(test_log_streaming_demo tests/unit/test_log_streaming_demo.cpp)
+
+  # Real-time monitoring and endpoints
+  create_test_executable(test_real_time_monitoring_workflow tests/unit/test_real_time_monitoring_workflow.cpp)
+  create_test_executable(test_enhanced_rest_endpoints_simple tests/unit/test_enhanced_rest_endpoints_simple.cpp)
+  create_test_executable(test_error_code_consolidation tests/unit/test_error_code_consolidation.cpp)
+
+  # Demo executables
+  create_test_executable(hana_exception_demo demos/hana_exception_demo.cpp)
+  create_test_executable(test_config_management_demo tests/unit/test_config_management_demo.cpp)
+  create_test_executable(test_config_simple tests/unit/test_config_simple.cpp)
+  create_test_executable(test_server_config_and_metrics tests/unit/test_server_config_and_metrics.cpp)
+
+  # Pooled session tests
+  create_test_executable(test_pooled_session tests/unit/test_pooled_session.cpp)
+  create_test_executable(test_pooled_session_integration tests/unit/test_pooled_session_integration.cpp)
+  create_test_executable(test_concurrent_request_handling tests/unit/test_concurrent_request_handling.cpp)
+
+  # Demo executables
+  create_test_executable(demo_request_validator demos/demo_request_validator.cpp)
+  create_test_executable(demo_response_builder_simple demos/demo_response_builder_simple.cpp)
+  create_test_executable(demo_exception_mapper_integration demos/demo_exception_mapper_integration.cpp)
+
+  # Exception and request handler tests
+  create_test_executable(test_exception_mapper tests/unit/test_exception_mapper.cpp)
+  create_test_executable(test_request_handler_refactored tests/unit/test_request_handler_refactored.cpp)
+
+  # Security and JWT tests (conditional on JWT_CPP_FOUND)
+  if(JWT_CPP_FOUND)
+    create_test_executable(security_demo demos/security_demo.cpp)
+    create_test_executable(test_jwt_auth tests/unit/test_jwt_auth.cpp)
+  endif()
+
+  # Performance tests
+  create_test_executable(load_test_advanced tests/performance/load_test_advanced.cpp)
+
+  # Lock utilities
+  create_test_executable(test_lock_utils tests/unit/test_lock_utils.cpp)
+  create_test_executable(demo_lock_utils demos/demo_lock_utils.cpp)
   create_test_executable(test_log_handler tests/unit/test_log_handler.cpp)
   create_test_executable(test_log_file_manager tests/unit/test_log_file_manager.cpp)
   target_link_libraries(test_log_file_manager GTest::gtest GTest::gtest_main)

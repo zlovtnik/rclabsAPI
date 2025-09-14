@@ -1,3 +1,5 @@
+#ifdef ETL_ENABLE_POSTGRESQL
+
 #include "database_manager.hpp"
 #include "database_schema.hpp"
 #include "logger.hpp"
@@ -164,11 +166,27 @@ bool DatabaseManager::executeQuery(const std::string &query,
   try {
     auto conn = pImpl->connectionPool->acquireConnection();
     pqxx::work txn(*conn);
-    pqxx::params pqxx_params;
-    for (const auto &param : params) {
-      pqxx_params.append(param);
+
+    // For Ubuntu 22.04 pqxx, use variadic exec_params with individual
+    // parameters
+    if (params.empty()) {
+      txn.exec_params(query);
+    } else if (params.size() == 1) {
+      txn.exec_params(query, params[0]);
+    } else if (params.size() == 2) {
+      txn.exec_params(query, params[0], params[1]);
+    } else if (params.size() == 3) {
+      txn.exec_params(query, params[0], params[1], params[2]);
+    } else if (params.size() == 4) {
+      txn.exec_params(query, params[0], params[1], params[2], params[3]);
+    } else if (params.size() == 5) {
+      txn.exec_params(query, params[0], params[1], params[2], params[3],
+                      params[4]);
+    } else {
+      DB_LOG_ERROR("Too many parameters for query execution (max 5 supported)");
+      return false;
     }
-    txn.exec_params(query, pqxx_params);
+
     txn.commit();
     pImpl->connectionPool->releaseConnection(conn);
     DB_LOG_DEBUG("Parameterized query executed successfully");
@@ -240,11 +258,29 @@ DatabaseManager::selectQuery(const std::string &query,
   try {
     auto conn = pImpl->connectionPool->acquireConnection();
     pqxx::work txn(*conn);
-    pqxx::params pqxx_params;
-    for (const auto &param : params) {
-      pqxx_params.append(param);
+
+    // For Ubuntu 22.04 pqxx, use variadic exec_params with individual
+    // parameters
+    pqxx::result result;
+    if (params.empty()) {
+      result = txn.exec_params(query);
+    } else if (params.size() == 1) {
+      result = txn.exec_params(query, params[0]);
+    } else if (params.size() == 2) {
+      result = txn.exec_params(query, params[0], params[1]);
+    } else if (params.size() == 3) {
+      result = txn.exec_params(query, params[0], params[1], params[2]);
+    } else if (params.size() == 4) {
+      result =
+          txn.exec_params(query, params[0], params[1], params[2], params[3]);
+    } else if (params.size() == 5) {
+      result = txn.exec_params(query, params[0], params[1], params[2],
+                               params[3], params[4]);
+    } else {
+      DB_LOG_ERROR("Too many parameters for select query (max 5 supported)");
+      return {};
     }
-    pqxx::result result = txn.exec_params(query, pqxx_params);
+
     txn.commit();
     pImpl->connectionPool->releaseConnection(conn);
 
@@ -327,3 +363,5 @@ bool DatabaseManager::isPoolHealthy() const {
   return pImpl->connected && pImpl->connectionPool &&
          pImpl->connectionPool->isHealthy();
 }
+
+#endif // ETL_ENABLE_POSTGRESQL

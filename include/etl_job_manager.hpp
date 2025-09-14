@@ -25,8 +25,11 @@ class JobMonitorServiceInterface;
 
 class ETLJobManager {
 public:
+#ifdef ETL_ENABLE_POSTGRESQL
   ETLJobManager(std::shared_ptr<DatabaseManager> dbManager,
                 std::shared_ptr<DataTransformer> transformer);
+#endif
+  ETLJobManager(std::shared_ptr<DataTransformer> transformer);
   ~ETLJobManager();
 
   // Job management
@@ -60,9 +63,11 @@ public:
   JobMetrics getJobMetrics(const std::string &jobId) const;
 
 private:
+#ifdef ETL_ENABLE_POSTGRESQL
   std::shared_ptr<DatabaseManager> dbManager_;
-  std::shared_ptr<DataTransformer> transformer_;
   std::shared_ptr<ETLJobRepository> jobRepo_;
+#endif
+  std::shared_ptr<DataTransformer> transformer_;
   std::shared_ptr<JobMonitorServiceInterface> monitorService_;
 
   std::queue<std::shared_ptr<ETLJob>> jobQueue_;

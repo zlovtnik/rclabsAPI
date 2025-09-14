@@ -10,10 +10,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libboost-filesystem-dev \
     libboost-system-dev \
     libboost-thread-dev \
+    libcurl4-openssl-dev \
+    libpq-dev \
     libpqxx-dev \
     libssl-dev \
     nlohmann-json3-dev \
     pkg-config \
+    postgresql-server-dev-all \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /tmp/* /var/tmp/*
@@ -28,18 +31,21 @@ COPY CMakeLists.txt .
 COPY src/ src/
 COPY include/ include/
 COPY config/ config/
+COPY tests/ tests/
+COPY demos/ demos/
 
-# Check if executable exists, if not build it
-RUN if [ -f "./build/bin/ETLPlusBackend" ]; then \
-        echo "Using pre-built executable from build folder"; \
+# Check if executable exists and is compatible, if not build it
+RUN if [ -f "./build/bin/ETLPlusBackend" ] && ./build/bin/ETLPlusBackend --version >/dev/null 2>&1; then \
+        echo "Using compatible pre-built executable from build folder"; \
         mkdir -p bin && cp ./build/bin/ETLPlusBackend ./bin/; \
     else \
-        echo "Building executable from source"; \
+        echo "Building executable from source (pre-built not compatible or missing)"; \
         # Build with size optimization \
         cmake -B build \
             -DCMAKE_BUILD_TYPE=MinSizeRel \
             -DCMAKE_CXX_FLAGS="-Os -s -DNDEBUG" \
             -DCMAKE_EXE_LINKER_FLAGS="-s" \
+            -DENABLE_TESTS=OFF \
         && cmake --build build --parallel 2 \
         && mkdir -p bin \
         && cp build/bin/ETLPlusBackend bin/; \

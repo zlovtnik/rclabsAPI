@@ -390,8 +390,6 @@ private:
       cleanupSystem();
       return false;
     }
-    cleanupSystem();
-    return false;
   }
 }
 

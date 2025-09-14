@@ -1,3 +1,4 @@
+#ifdef ETL_ENABLE_POSTGRESQL
 #include "etl_job_repository.hpp"
 #include "database_manager.hpp"
 #include "logger.hpp"
@@ -502,3 +503,4 @@ ETLJobRepository::stringToTimePoint(const std::string &str) {
   }
   return std::chrono::system_clock::from_time_t(timegm(&tm));
 }
+#endif

@@ -1,3 +1,5 @@
+#ifdef ETL_ENABLE_POSTGRESQL
+
 #include "database_connection_pool.hpp"
 #include "etl_exceptions.hpp"
 #include <algorithm>
@@ -508,3 +510,5 @@ std::string DatabaseConnectionPool::buildConnectionString() const {
          " password=" + config_.getPassword() + " connect_timeout=" +
          std::to_string(config_.connectionTimeout.count());
 }
+
+#endif // ETL_ENABLE_POSTGRESQL

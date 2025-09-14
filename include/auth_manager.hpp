@@ -18,7 +18,12 @@ class SessionRepository;
 
 class AuthManager {
 public:
+#ifdef ETL_ENABLE_POSTGRESQL
   AuthManager(std::shared_ptr<DatabaseManager> dbManager);
+#endif
+#ifndef ETL_ENABLE_POSTGRESQL
+  AuthManager();
+#endif
   ~AuthManager();
 
   /**
@@ -89,8 +94,10 @@ public:
 #endif
 
 private:
+#ifdef ETL_ENABLE_POSTGRESQL
   std::shared_ptr<UserRepository> userRepo_;
   std::shared_ptr<SessionRepository> sessionRepo_;
+#endif
 #ifdef ETL_ENABLE_JWT
   std::vector<char> jwtSecretKey_;
 #endif

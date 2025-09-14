@@ -1,4 +1,5 @@
 #include "config_manager.hpp"
+#include "data_transformer.hpp"
 #include "etl_job_manager.hpp"
 #include "http_server.hpp"
 #include "job_monitor_service.hpp"
@@ -270,15 +271,14 @@ protected:
     notification_service = std::make_shared<MockNotificationService>();
     notification_service->start();
 
-    etl_manager = std::make_shared<ETLJobManager>(*config, *logger);
-    monitor_service = std::make_shared<JobMonitorService>(
-        *config, *logger, ws_manager, notification_service);
+    etl_manager =
+        std::make_shared<ETLJobManager>(std::make_shared<DataTransformer>());
+    monitor_service = std::make_shared<JobMonitorService>();
     etl_manager->setJobMonitorService(monitor_service);
 
     // Start HTTP server in background thread with proper error handling
     server_port = findAvailablePort();
-    http_server = std::make_shared<HttpServer>(*config, *logger, ws_manager,
-                                               monitor_service);
+    http_server = std::make_shared<HttpServer>("127.0.0.1", server_port, 1);
 
     server_thread = std::thread([this]() {
       try {
@@ -355,12 +355,6 @@ public:
     config.isRecurring = false;
     config.recurringInterval = std::chrono::minutes(0);
     return config;
-  }
-
-private:
-  int findAvailablePort() {
-    // Simple port finding - in real tests, use a more robust method
-    return 18080 + (rand() % 1000);
   }
 
 protected:

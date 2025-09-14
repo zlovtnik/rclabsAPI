@@ -1,10 +1,14 @@
 #pragma once
 
+#ifdef ETL_ENABLE_POSTGRESQL
 #include "database_connection_pool.hpp"
+#endif
 #include <future>
 #include <memory>
 #include <string>
 #include <vector>
+
+#ifdef ETL_ENABLE_POSTGRESQL
 
 struct ConnectionConfig {
   std::string host;
@@ -48,3 +52,5 @@ private:
   struct Impl;
   std::unique_ptr<Impl> pImpl;
 };
+
+#endif // ETL_ENABLE_POSTGRESQL

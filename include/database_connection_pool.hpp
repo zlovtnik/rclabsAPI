@@ -10,11 +10,15 @@
 #include <memory>
 #include <mutex>
 #include <openssl/crypto.h>
+#ifdef ETL_ENABLE_POSTGRESQL
 #include <pqxx/pqxx>
+#endif
 #include <queue>
 #include <string>
 #include <thread>
 #include <vector>
+
+#ifdef ETL_ENABLE_POSTGRESQL
 
 struct DatabaseConnectionConfig {
   std::string host = "localhost";
@@ -132,5 +136,7 @@ private:
   void adjustPoolSize();
   std::string buildConnectionString() const;
 };
+
+#endif // ETL_ENABLE_POSTGRESQL
 
 #endif // DATABASE_CONNECTION_POOL_HPP

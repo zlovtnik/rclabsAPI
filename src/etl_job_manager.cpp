@@ -1,6 +1,8 @@
 #include "etl_job_manager.hpp"
 #include "data_transformer.hpp"
+#ifdef ETL_ENABLE_POSTGRESQL
 #include "database_manager.hpp"
+#endif
 #include "etl_exceptions.hpp"
 #include "etl_job_repository.hpp"
 #include "exception_handler.hpp"
@@ -28,10 +30,20 @@ namespace {
 constexpr auto kLockTO_Read = std::chrono::milliseconds(500);
 }
 
+#ifdef ETL_ENABLE_POSTGRESQL
 ETLJobManager::ETLJobManager(std::shared_ptr<DatabaseManager> dbManager,
                              std::shared_ptr<DataTransformer> transformer)
     : dbManager_(dbManager), transformer_(transformer),
       jobRepo_(std::make_shared<ETLJobRepository>(dbManager)), running_(false) {
+}
+#endif
+
+ETLJobManager::ETLJobManager(std::shared_ptr<DataTransformer> transformer)
+    : transformer_(transformer), running_(false) {
+#ifdef ETL_ENABLE_POSTGRESQL
+  dbManager_ = nullptr;
+  jobRepo_ = nullptr;
+#endif
 }
 
 ETLJobManager::~ETLJobManager() { stop(); }
@@ -451,11 +463,13 @@ void ETLJobManager::executeLoadJob(std::shared_ptr<ETLJob> job) {
   context["target_config"] = job->targetConfig;
   context["operation"] = "executeLoadJob";
 
+#ifdef ETL_ENABLE_POSTGRESQL
   if (!dbManager_->isConnected()) {
     throw etl::SystemException(etl::ErrorCode::DATABASE_ERROR,
                                "Database not connected for load operation",
                                "ETLJobManager", context);
   }
+#endif
 
   // Simulate data loading with metrics collection
   const int totalRecords = 95;
@@ -463,6 +477,7 @@ void ETLJobManager::executeLoadJob(std::shared_ptr<ETLJob> job) {
   const size_t bytesPerRecord = 128; // Database records are more compact
 
   // Use transaction scope for safe database operations
+#ifdef ETL_ENABLE_POSTGRESQL
   try {
     ETLPlus::ExceptionHandling::TransactionScope transaction(dbManager_,
                                                              "LoadJobData");
@@ -517,6 +532,7 @@ void ETLJobManager::executeLoadJob(std::shared_ptr<ETLJob> job) {
     // Transaction will automatically rollback in destructor
     throw;
   }
+#endif
 
   ETL_LOG_INFO("Load job completed successfully");
 }

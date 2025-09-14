@@ -5,6 +5,7 @@
 #include <fstream>
 #include <future>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <nlohmann/json.hpp>
@@ -347,6 +348,13 @@ private:
       curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
       curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L); // 10 second timeout
       curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+
+      // Set write callback to discard response body and avoid output pollution
+      curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, [](char* ptr, size_t size, size_t nmemb, void* userdata) -> size_t {
+        // Discard the data by returning the size (no-op callback)
+        return size * nmemb;
+      });
+      curl_easy_setopt(curl, CURLOPT_WRITEDATA, nullptr);
 
       CURLcode res = curl_easy_perform(curl);
 
