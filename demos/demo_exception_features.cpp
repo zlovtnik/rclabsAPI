@@ -76,7 +76,7 @@ void demonstrateRetryLogic() {
       try {
         attempts++;
         std::cout << "Attempt " << attempts << std::endl;
-        if (attempts < 3) {
+        if (attempts <= 3) { // Always fail to show final failure case
           throw SystemException(ErrorCode::NETWORK_ERROR, "Network timeout",
                                 "HttpClient");
         }

@@ -227,10 +227,21 @@ int main(int argc, char *argv[]) {
 
     // Generate unique filename with timestamp and random component
     auto now = std::chrono::system_clock::now();
-    auto time_t = std::chrono::system_clock::to_time_t(now);
-    std::tm tm_buf;
-    std::tm *tm = localtime_r(&time_t, &tm_buf);
-
+auto now = std::chrono::system_clock::now();
+auto time_t = std::chrono::system_clock::to_time_t(now);
+std::tm tm_buf{};
+std::tm *tm = localtime_r(&time_t, &tm_buf);
+if (!tm) {
+  // Fallback to UTC conversion; if that also fails, use a defined epoch fallback.
+  if (gmtime_r(&time_t, &tm_buf) == nullptr) {
+    std::cerr << "Failed to convert time; falling back to epoch (1970-01-01)\n";
+    tm_buf = {};
+    tm_buf.tm_year = 70; // years since 1900
+    tm_buf.tm_mon  = 0;
+    tm_buf.tm_mday = 1;
+  }
+  tm = &tm_buf;
+}
     // Generate random token for uniqueness
     std::random_device rd;
     std::mt19937 gen(rd());

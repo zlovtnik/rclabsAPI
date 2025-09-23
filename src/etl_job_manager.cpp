@@ -39,11 +39,10 @@ ETLJobManager::ETLJobManager(std::shared_ptr<DatabaseManager> dbManager,
 #endif
 
 ETLJobManager::ETLJobManager(std::shared_ptr<DataTransformer> transformer)
-    : transformer_(transformer), running_(false) {
-#ifdef ETL_ENABLE_POSTGRESQL
-  dbManager_ = nullptr;
-  jobRepo_ = nullptr;
-#endif
+    : dbManager_(nullptr),
+      transformer_(transformer),
+      jobRepo_(nullptr),
+      running_(false) {
 }
 
 ETLJobManager::~ETLJobManager() { stop(); }

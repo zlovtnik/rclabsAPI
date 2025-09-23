@@ -217,9 +217,8 @@ private:
         std::cerr << "Warning: DB_PASSWORD environment variable not set, "
                      "disabling database load testing\n";
         config_.enableDatabaseLoad = false;
-      } else {
+      } else if (config_.enableDatabaseLoad) {
         dbConfig.password = dbPassword;
-
         dbManager_ = std::make_unique<DatabaseManager>();
         if (!dbManager_->connect(dbConfig)) {
           std::cout << "Warning: Failed to connect to database\n";

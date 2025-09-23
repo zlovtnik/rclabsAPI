@@ -36,10 +36,18 @@ int main() {
   config.indexing.enabled = true;
 
   // Ensure directories exist for the demo
+  // Ensure directories exist for the demo
   std::error_code ec;
   std::filesystem::create_directories(config.logDirectory, ec);
+  if (ec) {
+    std::cerr << "Failed to create log directory: " << ec.message() << std::endl;
+    return 1;
+  }
   std::filesystem::create_directories(config.archive.archiveDirectory, ec);
-
+  if (ec) {
+    std::cerr << "Failed to create archive directory: " << ec.message() << std::endl;
+    return 1;
+  }
   // Create LogFileManager
   LogFileManager manager(config);
 

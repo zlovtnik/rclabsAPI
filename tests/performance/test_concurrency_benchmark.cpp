@@ -1,46 +1,23 @@
 #include "../include/lock_utils.hpp"
 #include <atomic>
 #include <chrono>
+#include <gtest/gtest.h>
 #include <iostream>
 #include <mutex>
 #include <shared_mutex>
 #include <thread>
+#include <tuple>
 #include <vector>
 
 // Benchmark for comparing different locking strategies
-class ConcurrencyBenchmark {
-public:
-  /**
-   * @brief Constructs a ConcurrencyBenchmark configured for a run.
-   *
-   * @param numThreads Number of concurrent worker threads to spawn for each
-   * benchmark.
-   * @param iterations Number of iterations each thread performs (total work =
-   * numThreads * iterations).
-   */
-  ConcurrencyBenchmark(size_t numThreads, size_t iterations)
-      : numThreads_(numThreads), iterations_(iterations) {}
-
-  /**
-   * @brief Run all concurrency benchmarks and print configuration header.
-   *
-   * Runs the four implemented benchmarks (OrderedMutex, reader-writer mutex,
-   * std::atomic, and the lock-free counter) in that order, using the instance's
-   * numThreads_ and iterations_ settings. Prints a brief header with the thread
-   * and iteration configuration and forwards results from each benchmark to
-   * standard output.
-   */
-  void runBenchmarks() {
-    std::cout << "Running concurrency benchmarks with " << numThreads_
-              << " threads and " << iterations_ << " iterations per thread\n\n";
-
-    benchmarkMutex();
-    benchmarkSharedMutex();
-    benchmarkAtomic();
-    benchmarkLockFree();
+class ConcurrencyBenchmarkTest : public ::testing::TestWithParam<std::tuple<size_t, size_t>> {
+protected:
+  void SetUp() override {
+    std::tie(numThreads_, iterations_) = GetParam();
+    std::cout << "\n[   CONFIG  ] Threads: " << numThreads_ 
+              << ", Iterations per thread: " << iterations_ << "\n";
   }
 
-private:
   size_t numThreads_;
   size_t iterations_;
 
@@ -233,28 +210,40 @@ private:
   }
 };
 
-/**
- * @brief Program entry point; runs concurrency benchmarks across multiple
- * thread counts.
- *
- * Iterates over a set of predefined thread counts, constructs a
- * ConcurrencyBenchmark for each (distributing a fixed total number of
- * iterations across threads), executes the benchmarks, and prints separators
- * between runs.
- *
- * @return int Exit status code (0 on success).
- */
-int main() {
-  // Run benchmarks with different thread counts
-  std::vector<size_t> threadCounts = {1, 2, 4, 8};
-  size_t iterations = 100000;
+// Test cases for each benchmark type
+TEST_P(ConcurrencyBenchmarkTest, MutexBenchmark) {
+  benchmarkMutex();
+}
 
-  for (size_t threads : threadCounts) {
-    std::cout << "=== Benchmark with " << threads << " threads ===\n";
-    ConcurrencyBenchmark benchmark(threads, iterations / threads);
-    benchmark.runBenchmarks();
-    std::cout << "\n";
-  }
+TEST_P(ConcurrencyBenchmarkTest, SharedMutexBenchmark) {
+  benchmarkSharedMutex();
+}
 
-  return 0;
+TEST_P(ConcurrencyBenchmarkTest, AtomicBenchmark) {
+  benchmarkAtomic();
+}
+
+TEST_P(ConcurrencyBenchmarkTest, LockFreeBenchmark) {
+  benchmarkLockFree();
+}
+
+// Define test parameters: (num_threads, iterations_per_thread)
+INSTANTIATE_TEST_SUITE_P(
+    ConcurrencyBenchmarks,
+    ConcurrencyBenchmarkTest,
+    ::testing::Values(
+        std::make_tuple(1, 100000),
+        std::make_tuple(2, 50000),
+        std::make_tuple(4, 25000),
+        std::make_tuple(8, 12500)
+    ),
+    [](const ::testing::TestParamInfo<ConcurrencyBenchmarkTest::ParamType>& info) {
+      auto [threads, iterations] = info.param;
+      return "Threads" + std::to_string(threads) + "_Iters" + std::to_string(iterations);
+    }
+);
+
+int main(int argc, char **argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

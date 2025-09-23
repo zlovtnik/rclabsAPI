@@ -167,26 +167,9 @@ bool DatabaseManager::executeQuery(const std::string &query,
     auto conn = pImpl->connectionPool->acquireConnection();
     pqxx::work txn(*conn);
 
-    // For Ubuntu 22.04 pqxx, use variadic exec_params with individual
-    // parameters
-    if (params.empty()) {
-      txn.exec_params(query);
-    } else if (params.size() == 1) {
-      txn.exec_params(query, params[0]);
-    } else if (params.size() == 2) {
-      txn.exec_params(query, params[0], params[1]);
-    } else if (params.size() == 3) {
-      txn.exec_params(query, params[0], params[1], params[2]);
-    } else if (params.size() == 4) {
-      txn.exec_params(query, params[0], params[1], params[2], params[3]);
-    } else if (params.size() == 5) {
-      txn.exec_params(query, params[0], params[1], params[2], params[3],
-                      params[4]);
-    } else {
-      DB_LOG_ERROR("Too many parameters for query execution (max 5 supported)");
-      return false;
-    }
-
+    // Execute the query without handling the result
+    executeParameterizedQuery(txn, query, params);
+    
     txn.commit();
     pImpl->connectionPool->releaseConnection(conn);
     DB_LOG_DEBUG("Parameterized query executed successfully");
@@ -259,25 +242,10 @@ DatabaseManager::selectQuery(const std::string &query,
     auto conn = pImpl->connectionPool->acquireConnection();
     pqxx::work txn(*conn);
 
-    // For Ubuntu 22.04 pqxx, use variadic exec_params with individual
-    // parameters
-    pqxx::result result;
-    if (params.empty()) {
-      result = txn.exec_params(query);
-    } else if (params.size() == 1) {
-      result = txn.exec_params(query, params[0]);
-    } else if (params.size() == 2) {
-      result = txn.exec_params(query, params[0], params[1]);
-    } else if (params.size() == 3) {
-      result = txn.exec_params(query, params[0], params[1], params[2]);
-    } else if (params.size() == 4) {
-      result =
-          txn.exec_params(query, params[0], params[1], params[2], params[3]);
-    } else if (params.size() == 5) {
-      result = txn.exec_params(query, params[0], params[1], params[2],
-                               params[3], params[4]);
-    } else {
-      DB_LOG_ERROR("Too many parameters for select query (max 5 supported)");
+    // Execute the query and get the result
+    pqxx::result result = executeParameterizedQuery(txn, query, params);
+    if (result.affected_rows() == -1) {
+      // Error occurred in executeParameterizedQuery
       return {};
     }
 
@@ -362,6 +330,28 @@ DatabaseConnectionPool::PoolMetrics DatabaseManager::getPoolMetrics() const {
 bool DatabaseManager::isPoolHealthy() const {
   return pImpl->connected && pImpl->connectionPool &&
          pImpl->connectionPool->isHealthy();
+}
+
+pqxx::result DatabaseManager::executeParameterizedQuery(pqxx::transaction_base& txn, 
+                                                       const std::string& query,
+                                                       const std::vector<std::string>& params) {
+  // For Ubuntu 22.04 pqxx, use variadic exec_params with individual parameters
+  if (params.empty()) {
+    return txn.exec_params(query);
+  } else if (params.size() == 1) {
+    return txn.exec_params(query, params[0]);
+  } else if (params.size() == 2) {
+    return txn.exec_params(query, params[0], params[1]);
+  } else if (params.size() == 3) {
+    return txn.exec_params(query, params[0], params[1], params[2]);
+  } else if (params.size() == 4) {
+    return txn.exec_params(query, params[0], params[1], params[2], params[3]);
+  } else if (params.size() == 5) {
+    return txn.exec_params(query, params[0], params[1], params[2], params[3], params[4]);
+  } else {
+    DB_LOG_ERROR("Too many parameters for query (max 5 supported)");
+    return pqxx::result(); // Return empty result to indicate error
+  }
 }
 
 #endif // ETL_ENABLE_POSTGRESQL

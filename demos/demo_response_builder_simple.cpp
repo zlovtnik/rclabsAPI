@@ -526,8 +526,6 @@ private:
     // Apply security headers
     response.headers["X-Content-Type-Options"] = "nosniff";
     response.headers["X-Frame-Options"] = "DENY";
-    response.headers["X-XSS-Protection"] = "1; mode=block";
-
     // Reset state for next response
     resetState();
 
@@ -620,14 +618,19 @@ private:
    */
   std::string getCurrentTimestamp() const {
     auto now = std::chrono::system_clock::now();
+  std::string getCurrentTimestamp() const {
+    auto now = std::chrono::system_clock::now();
     auto time_t = std::chrono::system_clock::to_time_t(now);
 
+    auto* tm_ptr = std::gmtime(&time_t);
+    if (!tm_ptr) {
+      return "1970-01-01T00:00:00Z"; // Fallback timestamp
+    }
+
     std::ostringstream oss;
-    oss << std::put_time(std::gmtime(&time_t), "%Y-%m-%dT%H:%M:%SZ");
+    oss << std::put_time(tm_ptr, "%Y-%m-%dT%H:%M:%SZ");
     return oss.str();
   }
-
-  /**
    * @brief Reset the builder's mutable state to its defaults.
    *
    * Restores the current status to OK, sets the current content type to the

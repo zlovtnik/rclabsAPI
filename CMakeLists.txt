@@ -537,6 +537,10 @@ if(GTest_FOUND AND ENABLE_TESTS)
   create_test_executable(test_real_time_monitoring_integration tests/unit/test_real_time_monitoring_integration.cpp)
   target_link_libraries(test_real_time_monitoring_integration GTest::gtest GTest::gtest_main)
 
+  # Memory optimization tests
+  create_test_executable(test_memory_optimizations tests/unit/test_memory_optimizations.cpp)
+  target_link_libraries(test_memory_optimizations GTest::gtest GTest::gtest_main etl_common)
+
   # RequestValidator unit tests
   create_test_executable(test_request_validator tests/unit/test_request_validator.cpp)
   target_link_libraries(test_request_validator GTest::gtest GTest::gtest_main)

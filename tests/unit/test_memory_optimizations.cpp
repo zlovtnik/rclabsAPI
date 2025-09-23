@@ -1,30 +1,14 @@
-#include <cassert>
-#include <chrono>
-#include <iostream>
-#include <memory>
-#include <string>
-#include <vector>
-
+#include <gtest/gtest.h>
 #include "server_config.hpp"
 
-/**
- * Memory Optimization Test
- * Tests the memory optimization features and configurations
- */
-class MemoryOptimizationTest {
-public:
-  void testBufferOptimizationConfiguration() {
-    std::cout << "Testing buffer optimization configuration..." << std::endl;
-
+TEST(MemoryOptimizationTest, BufferOptimizationConfiguration) {
     // Test configuration for small response optimization
     ServerConfig smallResponseConfig = ServerConfig::create(
         5, 20, 300, 30, 60,
         4 * 1024, // Small body size for testing small response optimization
         true, 50, 30);
 
-    assert(smallResponseConfig.maxRequestBodySize == 4 * 1024);
-    std::cout << "✓ Small response optimization configuration validated"
-              << std::endl;
+    EXPECT_EQ(smallResponseConfig.maxRequestBodySize, 4 * 1024);
 
     // Test configuration for large response handling
     ServerConfig largeResponseConfig =
@@ -32,28 +16,19 @@ public:
                              10 * 1024 * 1024, // Large body size
                              true, 100, 30);
 
-    assert(largeResponseConfig.maxRequestBodySize == 10 * 1024 * 1024);
-    std::cout << "✓ Large response handling configuration validated"
-              << std::endl;
+    EXPECT_EQ(largeResponseConfig.maxRequestBodySize, 10 * 1024 * 1024);
+}
 
-    std::cout << "✓ Buffer optimization configuration test passed" << std::endl;
-  }
-
-  void testMemoryAllocationPatterns() {
-    std::cout << "Testing memory allocation pattern configurations..."
-              << std::endl;
-
+TEST(MemoryOptimizationTest, MemoryAllocationPatterns) {
     // Test configuration that would benefit from buffer reuse
     ServerConfig reuseConfig = ServerConfig::create(
         20, 100, 600, 30, 60, // High connection counts for reuse
         8 * 1024,             // 8KB - good for buffer reuse threshold testing
         true, 200, 45);
 
-    assert(reuseConfig.minConnections == 20);
-    assert(reuseConfig.maxConnections == 100);
-    assert(reuseConfig.maxRequestBodySize == 8 * 1024);
-
-    std::cout << "✓ Buffer reuse configuration validated" << std::endl;
+    EXPECT_EQ(reuseConfig.minConnections, 20);
+    EXPECT_EQ(reuseConfig.maxConnections, 100);
+    EXPECT_EQ(reuseConfig.maxRequestBodySize, 8 * 1024);
 
     // Test configuration for minimal memory footprint
     ServerConfig minimalConfig =
@@ -62,20 +37,13 @@ public:
                              true, 10, 5       // Small queue
         );
 
-    assert(minimalConfig.minConnections == 2);
-    assert(minimalConfig.maxConnections == 5);
-    assert(minimalConfig.maxRequestBodySize == 1024);
-    assert(minimalConfig.maxQueueSize == 10);
+    EXPECT_EQ(minimalConfig.minConnections, 2);
+    EXPECT_EQ(minimalConfig.maxConnections, 5);
+    EXPECT_EQ(minimalConfig.maxRequestBodySize, 1024);
+    EXPECT_EQ(minimalConfig.maxQueueSize, 10);
+}
 
-    std::cout << "✓ Minimal memory footprint configuration validated"
-              << std::endl;
-    std::cout << "✓ Memory allocation pattern test passed" << std::endl;
-  }
-
-  void testRequestResponseOptimizations() {
-    std::cout << "Testing request/response optimization configurations..."
-              << std::endl;
-
+TEST(MemoryOptimizationTest, RequestResponseOptimizations) {
     // Test configuration for optimized request processing
     ServerConfig optimizedConfig = ServerConfig::create(
         15, 75, 300, 25, 45,
@@ -83,26 +51,14 @@ public:
         true, 150, 35);
 
     // Verify optimization-friendly settings
-    assert(optimizedConfig.minConnections >=
-           10); // Sufficient for pooling benefits
-    assert(optimizedConfig.maxConnections >=
-           50); // Good for concurrent processing
-    assert(optimizedConfig.maxQueueSize >=
-           100); // Adequate queue for load handling
-    assert(optimizedConfig.connectionTimeout.count() >=
-           20); // Reasonable timeout
-    assert(optimizedConfig.requestTimeout.count() >=
-           30); // Adequate processing time
+    EXPECT_GE(optimizedConfig.minConnections, 10); // Sufficient for pooling benefits
+    EXPECT_GE(optimizedConfig.maxConnections, 50); // Good for concurrent processing
+    EXPECT_GE(optimizedConfig.maxQueueSize, 100);  // Adequate queue for load handling
+    EXPECT_GE(optimizedConfig.connectionTimeout.count(), 20); // Reasonable timeout
+    EXPECT_GE(optimizedConfig.requestTimeout.count(), 30);    // Adequate processing time
+}
 
-    std::cout << "✓ Request/response optimization configuration validated"
-              << std::endl;
-    std::cout << "✓ Request/response optimization test passed" << std::endl;
-  }
-
-  void testConcurrentProcessingConfiguration() {
-    std::cout << "Testing concurrent processing optimization configurations..."
-              << std::endl;
-
+TEST(MemoryOptimizationTest, ConcurrentProcessingConfiguration) {
     // Test configuration optimized for high concurrency
     ServerConfig concurrentConfig = ServerConfig::create(
         25, 150, 600, 30, 60,
@@ -111,36 +67,23 @@ public:
     );
 
     // Verify concurrency-optimized settings
-    assert(concurrentConfig.minConnections >=
-           20); // High minimum for immediate availability
-    assert(concurrentConfig.maxConnections >=
-           100); // High maximum for peak load
-    assert(concurrentConfig.maxQueueSize >=
-           200); // Large queue for burst handling
-    assert(concurrentConfig.maxQueueWaitTime.count() >=
-           45); // Adequate wait time
-
-    std::cout << "✓ High concurrency configuration validated" << std::endl;
+    EXPECT_GE(concurrentConfig.minConnections, 20);  // High minimum for immediate availability
+    EXPECT_GE(concurrentConfig.maxConnections, 100); // High maximum for peak load
+    EXPECT_GE(concurrentConfig.maxQueueSize, 200);   // Large queue for burst handling
+    EXPECT_GE(concurrentConfig.maxQueueWaitTime.count(), 45); // Adequate wait time
 
     // Test configuration for thread safety validation
     ServerConfig threadSafeConfig = ServerConfig::create(
         10, 50, 300, 20, 40, 3 * 1024 * 1024, true, 100, 30);
 
     // Verify thread-safe operation friendly settings
-    assert(threadSafeConfig.maxConnections > threadSafeConfig.minConnections);
-    assert(threadSafeConfig.maxQueueSize > 0);
-    assert(threadSafeConfig.connectionTimeout.count() > 0);
-    assert(threadSafeConfig.requestTimeout.count() > 0);
+    EXPECT_GT(threadSafeConfig.maxConnections, threadSafeConfig.minConnections);
+    EXPECT_GT(threadSafeConfig.maxQueueSize, 0);
+    EXPECT_GT(threadSafeConfig.connectionTimeout.count(), 0);
+    EXPECT_GT(threadSafeConfig.requestTimeout.count(), 0);
+}
 
-    std::cout << "✓ Thread safety configuration validated" << std::endl;
-    std::cout << "✓ Concurrent processing optimization test passed"
-              << std::endl;
-  }
-
-  void testErrorHandlingOptimizations() {
-    std::cout << "Testing error handling optimization configurations..."
-              << std::endl;
-
+TEST(MemoryOptimizationTest, ErrorHandlingOptimizations) {
     // Test configuration for robust error handling
     ServerConfig robustConfig = ServerConfig::create(
         5, 25, 180, 15, 30,
@@ -149,16 +92,10 @@ public:
     );
 
     // Verify error handling friendly settings
-    assert(robustConfig.connectionTimeout.count() >=
-           10); // Adequate for detection
-    assert(robustConfig.requestTimeout.count() >=
-           20); // Adequate for processing
-    assert(robustConfig.maxQueueWaitTime.count() >=
-           15); // Reasonable wait before rejection
-    assert(robustConfig.maxQueueSize >=
-           25); // Adequate buffer for error scenarios
-
-    std::cout << "✓ Robust error handling configuration validated" << std::endl;
+    EXPECT_GE(robustConfig.connectionTimeout.count(), 10); // Adequate for detection
+    EXPECT_GE(robustConfig.requestTimeout.count(), 20);    // Adequate for processing
+    EXPECT_GE(robustConfig.maxQueueWaitTime.count(), 15);  // Reasonable wait before rejection
+    EXPECT_GE(robustConfig.maxQueueSize, 25);              // Adequate buffer for error scenarios
 
     // Test configuration for fast error detection
     ServerConfig fastErrorConfig = ServerConfig::create(
@@ -167,25 +104,19 @@ public:
         true, 20, 5       // Small queue with short wait
     );
 
-    assert(fastErrorConfig.connectionTimeout.count() == 5);
-    assert(fastErrorConfig.requestTimeout.count() == 10);
-    assert(fastErrorConfig.maxQueueWaitTime.count() == 5);
+    EXPECT_EQ(fastErrorConfig.connectionTimeout.count(), 5);
+    EXPECT_EQ(fastErrorConfig.requestTimeout.count(), 10);
+    EXPECT_EQ(fastErrorConfig.maxQueueWaitTime.count(), 5);
+}
 
-    std::cout << "✓ Fast error detection configuration validated" << std::endl;
-    std::cout << "✓ Error handling optimization test passed" << std::endl;
-  }
-
-  void testPerformanceMetricsConfiguration() {
-    std::cout << "Testing performance metrics configuration..." << std::endl;
-
+TEST(MemoryOptimizationTest, PerformanceMetricsConfiguration) {
     // Test configuration with metrics enabled
     ServerConfig metricsConfig =
         ServerConfig::create(10, 40, 240, 20, 35, 2 * 1024 * 1024,
                              true, // Metrics enabled
                              80, 25);
 
-    assert(metricsConfig.enableMetrics == true);
-    std::cout << "✓ Metrics enabled configuration validated" << std::endl;
+    EXPECT_TRUE(metricsConfig.enableMetrics);
 
     // Test configuration with metrics disabled for performance
     ServerConfig noMetricsConfig =
@@ -193,55 +124,5 @@ public:
                              false, // Metrics disabled for maximum performance
                              120, 40);
 
-    assert(noMetricsConfig.enableMetrics == false);
-    std::cout << "✓ Metrics disabled configuration validated" << std::endl;
-
-    std::cout << "✓ Performance metrics configuration test passed" << std::endl;
-  }
-
-  void runAllTests() {
-    std::cout << "Running Memory Optimization Tests..." << std::endl;
-    std::cout << "============================================================="
-              << std::endl;
-
-    try {
-      testBufferOptimizationConfiguration();
-      testMemoryAllocationPatterns();
-      testRequestResponseOptimizations();
-      testConcurrentProcessingConfiguration();
-      testErrorHandlingOptimizations();
-      testPerformanceMetricsConfiguration();
-
-      std::cout
-          << "============================================================="
-          << std::endl;
-      std::cout << "✓ All memory optimization tests passed!" << std::endl;
-
-    } catch (const std::exception &e) {
-      std::cout << "✗ Memory optimization test failed: " << e.what()
-                << std::endl;
-      throw;
-    } catch (...) {
-      std::cout << "✗ Memory optimization test failed with unknown exception"
-                << std::endl;
-      throw;
-    }
-  }
-};
-
-int main() {
-  try {
-    MemoryOptimizationTest test;
-    test.runAllTests();
-
-    return 0;
-  } catch (const std::exception &e) {
-    std::cerr << "Memory optimization test suite failed: " << e.what()
-              << std::endl;
-    return 1;
-  } catch (...) {
-    std::cerr << "Memory optimization test suite failed with unknown exception"
-              << std::endl;
-    return 1;
-  }
+    EXPECT_FALSE(noMetricsConfig.enableMetrics);
 }

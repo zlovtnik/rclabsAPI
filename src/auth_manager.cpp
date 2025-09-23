@@ -97,19 +97,27 @@ AuthManager::AuthManager() : userRepo_(nullptr), sessionRepo_(nullptr) {
     }
   }
 
-  if (!jwtSecretKey.empty()) {
-    jwtSecretKey_ = jwtSecretKey;
-    AUTH_LOG_INFO("JWT secret loaded successfully");
-
-    // Lock the secret in memory if possible
-#if defined(__unix__) || defined(__APPLE__)
-    if (mlock(jwtSecretKey_.data(), jwtSecretKey_.size()) != 0) {
-      AUTH_LOG_WARN("Failed to lock JWT secret in memory");
-    }
-#endif
-  } else {
-    AUTH_LOG_WARN("No JWT secret found - JWT authentication will be disabled");
+  if (jwtSecretKey.empty()) {
+    AUTH_LOG_ERROR("JWT_SECRET_KEY environment variable or JWT_SECRET_KEY_FILE must be set");
+    throw std::runtime_error("JWT_SECRET_KEY environment variable or JWT_SECRET_KEY_FILE must be set");
   }
+
+  if (jwtSecretKey.length() < 32) {
+    throw std::runtime_error("JWT_SECRET_KEY must be at least 32 characters long for security");
+  }
+
+  jwtSecretKey_ = jwtSecretKey;
+  AUTH_LOG_DEBUG("JWT secret key loaded successfully.");
+
+  // Securely zero the temporary string
+  std::fill(jwtSecretKey.begin(), jwtSecretKey.end(), '\0');
+
+  // Lock the secret in memory if possible
+#if defined(__unix__) || defined(__APPLE__)
+  if (mlock(jwtSecretKey_.data(), jwtSecretKey_.size()) != 0) {
+    AUTH_LOG_WARN("Failed to lock JWT secret in memory");
+  }
+#endif
 #endif
   AUTH_LOG_DEBUG("Authentication manager initialization completed");
 }
