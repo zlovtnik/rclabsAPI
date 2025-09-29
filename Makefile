@@ -47,9 +47,11 @@ help:
 	@echo "  make clean        - Clean build files"
 	@echo "  make rebuild      - Clean and rebuild"
 	@echo "  make run          - Run the application"
+	@echo "  make render-build - Build for Render deployment (use pre-built or build)"
 	@echo "  make status       - Show project status"
 	@echo "  make help         - Show this help"
 	@echo "  make ninja-info   - Check Ninja availability"
+	@echo "  make render-build - Build for Render deployment"
 
 build-info:
 	@echo "$(CYAN)ETL Plus Build System$(NC)"
@@ -140,6 +142,17 @@ release: format
 run: compile
 	@echo "$(BLUE)Running $(PROJECT_NAME)...$(NC)"
 	@cd $(BIN_DIR) && ./$(PROJECT_NAME)
+
+# Build for Render deployment (ensures executable exists)
+render-build: format
+	@echo "$(BLUE)Building for Render deployment...$(NC)"
+	@if [ -f $(BIN_DIR)/$(PROJECT_NAME) ]; then \
+		echo "$(GREEN)✓ Pre-built executable found at $(BIN_DIR)/$(PROJECT_NAME)$(NC)"; \
+	else \
+		echo "$(YELLOW)No pre-built executable found, building from source...$(NC)"; \
+		$(MAKE) compile; \
+	fi
+	@echo "$(GREEN)✓ Ready for Docker build$(NC)"
 
 # Run specific test
 test-%:

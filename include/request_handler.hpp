@@ -36,6 +36,7 @@ class JobMonitorService;
 
 class RequestHandler {
 public:
+#ifdef ETL_ENABLE_POSTGRESQL
   RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
                  std::shared_ptr<AuthManager> authManager,
                  std::shared_ptr<ETLJobManager> etlManager);
@@ -60,6 +61,28 @@ public:
                  std::shared_ptr<AuthManager> authManager,
                  std::shared_ptr<ETLJobManager> etlManager,
                  RequestHandlerOptions options);
+#endif
+#ifndef ETL_ENABLE_POSTGRESQL
+  RequestHandler(std::shared_ptr<AuthManager> authManager,
+                 std::shared_ptr<ETLJobManager> etlManager);
+
+  RequestHandler(std::shared_ptr<AuthManager> authManager,
+                 std::shared_ptr<ETLJobManager> etlManager,
+                 std::unique_ptr<RateLimiter> rateLimiter);
+
+  RequestHandler(std::shared_ptr<AuthManager> authManager,
+                 std::shared_ptr<ETLJobManager> etlManager,
+                 std::shared_ptr<WebSocketManager> wsManager);
+
+  RequestHandler(std::shared_ptr<AuthManager> authManager,
+                 std::shared_ptr<ETLJobManager> etlManager,
+                 std::unique_ptr<RateLimiter> rateLimiter,
+                 std::shared_ptr<WebSocketManager> wsManager);
+
+  RequestHandler(std::shared_ptr<AuthManager> authManager,
+                 std::shared_ptr<ETLJobManager> etlManager,
+                 RequestHandlerOptions options);
+#endif
 
   template <class Body, class Allocator>
   http::response<http::string_body>
@@ -72,7 +95,9 @@ public:
   }
 
 private:
+#ifdef ETL_ENABLE_POSTGRESQL
   std::shared_ptr<DatabaseManager> dbManager_;
+#endif
   std::shared_ptr<AuthManager> authManager_;
   std::shared_ptr<ETLJobManager> etlManager_;
   std::unique_ptr<RateLimiter> rateLimiter_;

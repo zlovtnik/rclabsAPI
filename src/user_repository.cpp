@@ -1,3 +1,4 @@
+#ifdef ETL_ENABLE_POSTGRESQL
 #include "user_repository.hpp"
 #include "database_manager.hpp"
 #include "logger.hpp"
@@ -327,3 +328,4 @@ UserRepository::parseTimestamp(const std::string &timestampStr) {
   }
   return std::chrono::system_clock::from_time_t(std::mktime(&tm));
 }
+#endif

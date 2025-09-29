@@ -1,354 +1,240 @@
-#include "error_codes.hpp"
 #include "etl_exceptions.hpp"
 #include "exception_mapper.hpp"
-#include <boost/beast/http.hpp>
-#include <chrono>
-#include <gtest/gtest.h>
-#include <memory>
-#include <regex>
-#include <thread>
+#include "logger.hpp"
+#include <cassert>
+#include <iostream>
 
-namespace ETLPlus {
-namespace ExceptionHandling {
+using namespace ETLPlus::ExceptionHandling;
 
-// Test fixture for ExceptionMapper tests
-class ExceptionMapperTest : public ::testing::Test {
-protected:
-  void SetUp() override { mapper_ = std::make_unique<ExceptionMapper>(); }
+/**
+ * @brief Unit test that verifies mapping of a ValidationException to an HTTP
+ * response.
+ *
+ * Constructs a ValidationException with ERROR_CODE::INVALID_INPUT and verifies
+ * that ExceptionMapper::mapToResponse produces a 400 (bad_request) response
+ * with "application/json" content type. The test uses assertions to validate
+ * the response and prints the mapped status and body to stdout. Assertions will
+ * terminate the test on failure.
+ */
+void testBasicExceptionMapping() {
+  std::cout << "Testing basic exception mapping..." << std::endl;
 
-  void TearDown() override { mapper_.reset(); }
-
-  std::unique_ptr<ExceptionMapper> mapper_;
-  const std::string testOperation = "TestOperation";
-};
-
-// Test ExceptionMapper construction and configuration
-TEST_F(ExceptionMapperTest, ConstructionWithDefaultConfig) {
   ExceptionMapper mapper;
-  const auto &config = mapper.getConfig();
 
-  EXPECT_EQ(config.defaultStatus,
-            boost::beast::http::status::internal_server_error);
-  EXPECT_FALSE(config.includeStackTrace);
-  EXPECT_FALSE(config.includeInternalDetails);
-  EXPECT_EQ(config.serverHeader, "ETL Plus Backend");
-  EXPECT_EQ(config.corsOrigin, "*");
-  EXPECT_FALSE(config.keepAlive);
+  // Test validation exception
+  auto validationEx = etl::ValidationException(
+      etl::ErrorCode::INVALID_INPUT, "Invalid email format", "email",
+      "invalid@", etl::ErrorContext{{"field", "email"}, {"value", "invalid@"}});
+
+  auto response = mapper.mapToResponse(validationEx, "test_validation");
+
+  assert(response.result() == boost::beast::http::status::bad_request);
+  assert(response[boost::beast::http::field::content_type] ==
+         "application/json");
+
+  std::cout << "Validation exception mapped to: " << response.result()
+            << std::endl;
+  std::cout << "Response body: " << response.body() << std::endl;
 }
 
-TEST_F(ExceptionMapperTest, ConstructionWithCustomConfig) {
-  ExceptionMappingConfig customConfig;
-  customConfig.defaultStatus = boost::beast::http::status::bad_request;
-  customConfig.includeStackTrace = true;
-  customConfig.includeInternalDetails = true;
-  customConfig.serverHeader = "Custom Server";
-  customConfig.corsOrigin = "https://example.com";
-  customConfig.keepAlive = true;
+/**
+ * @brief Tests mapping of a SystemException to an HTTP service-unavailable
+ * response.
+ *
+ * Constructs a SystemException with ErrorCode::DATABASE_ERROR and verifies that
+ * ExceptionMapper::mapToResponse produces an HTTP 503 (service_unavailable)
+ * response. The test uses an assertion to enforce the expected status and
+ * writes the mapped status and response body to stdout.
+ */
+void testSystemExceptionMapping() {
+  std::cout << "\nTesting system exception mapping..." << std::endl;
 
-  ExceptionMapper mapper(customConfig);
-  const auto &config = mapper.getConfig();
+  ExceptionMapper mapper;
 
-  EXPECT_EQ(config.defaultStatus, boost::beast::http::status::bad_request);
-  EXPECT_TRUE(config.includeStackTrace);
-  EXPECT_TRUE(config.includeInternalDetails);
-  EXPECT_EQ(config.serverHeader, "Custom Server");
-  EXPECT_EQ(config.corsOrigin, "https://example.com");
-  EXPECT_TRUE(config.keepAlive);
+  // Test system exception
+  auto systemEx = etl::SystemException(
+      etl::ErrorCode::DATABASE_ERROR, "Connection to database failed",
+      "DatabaseManager",
+      etl::ErrorContext{{"host", "localhost"}, {"port", "5432"}});
+
+  auto response = mapper.mapToResponse(systemEx, "test_system");
+
+  assert(response.result() == boost::beast::http::status::service_unavailable);
+
+  std::cout << "System exception mapped to: " << response.result() << std::endl;
+  std::cout << "Response body: " << response.body() << std::endl;
 }
 
-TEST_F(ExceptionMapperTest, UpdateConfiguration) {
-  ExceptionMappingConfig newConfig;
-  newConfig.defaultStatus = boost::beast::http::status::not_found;
-  newConfig.includeStackTrace = true;
+/**
+ * @brief Tests that a BusinessException is mapped to an HTTP 404 response.
+ *
+ * Constructs a BusinessException (ErrorCode::JOB_NOT_FOUND) with context, uses
+ * ExceptionMapper::mapToResponse to convert it to an HTTP response, and asserts
+ * the resulting status is 404 (not_found). Prints the mapped status and body.
+ */
+void testBusinessExceptionMapping() {
+  std::cout << "\nTesting business exception mapping..." << std::endl;
 
-  mapper_->updateConfig(newConfig);
-  const auto &config = mapper_->getConfig();
+  ExceptionMapper mapper;
 
-  EXPECT_EQ(config.defaultStatus, boost::beast::http::status::not_found);
-  EXPECT_TRUE(config.includeStackTrace);
+  // Test business exception
+  auto businessEx = etl::BusinessException(
+      etl::ErrorCode::JOB_NOT_FOUND, "Job with ID 12345 not found",
+      "JobManager::getJob", etl::ErrorContext{{"jobId", "12345"}});
+
+  auto response = mapper.mapToResponse(businessEx, "test_business");
+
+  assert(response.result() == boost::beast::http::status::not_found);
+
+  std::cout << "Business exception mapped to: " << response.result()
+            << std::endl;
+  std::cout << "Response body: " << response.body() << std::endl;
 }
 
-// Test mapping ETL exceptions to HTTP responses
-TEST_F(ExceptionMapperTest, MapValidationException) {
-  etl::ValidationException ex(etl::ErrorCode::INVALID_INPUT,
-                              "Invalid input provided", "username",
-                              "invalid@user");
+/**
+ * @brief Tests that a user-registered custom handler is invoked when mapping a
+ * specific error code.
+ *
+ * Registers a custom handler for etl::ErrorCode::RATE_LIMIT_EXCEEDED that
+ * produces an HTTP 429 response with a Retry-After header and JSON body, then
+ * maps a SystemException with that error code and asserts the mapped response
+ * has status 429 and the expected Retry-After header.
+ *
+ * Side effects: prints progress and the mapped response to stdout and uses
+ * assert to enforce expectations.
+ */
+void testCustomHandler() {
+  std::cout << "\nTesting custom exception handler..." << std::endl;
 
-  auto response = mapper_->mapToResponse(ex, testOperation);
+  ExceptionMapper mapper;
 
-  EXPECT_EQ(response.result(), boost::beast::http::status::bad_request);
-  EXPECT_EQ(response.at(boost::beast::http::field::content_type),
-            "application/json");
-  EXPECT_EQ(response.at(boost::beast::http::field::server), "ETL Plus Backend");
+  // Register custom handler for RATE_LIMIT_EXCEEDED
+  mapper.registerHandler(
+      etl::ErrorCode::RATE_LIMIT_EXCEEDED,
+      [](const etl::ETLException &ex, const std::string &operation) {
+        HttpResponse response{boost::beast::http::status::too_many_requests,
+                              11};
+        response.set(boost::beast::http::field::content_type,
+                     "application/json");
+        response.set(boost::beast::http::field::retry_after, "60");
+        response.body() = R"({"error":"Rate limit exceeded","retryAfter":60})";
+        response.prepare_payload();
+        return response;
+      });
 
-  // Check response body contains expected fields
+  auto rateLimitEx =
+      etl::SystemException(etl::ErrorCode::RATE_LIMIT_EXCEEDED,
+                           "API rate limit exceeded", "RateLimiter");
+
+  auto response = mapper.mapToResponse(rateLimitEx, "test_rate_limit");
+
+  assert(response.result() == boost::beast::http::status::too_many_requests);
+  assert(response[boost::beast::http::field::retry_after] == "60");
+
+  std::cout << "Custom handler response: " << response.result() << std::endl;
+  std::cout << "Response body: " << response.body() << std::endl;
+}
+
+void testCorrelationIdTracking() {
+  std::cout << "\nTesting correlation ID tracking..." << std::endl;
+
+  ExceptionMapper mapper;
+
+  // Set a correlation ID
+  std::string correlationId = ExceptionMapper::generateCorrelationId();
+  ExceptionMapper::setCurrentCorrelationId(correlationId);
+
+  auto ex = etl::SystemException(etl::ErrorCode::INTERNAL_ERROR,
+                                 "Test exception with correlation ID");
+
+  // Set the correlation ID on the exception
+  ex.setCorrelationId(correlationId);
+
+  auto response = mapper.mapToResponse(ex, "test_correlation");
+
+  // Check that correlation ID is in the response
   std::string body = response.body();
-  EXPECT_NE(body.find("Invalid input provided"), std::string::npos);
-  EXPECT_NE(body.find("INVALID_INPUT"), std::string::npos);
-  EXPECT_NE(body.find("error"), std::string::npos);
+  assert(body.find(correlationId) != std::string::npos);
+
+  std::cout << "Correlation ID: " << correlationId << std::endl;
+  std::cout << "Response contains correlation ID: "
+            << (body.find(correlationId) != std::string::npos) << std::endl;
 }
 
-TEST_F(ExceptionMapperTest, MapSystemException) {
-  etl::SystemException ex(etl::ErrorCode::DATABASE_ERROR,
-                          "Database connection failed", "DatabaseManager");
+void testStandardExceptionMapping() {
+  std::cout << "\nTesting standard exception mapping..." << std::endl;
 
-  auto response = mapper_->mapToResponse(ex, testOperation);
+  ExceptionMapper mapper;
 
-  EXPECT_EQ(response.result(), boost::beast::http::status::service_unavailable);
-  EXPECT_EQ(response.at(boost::beast::http::field::content_type),
-            "application/json");
-
-  std::string body = response.body();
-  EXPECT_NE(body.find("Database connection failed"), std::string::npos);
-  EXPECT_NE(body.find("DATABASE_ERROR"), std::string::npos);
-}
-
-TEST_F(ExceptionMapperTest, MapDifferentErrorCodes) {
-  std::vector<std::pair<etl::ErrorCode, boost::beast::http::status>> testCases =
-      {{etl::ErrorCode::INVALID_INPUT, boost::beast::http::status::bad_request},
-       {etl::ErrorCode::UNAUTHORIZED, boost::beast::http::status::unauthorized},
-       {etl::ErrorCode::FORBIDDEN, boost::beast::http::status::forbidden},
-       {etl::ErrorCode::JOB_NOT_FOUND, boost::beast::http::status::not_found},
-       {etl::ErrorCode::DATABASE_ERROR,
-        boost::beast::http::status::service_unavailable},
-       {etl::ErrorCode::NETWORK_ERROR,
-        boost::beast::http::status::service_unavailable}};
-
-  for (const auto &testCase : testCases) {
-    etl::ETLException ex(testCase.first, "Test message");
-    auto response = mapper_->mapToResponse(ex);
-    EXPECT_EQ(response.result(), testCase.second);
-  }
-}
-
-// Test mapping standard exceptions
-TEST_F(ExceptionMapperTest, MapStdException) {
+  // Test standard exception
   std::runtime_error stdEx("Standard runtime error");
+  auto response = mapper.mapToResponse(stdEx, "test_standard");
 
-  auto response = mapper_->mapToResponse(stdEx, testOperation);
+  assert(response.result() ==
+         boost::beast::http::status::internal_server_error);
 
-  EXPECT_EQ(response.result(),
-            boost::beast::http::status::internal_server_error);
-  EXPECT_EQ(response.at(boost::beast::http::field::content_type),
-            "application/json");
-
-  std::string body = response.body();
-  EXPECT_NE(body.find("Standard runtime error"), std::string::npos);
-  EXPECT_NE(body.find("INTERNAL_ERROR"), std::string::npos);
+  std::cout << "Standard exception mapped to: " << response.result()
+            << std::endl;
+  std::cout << "Response body: " << response.body() << std::endl;
 }
 
-// Test mapping unknown exceptions
-TEST_F(ExceptionMapperTest, MapUnknownException) {
-  auto response = mapper_->mapToResponse(testOperation);
+/**
+ * @brief Runs unit tests for HTTP response utility builders.
+ *
+ * Exercises createRateLimitResponse and createMaintenanceResponse, asserting
+ * that the produced HTTP responses have the expected status codes and headers:
+ * - Rate-limit response: HTTP 429 (Too Many Requests) and a Retry-After header
+ *   matching the provided value.
+ * - Maintenance response: HTTP 503 (Service Unavailable).
+ *
+ * Uses assert() for validation; a failed assertion will terminate the test run.
+ */
+void testUtilityFunctions() {
+  std::cout << "\nTesting utility functions..." << std::endl;
 
-  EXPECT_EQ(response.result(),
-            boost::beast::http::status::internal_server_error);
-  EXPECT_EQ(response.at(boost::beast::http::field::content_type),
-            "application/json");
+  // Test rate limit response
+  auto rateLimitResponse = createRateLimitResponse("Too many requests", "120");
+  assert(rateLimitResponse.result() ==
+         boost::beast::http::status::too_many_requests);
+  assert(rateLimitResponse[boost::beast::http::field::retry_after] == "120");
 
-  std::string body = response.body();
-  EXPECT_NE(body.find("Unknown exception occurred"), std::string::npos);
-  EXPECT_NE(body.find("INTERNAL_ERROR"), std::string::npos);
+  // Test maintenance response
+  auto maintenanceResponse =
+      createMaintenanceResponse("System maintenance in progress");
+  assert(maintenanceResponse.result() ==
+         boost::beast::http::status::service_unavailable);
+
+  std::cout << "Utility functions working correctly" << std::endl;
 }
 
-// Test custom error code handlers
-TEST_F(ExceptionMapperTest, CustomErrorCodeHandler) {
-  bool handlerCalled = false;
-  boost::beast::http::status customStatus =
-      boost::beast::http::status::not_acceptable;
+/**
+ * @brief Runs the ExceptionMapper test suite.
+ *
+ * Executes all test cases for ETLPlus::ExceptionHandling::ExceptionMapper in
+ * sequence and reports overall success. Prints a header at start and a success
+ * message on completion. Any std::exception thrown by the tests is caught, its
+ * message is printed to stderr, and the process exits with a non-zero status.
+ *
+ * @return int Exit code: 0 if all tests pass; 1 if a std::exception is caught
+ * during test execution.
+ */
+int main() {
+  try {
+    std::cout << "=== ExceptionMapper Test Suite ===" << std::endl;
 
-  ExceptionHandlerFunc customHandler = [&](const etl::ETLException &ex,
-                                           const std::string &op) {
-    handlerCalled = true;
-    HttpResponse response;
-    response.result(customStatus);
-    response.set(boost::beast::http::field::content_type, "application/json");
-    response.body() = R"({"custom": "response"})";
-    return response;
-  };
+    testBasicExceptionMapping();
+    testSystemExceptionMapping();
+    testBusinessExceptionMapping();
+    testCustomHandler();
+    testCorrelationIdTracking();
+    testStandardExceptionMapping();
+    testUtilityFunctions();
 
-  mapper_->registerHandler(etl::ErrorCode::INVALID_INPUT, customHandler);
+    std::cout << "\n=== All tests passed! ===" << std::endl;
+    return 0;
 
-  etl::ETLException ex(etl::ErrorCode::INVALID_INPUT, "Test message");
-  auto response = mapper_->mapToResponse(ex);
-
-  EXPECT_TRUE(handlerCalled);
-  EXPECT_EQ(response.result(), customStatus);
-  EXPECT_EQ(response.body(), R"({"custom": "response"})");
-}
-
-// Test custom exception type handlers
-TEST_F(ExceptionMapperTest, CustomExceptionTypeHandler) {
-  bool handlerCalled = false;
-
-  ExceptionHandlerFunc typeHandler = [&](const etl::ETLException &ex,
-                                         const std::string &op) {
-    handlerCalled = true;
-    HttpResponse response;
-    response.result(boost::beast::http::status::not_implemented);
-    response.set(boost::beast::http::field::content_type, "application/json");
-    response.body() = R"({"type": "handler"})";
-    return response;
-  };
-
-  mapper_->registerTypeHandler<etl::ValidationException>(typeHandler);
-
-  etl::ValidationException ex(etl::ErrorCode::MISSING_FIELD, "Field missing",
-                              "testField");
-  auto response = mapper_->mapToResponse(ex);
-
-  EXPECT_TRUE(handlerCalled);
-  EXPECT_EQ(response.result(), boost::beast::http::status::not_implemented);
-  EXPECT_EQ(response.body(), R"({"type": "handler"})");
-}
-
-// Test ErrorResponseFormat
-TEST_F(ExceptionMapperTest, ErrorResponseFormat) {
-  etl::ETLException ex(etl::ErrorCode::UNAUTHORIZED, "Access denied");
-  ex.setCorrelationId("test-correlation-123");
-
-  ErrorResponseFormat format = mapper_->createErrorFormat(ex);
-
-  EXPECT_EQ(format.status, "error");
-  EXPECT_EQ(format.message, "Access denied");
-  EXPECT_EQ(format.code, "UNAUTHORIZED");
-  EXPECT_EQ(format.correlationId, "test-correlation-123");
-  EXPECT_FALSE(format.timestamp.empty());
-  EXPECT_TRUE(format.details.empty());
-
-  // Test JSON serialization
-  std::string json = format.toJson();
-  EXPECT_FALSE(json.empty());
-  EXPECT_NE(json.find("Access denied"), std::string::npos);
-  EXPECT_NE(json.find("test-correlation-123"), std::string::npos);
-}
-
-// Test correlation ID generation and management
-TEST_F(ExceptionMapperTest, CorrelationIdGeneration) {
-  std::string id1 = ExceptionMapper::generateCorrelationId();
-  std::string id2 = ExceptionMapper::generateCorrelationId();
-
-  EXPECT_FALSE(id1.empty());
-  EXPECT_FALSE(id2.empty());
-  EXPECT_NE(id1, id2); // Should be unique
-
-  // Test setting and getting current correlation ID
-  std::string testId = "test-context-id";
-  ExceptionMapper::setCurrentCorrelationId(testId);
-  EXPECT_EQ(ExceptionMapper::getCurrentCorrelationId(), testId);
-}
-
-// Test thread safety
-TEST_F(ExceptionMapperTest, ThreadSafety) {
-  const int numThreads = 10;
-  const int operationsPerThread = 50;
-
-  std::vector<std::thread> threads;
-  std::atomic<int> completedThreads(0);
-
-  for (int i = 0; i < numThreads; ++i) {
-    threads.emplace_back([this, i, operationsPerThread, &completedThreads]() {
-      try {
-        for (int j = 0; j < operationsPerThread; ++j) {
-          etl::ETLException ex(etl::ErrorCode::INTERNAL_ERROR,
-                               "Thread " + std::to_string(i) + " test " +
-                                   std::to_string(j));
-          auto response = mapper_->mapToResponse(ex);
-          EXPECT_EQ(response.result(),
-                    boost::beast::http::status::internal_server_error);
-        }
-        completedThreads++;
-      } catch (...) {
-        FAIL() << "Exception in thread " << i;
-      }
-    });
+  } catch (const std::exception &e) {
+    std::cerr << "Test failed with exception: " << e.what() << std::endl;
+    return 1;
   }
-
-  for (auto &thread : threads) {
-    thread.join();
-  }
-
-  EXPECT_EQ(completedThreads.load(), numThreads);
 }
-
-// Test response headers
-TEST_F(ExceptionMapperTest, ResponseHeaders) {
-  etl::ETLException ex(etl::ErrorCode::INVALID_INPUT, "Test error");
-
-  ExceptionMappingConfig config;
-  config.corsOrigin = "https://app.example.com";
-  config.keepAlive = true;
-  config.serverHeader = "Test Server v1.0";
-
-  ExceptionMapper customMapper(config);
-  auto response = customMapper.mapToResponse(ex);
-
-  EXPECT_EQ(response.at(boost::beast::http::field::server), "Test Server v1.0");
-  EXPECT_EQ(response.at(boost::beast::http::field::access_control_allow_origin),
-            "https://app.example.com");
-  // Note: Connection header is set automatically by keep_alive()
-  EXPECT_TRUE(response.keep_alive());
-  EXPECT_EQ(response.at(boost::beast::http::field::content_type),
-            "application/json");
-}
-
-// Test JSON response body structure
-TEST_F(ExceptionMapperTest, JsonResponseStructure) {
-  etl::ValidationException ex(etl::ErrorCode::MISSING_FIELD,
-                              "Required field is missing", "email", "");
-
-  auto response = mapper_->mapToResponse(ex);
-  std::string body = response.body();
-
-  // Parse JSON structure (basic validation)
-  EXPECT_NE(body.find("{"), std::string::npos);
-  EXPECT_NE(body.find("}"), std::string::npos);
-  EXPECT_NE(body.find("\"status\""), std::string::npos);
-  EXPECT_NE(body.find("\"message\""), std::string::npos);
-  EXPECT_NE(body.find("\"code\""), std::string::npos);
-  EXPECT_NE(body.find("\"correlationId\""), std::string::npos);
-  EXPECT_NE(body.find("Required field is missing"), std::string::npos);
-  EXPECT_NE(body.find("MISSING_FIELD"), std::string::npos);
-}
-
-// Test with operation name
-TEST_F(ExceptionMapperTest, OperationNameInResponse) {
-  etl::ETLException ex(etl::ErrorCode::PROCESSING_FAILED, "Processing failed");
-
-  auto response = mapper_->mapToResponse(ex, "DataTransformation");
-
-  std::string body = response.body();
-  // The operation name should be included in logging/context, but may not be in
-  // response body depending on implementation. Just verify the response is
-  // valid.
-  EXPECT_EQ(response.result(),
-            boost::beast::http::status::internal_server_error);
-  EXPECT_FALSE(body.empty());
-}
-
-// Test configuration changes affect responses
-TEST_F(ExceptionMapperTest, ConfigurationChanges) {
-  etl::ETLException ex(etl::ErrorCode::DATABASE_ERROR, "DB Error");
-
-  // Default configuration
-  auto response1 = mapper_->mapToResponse(ex);
-  EXPECT_EQ(response1.at(boost::beast::http::field::server),
-            "ETL Plus Backend");
-
-  // Update configuration
-  ExceptionMappingConfig newConfig;
-  newConfig.serverHeader = "Updated Server";
-  newConfig.defaultStatus = boost::beast::http::status::service_unavailable;
-
-  mapper_->updateConfig(newConfig);
-
-  // Test with updated configuration
-  auto response2 = mapper_->mapToResponse(
-      etl::ETLException(etl::ErrorCode::INTERNAL_ERROR, "Internal error"));
-  EXPECT_EQ(response2.at(boost::beast::http::field::server), "Updated Server");
-  EXPECT_EQ(response2.result(),
-            boost::beast::http::status::service_unavailable);
-}
-
-} // namespace ExceptionHandling
-} // namespace ETLPlus

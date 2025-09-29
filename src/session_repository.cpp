@@ -1,3 +1,4 @@
+#ifdef ETL_ENABLE_POSTGRESQL
 #include "session_repository.hpp"
 #include "database_manager.hpp"
 #include "logger.hpp"
@@ -240,3 +241,4 @@ SessionRepository::stringToTimePoint(const std::string &str) {
   }
   return std::chrono::system_clock::from_time_t(std::mktime(&tm));
 }
+#endif

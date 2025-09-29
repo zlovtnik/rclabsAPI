@@ -16,6 +16,8 @@
 #include "http_server.hpp"
 #include "logger.hpp"
 #include "request_handler.hpp"
+#include "session_repository.hpp"
+#include "user_repository.hpp"
 #include "websocket_manager.hpp"
 
 // Real-time monitoring components
@@ -142,7 +144,14 @@ int main() {
 
     // Initialize authentication and data transformation
     LOG_INFO("Main", "Initializing authentication manager...");
-    auto authManager = std::make_shared<AuthManager>();
+#ifdef ETL_ENABLE_POSTGRESQL
+    auto authManager = std::make_shared<AuthManager>(dbManager);
+#else
+    // Create repositories for non-PostgreSQL mode
+    auto userRepo = std::make_shared<UserRepository>();
+    auto sessionRepo = std::make_shared<SessionRepository>();
+    auto authManager = std::make_shared<AuthManager>(userRepo, sessionRepo);
+#endif
 
     LOG_INFO("Main", "Initializing data transformer...");
     auto dataTransformer = std::make_shared<DataTransformer>();

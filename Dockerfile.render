@@ -1,6 +1,10 @@
 # Optimized Dockerfile for Render.com deployment
 # Multi-stage build to minimize final image size
+
 FROM ubuntu:22.04 AS builder
+
+# Add build argument to control whether build artifacts are present
+ARG HAS_BUILD_ARTIFACTS=false
 
 # Install minimal build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -9,29 +13,53 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libboost-filesystem-dev \
     libboost-system-dev \
     libboost-thread-dev \
+    libcurl4-openssl-dev \
+    libpq-dev \
     libpqxx-dev \
     libssl-dev \
     nlohmann-json3-dev \
     pkg-config \
+    postgresql-server-dev-all \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /tmp/* /var/tmp/*
 
 WORKDIR /app
 
-# Copy only necessary files for build
+# Conditionally copy build directory only if build artifacts are present
+# This prevents COPY failure when build/ directory doesn't exist
+RUN if [ -d "build" ]; then \
+        echo "Build directory found, copying build artifacts"; \
+        cp -r build ./build; \
+    else \
+        echo "No build directory found, will build from source"; \
+        mkdir -p build; \
+    fi
+
+# Copy source files for building
 COPY CMakeLists.txt .
 COPY src/ src/
 COPY include/ include/
 COPY config/ config/
+COPY tests/ tests/
+COPY demos/ demos/
 
-# Build with size optimization
-RUN cmake -B build \
-    -DCMAKE_BUILD_TYPE=MinSizeRel \
-    -DCMAKE_CXX_FLAGS="-Os -s -DNDEBUG" \
-    -DCMAKE_EXE_LINKER_FLAGS="-s" \
-    && cmake --build build --parallel 2 \
-    && strip build/bin/ETLPlusBackend
+# Check if executable exists and is compatible, if not build it
+RUN if [ -f "./build/bin/ETLPlusBackend" ] && ./build/bin/ETLPlusBackend --version >/dev/null 2>&1; then \
+        echo "Using compatible pre-built executable from build folder"; \
+        mkdir -p bin && cp ./build/bin/ETLPlusBackend ./bin/; \
+    else \
+        echo "Building executable from source (pre-built not compatible or missing)"; \
+        # Build with size optimization \
+        cmake -B build \
+            -DCMAKE_BUILD_TYPE=MinSizeRel \
+            -DCMAKE_CXX_FLAGS="-Os -s -DNDEBUG" \
+            -DCMAKE_EXE_LINKER_FLAGS="-s" \
+            -DENABLE_TESTS=OFF \
+        && cmake --build build --parallel 2 \
+        && mkdir -p bin \
+        && cp build/bin/ETLPlusBackend bin/; \
+    fi
 
 # Minimal runtime stage
 FROM ubuntu:22.04 AS runtime
@@ -40,6 +68,7 @@ FROM ubuntu:22.04 AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
+    libcurl4 \
     libboost-filesystem1.74.0 \
     libboost-system1.74.0 \
     libboost-thread1.74.0 \
@@ -54,7 +83,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy minimal files
-COPY --from=builder /app/build/bin/ETLPlusBackend ./
+COPY --from=builder /app/bin/ETLPlusBackend ./
 COPY --from=builder /app/config/ ./config/
 
 # Create logs directory

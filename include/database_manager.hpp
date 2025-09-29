@@ -1,10 +1,14 @@
 #pragma once
 
+#ifdef ETL_ENABLE_POSTGRESQL
 #include "database_connection_pool.hpp"
+#endif
 #include <future>
 #include <memory>
 #include <string>
 #include <vector>
+
+#ifdef ETL_ENABLE_POSTGRESQL
 
 struct ConnectionConfig {
   std::string host;
@@ -47,4 +51,12 @@ public:
 private:
   struct Impl;
   std::unique_ptr<Impl> pImpl;
+
+  // Helper method to execute parameterized queries
+  pqxx::result
+  executeParameterizedQuery(pqxx::transaction_base &txn,
+                            const std::string &query,
+                            const std::vector<std::string> &params);
 };
+
+#endif // ETL_ENABLE_POSTGRESQL

@@ -1,3 +1,5 @@
+#ifdef ETL_ENABLE_POSTGRESQL
+
 #include "database_manager.hpp"
 #include "database_schema.hpp"
 #include "logger.hpp"
@@ -164,11 +166,10 @@ bool DatabaseManager::executeQuery(const std::string &query,
   try {
     auto conn = pImpl->connectionPool->acquireConnection();
     pqxx::work txn(*conn);
-    pqxx::params pqxx_params;
-    for (const auto &param : params) {
-      pqxx_params.append(param);
-    }
-    txn.exec_params(query, pqxx_params);
+
+    // Execute the query without handling the result
+    executeParameterizedQuery(txn, query, params);
+
     txn.commit();
     pImpl->connectionPool->releaseConnection(conn);
     DB_LOG_DEBUG("Parameterized query executed successfully");
@@ -240,11 +241,11 @@ DatabaseManager::selectQuery(const std::string &query,
   try {
     auto conn = pImpl->connectionPool->acquireConnection();
     pqxx::work txn(*conn);
-    pqxx::params pqxx_params;
-    for (const auto &param : params) {
-      pqxx_params.append(param);
-    }
-    pqxx::result result = txn.exec_params(query, pqxx_params);
+
+    // Execute the query and get the result
+    pqxx::result result = executeParameterizedQuery(txn, query, params);
+    // executeParameterizedQuery throws on error, no need for explicit check
+
     txn.commit();
     pImpl->connectionPool->releaseConnection(conn);
 
@@ -327,3 +328,28 @@ bool DatabaseManager::isPoolHealthy() const {
   return pImpl->connected && pImpl->connectionPool &&
          pImpl->connectionPool->isHealthy();
 }
+
+pqxx::result DatabaseManager::executeParameterizedQuery(
+    pqxx::transaction_base &txn, const std::string &query,
+    const std::vector<std::string> &params) {
+  try {
+    // Create a params object to hold all parameters
+    pqxx::params p;
+
+    // Add all parameters to the params object
+    for (const auto &param : params) {
+      p.append(param);
+    }
+
+    // Execute the query with dynamic parameters
+    return txn.exec_params(query, p);
+  } catch (const std::exception &e) {
+    DB_LOG_ERROR("Error executing parameterized query: " << e.what());
+    throw; // Re-throw to allow caller to handle the exception
+  } catch (...) {
+    DB_LOG_ERROR("Unknown error executing parameterized query");
+    throw std::runtime_error("Unknown error executing parameterized query");
+  }
+}
+
+#endif // ETL_ENABLE_POSTGRESQL

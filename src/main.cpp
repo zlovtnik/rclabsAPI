@@ -8,9 +8,15 @@
 #include <unistd.h>
 
 #include "auth_manager.hpp"
-#include "config_manager.hpp"
-#include "data_transformer.hpp"
+#ifdef ETL_ENABLE_POSTGRESQL
 #include "database_manager.hpp"
+#include "session_repository.hpp"
+#include "user_repository.hpp"
+#endif
+#ifndef ETL_ENABLE_POSTGRESQL
+#include "session_repository.hpp"
+#include "user_repository.hpp"
+#endif
 #include "etl_job_manager.hpp"
 #include "http_server.hpp"
 #include "log_aggregation_config.hpp"
@@ -106,9 +112,11 @@ int main() {
 
     LOG_INFO("Main", "Configuration loaded successfully");
 
-    // Initialize database manager
+    // Initialize database manager (nullptr if PostgreSQL disabled)
+    std::shared_ptr<DatabaseManager> dbManager = nullptr;
+#ifdef ETL_ENABLE_POSTGRESQL
     LOG_INFO("Main", "Initializing database manager...");
-    auto dbManager = std::make_shared<DatabaseManager>();
+    dbManager = std::make_shared<DatabaseManager>();
     ConnectionConfig dbConfig;
 
     // Check environment variables first, then fall back to config file
@@ -165,17 +173,29 @@ int main() {
         LOG_INFO("Main", "Database schema initialized successfully");
       }
     }
+#endif
 
     // Initialize other managers
     LOG_INFO("Main", "Initializing authentication manager...");
+#ifdef ETL_ENABLE_POSTGRESQL
     auto authManager = std::make_shared<AuthManager>(dbManager);
+#else
+    // Create repositories for non-PostgreSQL mode
+    auto userRepo = std::make_shared<UserRepository>();
+    auto sessionRepo = std::make_shared<SessionRepository>();
+    auto authManager = std::make_shared<AuthManager>(userRepo, sessionRepo);
+#endif
 
     LOG_INFO("Main", "Initializing data transformer...");
     auto dataTransformer = std::make_shared<DataTransformer>();
 
     LOG_INFO("Main", "Initializing ETL job manager...");
+#ifdef ETL_ENABLE_POSTGRESQL
     auto etlManager =
         std::make_shared<ETLJobManager>(dbManager, dataTransformer);
+#else
+    auto etlManager = std::make_shared<ETLJobManager>(dataTransformer);
+#endif
 
     // Start ETL job manager
     LOG_INFO("Main", "Starting ETL job manager...");
@@ -190,8 +210,13 @@ int main() {
 
     // Create request handler
     LOG_INFO("Main", "Creating request handler...");
+#ifdef ETL_ENABLE_POSTGRESQL
     auto requestHandler = std::make_shared<RequestHandler>(
         dbManager, authManager, etlManager, wsManager);
+#else
+    auto requestHandler =
+        std::make_shared<RequestHandler>(authManager, etlManager, wsManager);
+#endif
 
     // Create and configure HTTP server
     std::string address = config.getString("server.address", "0.0.0.0");

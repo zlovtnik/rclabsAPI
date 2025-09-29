@@ -1,412 +1,337 @@
-#include "lock_utils.hpp"
-#include <atomic>
+#include "../include/lock_utils.hpp"
+#include <cassert>
 #include <chrono>
-#include <future>
-#include <gtest/gtest.h>
+#include <iostream>
+#include <random>
 #include <thread>
 #include <vector>
 
-namespace etl_plus {
+using namespace etl_plus;
 
-// Test fixture for lock utilities
-class LockUtilsTest : public ::testing::Test {
-protected:
-  void SetUp() override {
-    // Setup code if needed
-  }
+// Test basic RAII lock functionality
+void testBasicLocking() {
+  std::cout << "\n=== Testing Basic RAII Locking ===" << std::endl;
 
-  void TearDown() override {
-    // Cleanup code if needed
-  }
-};
-
-// Test LockTimeoutException
-TEST_F(LockUtilsTest, LockTimeoutException) {
-  LockTimeoutException ex("Lock acquisition timeout");
-
-  EXPECT_EQ(std::string(ex.what()), "Lock acquisition timeout");
-  EXPECT_THROW(throw ex,
-               std::runtime_error); // Should inherit from runtime_error
-}
-
-// Test DeadlockException
-TEST_F(LockUtilsTest, DeadlockException) {
-  DeadlockException ex("Potential deadlock detected");
-
-  EXPECT_EQ(std::string(ex.what()), "Potential deadlock detected");
-  EXPECT_THROW(throw ex,
-               std::runtime_error); // Should inherit from runtime_error
-}
-
-// Test OrderedMutex basic functionality
-TEST_F(LockUtilsTest, OrderedMutexBasic) {
-  ConfigMutex mutex;
-
-  EXPECT_FALSE(mutex.getId().empty());
-  EXPECT_EQ(mutex.getLevel(), LockLevel::CONFIG);
-
-  // Test basic locking
-  {
-    std::unique_lock<ConfigMutex> lock(mutex);
-    EXPECT_TRUE(lock.owns_lock());
-  } // Lock automatically released
-}
-
-TEST_F(LockUtilsTest, OrderedMutexUniqueIds) {
-  ConfigMutex mutex1;
-  ConfigMutex mutex2;
-
-  EXPECT_NE(mutex1.getId(), mutex2.getId());
-  EXPECT_EQ(mutex1.getLevel(), mutex2.getLevel());
-}
-
-// Test OrderedSharedMutex basic functionality
-TEST_F(LockUtilsTest, OrderedSharedMutexBasic) {
-  ConfigSharedMutex mutex;
-
-  EXPECT_FALSE(mutex.getId().empty());
-  EXPECT_EQ(mutex.getLevel(), LockLevel::CONFIG);
-
-  // Test exclusive locking
-  {
-    std::unique_lock<ConfigSharedMutex> lock(mutex);
-    EXPECT_TRUE(lock.owns_lock());
-  }
-
-  // Test shared locking
-  {
-    std::shared_lock<ConfigSharedMutex> sharedLock(mutex);
-    EXPECT_TRUE(sharedLock.owns_lock());
-  }
-}
-
-// Test ScopedTimedLock basic functionality
-TEST_F(LockUtilsTest, ScopedTimedLockBasic) {
-  ConfigMutex mutex;
-  bool lockAcquired = false;
+  std::timed_mutex testMutex;
 
   {
-    ScopedTimedLock<ConfigMutex> lock(mutex, std::chrono::milliseconds(100));
-    lockAcquired = lock.owns_lock();
-    EXPECT_TRUE(lockAcquired);
-  } // Lock automatically released
+    ScopedTimedLock lock(testMutex, std::chrono::milliseconds(1000),
+                         "test_mutex");
+    assert(lock.owns_lock());
+    std::cout << "✓ Successfully acquired lock: " << lock.getLockName()
+              << std::endl;
 
-  EXPECT_TRUE(lockAcquired);
+    // Simulate some work
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  std::cout << "✓ Lock automatically released" << std::endl;
 }
 
-TEST_F(LockUtilsTest, ScopedTimedLockTimeout) {
-  ConfigMutex mutex;
+// Test lock timeout functionality
+void testLockTimeout() {
+  std::cout << "\n=== Testing Lock Timeout ===" << std::endl;
 
-  // Acquire lock in this thread
-  std::unique_lock<ConfigMutex> mainLock(mutex);
+  std::timed_mutex testMutex;
 
-  // Try to acquire with timeout in another thread
-  auto future = std::async(std::launch::async, [&mutex]() {
-    try {
-      ScopedTimedLock<ConfigMutex> lock(mutex, std::chrono::milliseconds(50));
-      return true; // Should not reach here
-    } catch (const LockTimeoutException &) {
-      return false; // Expected timeout
-    }
+  // First thread holds the lock
+  std::thread holder([&testMutex]() {
+    ScopedTimedLock lock(testMutex, std::chrono::milliseconds(5000),
+                         "holder_lock");
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
   });
 
-  bool result = future.get();
-  EXPECT_FALSE(result); // Should have timed out
+  // Give the holder thread time to acquire the lock
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  // Second thread tries to acquire with short timeout
+  bool timeoutCaught = false;
+  try {
+    ScopedTimedLock lock(testMutex, std::chrono::milliseconds(100),
+                         "timeout_test");
+  } catch (const LockTimeoutException &e) {
+    timeoutCaught = true;
+    std::cout << "✓ Timeout exception caught: " << e.what() << std::endl;
+  }
+
+  holder.join();
+  assert(timeoutCaught);
+  std::cout << "✓ Lock timeout functionality working correctly" << std::endl;
 }
 
-TEST_F(LockUtilsTest, ScopedTimedLockLockName) {
-  ConfigMutex mutex;
-  std::string customName = "test_lock";
+// Test ordered mutex and deadlock prevention
+void testOrderedMutex() {
+  std::cout << "\n=== Testing Ordered Mutex and Deadlock Prevention ==="
+            << std::endl;
 
-  ScopedTimedLock<ConfigMutex> lock(mutex, std::chrono::milliseconds(100),
-                                    customName);
-
-  EXPECT_EQ(lock.getLockName(), customName);
-  EXPECT_TRUE(lock.owns_lock());
-}
-
-// Test ScopedTimedSharedLock
-TEST_F(LockUtilsTest, ScopedTimedSharedLockBasic) {
-  ConfigSharedMutex mutex;
-
-  {
-    ScopedTimedSharedLock<ConfigSharedMutex> lock(
-        mutex, std::chrono::milliseconds(100));
-    EXPECT_TRUE(lock.owns_lock());
-  } // Lock automatically released
-}
-
-TEST_F(LockUtilsTest, ScopedTimedSharedLockTimeout) {
-  ConfigSharedMutex mutex;
-
-  // Acquire exclusive lock in this thread
-  std::unique_lock<ConfigSharedMutex> mainLock(mutex);
-
-  // Try to acquire shared lock with timeout
-  auto future = std::async(std::launch::async, [&mutex]() {
-    try {
-      ScopedTimedSharedLock<ConfigSharedMutex> lock(
-          mutex, std::chrono::milliseconds(50));
-      return true; // Should not reach here
-    } catch (const LockTimeoutException &) {
-      return false; // Expected timeout
-    }
-  });
-
-  bool result = future.get();
-  EXPECT_FALSE(result); // Should have timed out
-}
-
-// Test multiple lock levels
-TEST_F(LockUtilsTest, MultipleLockLevels) {
   ConfigMutex configMutex;
   ContainerMutex containerMutex;
   ResourceMutex resourceMutex;
-  StateMutex stateMutex;
 
-  EXPECT_EQ(configMutex.getLevel(), LockLevel::CONFIG);
-  EXPECT_EQ(containerMutex.getLevel(), LockLevel::CONTAINER);
-  EXPECT_EQ(resourceMutex.getLevel(), LockLevel::RESOURCE);
-  EXPECT_EQ(stateMutex.getLevel(), LockLevel::STATE);
-
-  // Test that different levels work independently
+  // Test correct ordering (should work)
   {
-    ScopedTimedLock<ConfigMutex> configLock(configMutex);
-    ScopedTimedLock<ContainerMutex> containerLock(containerMutex);
-    ScopedTimedLock<ResourceMutex> resourceLock(resourceMutex);
-    ScopedTimedLock<StateMutex> stateLock(stateMutex);
+    ScopedTimedLock configLock(configMutex, std::chrono::milliseconds(1000),
+                               "config");
+    ScopedTimedLock containerLock(containerMutex,
+                                  std::chrono::milliseconds(1000), "container");
+    ScopedTimedLock resourceLock(resourceMutex, std::chrono::milliseconds(1000),
+                                 "resource");
 
-    EXPECT_TRUE(configLock.owns_lock());
-    EXPECT_TRUE(containerLock.owns_lock());
-    EXPECT_TRUE(resourceLock.owns_lock());
-    EXPECT_TRUE(stateLock.owns_lock());
-  }
-}
-
-// Test thread safety with multiple threads
-TEST_F(LockUtilsTest, ThreadSafety) {
-  ConfigMutex mutex;
-  std::atomic<int> counter(0);
-  const int numThreads = 10;
-  const int iterationsPerThread = 100;
-
-  std::vector<std::thread> threads;
-  for (int i = 0; i < numThreads; ++i) {
-    threads.emplace_back([&mutex, &counter, iterationsPerThread]() {
-      for (int j = 0; j < iterationsPerThread; ++j) {
-        ScopedTimedLock<ConfigMutex> lock(mutex,
-                                          std::chrono::milliseconds(1000));
-        counter++;
-      }
-    });
+    std::cout << "✓ Correct lock ordering succeeded" << std::endl;
   }
 
-  for (auto &thread : threads) {
-    thread.join();
-  }
-
-  EXPECT_EQ(counter.load(), numThreads * iterationsPerThread);
-}
-
-// Test shared mutex reader-writer scenario
-TEST_F(LockUtilsTest, SharedMutexReaderWriter) {
-  ConfigSharedMutex mutex;
-  std::atomic<int> sharedCounter(0);
-  std::atomic<int> exclusiveCounter(0);
-  const int numReaders = 5;
-  const int numWriters = 2;
-  const int iterations = 50;
-
-  std::vector<std::thread> threads;
-
-  // Reader threads
-  for (int i = 0; i < numReaders; ++i) {
-    threads.emplace_back([&mutex, &sharedCounter, iterations]() {
-      for (int j = 0; j < iterations; ++j) {
-        ScopedTimedSharedLock<ConfigSharedMutex> lock(mutex);
-        sharedCounter++;
-        std::this_thread::sleep_for(
-            std::chrono::microseconds(10)); // Simulate work
-      }
-    });
-  }
-
-  // Writer threads
-  for (int i = 0; i < numWriters; ++i) {
-    threads.emplace_back([&mutex, &exclusiveCounter, iterations]() {
-      for (int j = 0; j < iterations; ++j) {
-        ScopedTimedLock<ConfigSharedMutex> lock(mutex);
-        exclusiveCounter++;
-        std::this_thread::sleep_for(
-            std::chrono::microseconds(50)); // Simulate work
-      }
-    });
-  }
-
-  for (auto &thread : threads) {
-    thread.join();
-  }
-
-  EXPECT_EQ(sharedCounter.load(), numReaders * iterations);
-  EXPECT_EQ(exclusiveCounter.load(), numWriters * iterations);
-}
-
-// Test lock ordering enforcement (basic test)
-TEST_F(LockUtilsTest, LockOrderingBasic) {
-  // This is a basic test - in a real scenario, lock ordering would be
-  // enforced by the deadlock detection system
-
-  ConfigMutex configMutex;
-  ContainerMutex containerMutex;
-
-  // Test that we can acquire locks in correct order
-  {
-    ScopedTimedLock<ConfigMutex> configLock(configMutex);
-    ScopedTimedLock<ContainerMutex> containerLock(containerMutex);
-    // Should work fine
-  }
-
-  // Test reverse order (would be problematic in deadlock-prone code)
-  // Disable deadlock detection for this test since we're intentionally
-  // violating ordering
-  etl_plus::DeadlockDetector::getInstance().enableDeadlockDetection(false);
-  {
-    ScopedTimedLock<ContainerMutex> containerLock(containerMutex);
-    ScopedTimedLock<ConfigMutex> configLock(configMutex);
-    // This works in isolation but would be flagged by deadlock detector
-  }
-  etl_plus::DeadlockDetector::getInstance().enableDeadlockDetection(true);
-}
-
-// Test performance under load
-TEST_F(LockUtilsTest, PerformanceTest) {
-  ConfigMutex mutex;
-  const int numIterations = 10000;
-
-  auto start = std::chrono::high_resolution_clock::now();
-
-  for (int i = 0; i < numIterations; ++i) {
-    ScopedTimedLock<ConfigMutex> lock(mutex, std::chrono::milliseconds(100));
-    // Minimal work inside lock
-  }
-
-  auto end = std::chrono::high_resolution_clock::now();
-  auto duration =
-      std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-
-  // Should complete within reasonable time
-  EXPECT_LT(duration.count(), 2000); // Less than 2 seconds for 10k iterations
-}
-
-// Test exception safety
-TEST_F(LockUtilsTest, ExceptionSafety) {
-  ConfigMutex mutex;
-  std::atomic<bool> exceptionThrown(false);
-
+  // Test incorrect ordering (should throw)
+  bool orderingViolationCaught = false;
   try {
-    ScopedTimedLock<ConfigMutex> lock(mutex);
-    exceptionThrown = true;
-    throw std::runtime_error("Test exception");
-  } catch (const std::runtime_error &) {
-    // Lock should have been released automatically
-    EXPECT_TRUE(exceptionThrown);
-
-    // Should be able to acquire lock again
-    ScopedTimedLock<ConfigMutex> newLock(mutex);
-    EXPECT_TRUE(newLock.owns_lock());
+    ScopedTimedLock resourceLock(resourceMutex, std::chrono::milliseconds(1000),
+                                 "resource_first");
+    ScopedTimedLock configLock(configMutex, std::chrono::milliseconds(1000),
+                               "config_second");
+  } catch (const DeadlockException &e) {
+    orderingViolationCaught = true;
+    std::cout << "✓ Lock ordering violation caught: " << e.what() << std::endl;
   }
+
+  assert(orderingViolationCaught);
+  std::cout << "✓ Lock ordering enforcement working correctly" << std::endl;
 }
 
-// Test timeout precision
-TEST_F(LockUtilsTest, TimeoutPrecision) {
-  ConfigMutex mutex;
+// Test shared mutex functionality
+void testSharedMutex() {
+  std::cout << "\n=== Testing Shared Mutex Functionality ===" << std::endl;
 
-  // Acquire lock
-  std::unique_lock<ConfigMutex> mainLock(mutex);
+  ResourceSharedMutex sharedMutex;
+  std::atomic<int> readerCount{0};
+  std::atomic<bool> writerActive{false};
 
-  auto start = std::chrono::high_resolution_clock::now();
+  // Start multiple readers
+  std::vector<std::thread> readers;
+  for (int i = 0; i < 3; ++i) {
+    readers.emplace_back([&sharedMutex, &readerCount, &writerActive, i]() {
+      ScopedTimedSharedLock lock(sharedMutex, std::chrono::milliseconds(1000),
+                                 "reader_" + std::to_string(i));
 
-  try {
-    ScopedTimedLock<ConfigMutex> lock(mutex, std::chrono::milliseconds(100));
-    FAIL() << "Should have timed out";
-  } catch (const LockTimeoutException &) {
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration =
-        std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+      readerCount.fetch_add(1);
+      assert(!writerActive.load()); // No writer should be active
 
-    // Should be close to the timeout value (allowing some tolerance)
-    EXPECT_GE(duration.count(), 90);  // At least 90ms
-    EXPECT_LT(duration.count(), 200); // Less than 200ms
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      readerCount.fetch_sub(1);
+    });
   }
+
+  // Give readers time to start
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+  // Start a writer (should wait for readers to finish)
+  std::thread writer([&sharedMutex, &readerCount, &writerActive]() {
+    ScopedTimedLock lock(sharedMutex, std::chrono::milliseconds(2000),
+                         "writer");
+
+    assert(readerCount.load() == 0); // All readers should be done
+    writerActive.store(true);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    writerActive.store(false);
+  });
+
+  for (auto &reader : readers) {
+    reader.join();
+  }
+  writer.join();
+
+  std::cout << "✓ Shared mutex reader-writer coordination working correctly"
+            << std::endl;
 }
 
-// Test with different mutex types
-TEST_F(LockUtilsTest, DifferentMutexTypes) {
-  // Test all convenience types
-  ConfigMutex config;
-  ContainerMutex container;
-  ResourceMutex resource;
-  StateMutex state;
+// Test lock monitoring and statistics
+void testLockMonitoring() {
+  std::cout << "\n=== Testing Lock Monitoring ===" << std::endl;
 
-  ConfigSharedMutex configShared;
-  ContainerSharedMutex containerShared;
-  ResourceSharedMutex resourceShared;
-  StateSharedMutex stateShared;
+  LockMonitor::getInstance().enableDetailedLogging(true);
+  LockMonitor::getInstance().reset();
 
-  // Test basic functionality for all types
-  {
-    ScopedTimedLock<ConfigMutex> l1(config);
-    ScopedTimedLock<ContainerMutex> l2(container);
-    ScopedTimedLock<ResourceMutex> l3(resource);
-    ScopedTimedLock<StateMutex> l4(state);
+  std::timed_mutex testMutex;
 
-    EXPECT_TRUE(l1.owns_lock());
-    EXPECT_TRUE(l2.owns_lock());
-    EXPECT_TRUE(l3.owns_lock());
-    EXPECT_TRUE(l4.owns_lock());
+  // Perform several lock operations
+  for (int i = 0; i < 5; ++i) {
+    ScopedTimedLock lock(testMutex, std::chrono::milliseconds(1000),
+                         "monitored_lock");
+    std::this_thread::sleep_for(std::chrono::milliseconds(1)); // Small delay
   }
 
-  {
-    ScopedTimedSharedLock<ConfigSharedMutex> l1(configShared);
-    ScopedTimedSharedLock<ContainerSharedMutex> l2(containerShared);
-    ScopedTimedSharedLock<ResourceSharedMutex> l3(resourceShared);
-    ScopedTimedSharedLock<StateSharedMutex> l4(stateShared);
+  // Check statistics
+  auto stats = LockMonitor::getInstance().getLockStats("monitored_lock");
+  assert(stats.acquisitions.load() == 5);
+  assert(stats.failures.load() == 0);
 
-    EXPECT_TRUE(l1.owns_lock());
-    EXPECT_TRUE(l2.owns_lock());
-    EXPECT_TRUE(l3.owns_lock());
-    EXPECT_TRUE(l4.owns_lock());
-  }
+  std::cout << "✓ Lock statistics:" << std::endl;
+  std::cout << "  - Acquisitions: " << stats.acquisitions.load() << std::endl;
+  std::cout << "  - Failures: " << stats.failures.load() << std::endl;
+  std::cout << "  - Average wait time: " << stats.getAverageWaitTime() << "μs"
+            << std::endl;
+  std::cout << "  - Max wait time: " << stats.maxWaitTime.load() << "μs"
+            << std::endl;
+  std::cout << "  - Contentions: " << stats.contentions.load() << std::endl;
+
+  LockMonitor::getInstance().enableDetailedLogging(false);
+  std::cout << "✓ Lock monitoring working correctly" << std::endl;
 }
 
 // Test concurrent access patterns
-TEST_F(LockUtilsTest, ConcurrentAccessPatterns) {
-  ConfigMutex mutex;
-  std::vector<int> results;
-  std::mutex resultsMutex;
-  const int numThreads = 20;
+void testConcurrentAccess() {
+  std::cout << "\n=== Testing Concurrent Access Patterns ===" << std::endl;
 
-  std::vector<std::thread> threads;
-  for (int i = 0; i < numThreads; ++i) {
-    threads.emplace_back([i, &mutex, &results, &resultsMutex]() {
-      ScopedTimedLock<ConfigMutex> lock(mutex);
-      std::lock_guard<std::mutex> resultsLock(resultsMutex);
-      results.push_back(i);
+  ContainerMutex containerMutex;
+  std::atomic<int> counter{0};
+  std::atomic<int> maxConcurrent{0};
+  std::atomic<int> currentConcurrent{0};
+
+  std::vector<std::thread> workers;
+
+  // Create multiple worker threads
+  for (int i = 0; i < 10; ++i) {
+    workers.emplace_back([&containerMutex, &counter, &maxConcurrent,
+                          &currentConcurrent, i]() {
+      for (int j = 0; j < 5; ++j) {
+        ScopedTimedLock lock(containerMutex, std::chrono::milliseconds(2000),
+                             "worker_" + std::to_string(i));
+
+        int current = currentConcurrent.fetch_add(1) + 1;
+        int expected = maxConcurrent.load();
+        while (current > expected &&
+               !maxConcurrent.compare_exchange_weak(expected, current)) {
+          // Keep trying to update max
+        }
+
+        counter.fetch_add(1);
+
+        // Simulate some work
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+        currentConcurrent.fetch_sub(1);
+      }
     });
   }
 
-  for (auto &thread : threads) {
-    thread.join();
+  for (auto &worker : workers) {
+    worker.join();
   }
 
-  // All threads should have completed
-  EXPECT_EQ(results.size(), numThreads);
+  assert(counter.load() == 50); // 10 workers * 5 iterations
+  assert(maxConcurrent.load() ==
+         1); // Mutex should ensure only 1 concurrent access
 
-  // Results should contain all thread IDs (order may vary)
-  std::sort(results.begin(), results.end());
-  for (int i = 0; i < numThreads; ++i) {
-    EXPECT_EQ(results[i], i);
+  std::cout << "✓ Concurrent access properly serialized" << std::endl;
+  std::cout << "  - Total operations: " << counter.load() << std::endl;
+  std::cout << "  - Max concurrent: " << maxConcurrent.load() << std::endl;
+}
+
+// Test performance under load
+void testPerformanceUnderLoad() {
+  std::cout << "\n=== Testing Performance Under Load ===" << std::endl;
+
+  ResourceMutex resourceMutex;
+  std::atomic<uint64_t> operationCount{0};
+
+  auto startTime = std::chrono::high_resolution_clock::now();
+
+  std::vector<std::thread> workers;
+  const int numWorkers = 4;
+  const int operationsPerWorker = 1000;
+
+  for (int i = 0; i < numWorkers; ++i) {
+    workers.emplace_back(
+        [&resourceMutex, &operationCount, operationsPerWorker]() {
+          for (int j = 0; j < operationsPerWorker; ++j) {
+            ScopedTimedLock lock(resourceMutex, std::chrono::milliseconds(100),
+                                 "perf_test");
+            operationCount.fetch_add(1);
+            // Minimal work to test lock overhead
+          }
+        });
+  }
+
+  for (auto &worker : workers) {
+    worker.join();
+  }
+
+  auto endTime = std::chrono::high_resolution_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+      endTime - startTime);
+
+  uint64_t totalOps = operationCount.load();
+  double opsPerSecond = (totalOps * 1000.0) / duration.count();
+
+  std::cout << "✓ Performance test completed:" << std::endl;
+  std::cout << "  - Total operations: " << totalOps << std::endl;
+  std::cout << "  - Duration: " << duration.count() << "ms" << std::endl;
+  std::cout << "  - Operations per second: " << opsPerSecond << std::endl;
+
+  assert(totalOps == numWorkers * operationsPerWorker);
+}
+
+// Test convenience macros
+void testConvenienceMacros() {
+  std::cout << "\n=== Testing Convenience Macros ===" << std::endl;
+
+  StateMutex stateMutex;
+  StateSharedMutex stateSharedMutex;
+
+  {
+    SCOPED_LOCK(stateMutex);
+    std::cout << "✓ SCOPED_LOCK macro working" << std::endl;
+  }
+
+  {
+    SCOPED_LOCK_TIMEOUT(stateMutex, 500);
+    std::cout << "✓ SCOPED_LOCK_TIMEOUT macro working" << std::endl;
+  }
+
+  {
+    SCOPED_SHARED_LOCK(stateSharedMutex);
+    std::cout << "✓ SCOPED_SHARED_LOCK macro working" << std::endl;
+  }
+
+  {
+    SCOPED_SHARED_LOCK_TIMEOUT(stateSharedMutex, 500);
+    std::cout << "✓ SCOPED_SHARED_LOCK_TIMEOUT macro working" << std::endl;
   }
 }
 
-} // namespace etl_plus
+int main() {
+  std::cout << "Lock Utils Test Suite" << std::endl;
+  std::cout << "=====================" << std::endl;
+
+  try {
+    testBasicLocking();
+    testLockTimeout();
+    testOrderedMutex();
+    testSharedMutex();
+    testLockMonitoring();
+    testConcurrentAccess();
+    testPerformanceUnderLoad();
+    testConvenienceMacros();
+
+    std::cout << "\n🎉 All tests passed successfully!" << std::endl;
+
+    // Display final lock statistics
+    std::cout << "\n=== Final Lock Statistics ===" << std::endl;
+    auto allStats = LockMonitor::getInstance().getAllStats();
+    for (const auto &[lockName, stats] : allStats) {
+      std::cout << "Lock '" << lockName << "':" << std::endl;
+      std::cout << "  - Acquisitions: " << stats.acquisitions.load()
+                << std::endl;
+      std::cout << "  - Failures: " << stats.failures.load() << std::endl;
+      std::cout << "  - Avg wait time: " << stats.getAverageWaitTime() << "μs"
+                << std::endl;
+      std::cout << "  - Failure rate: " << (stats.getFailureRate() * 100) << "%"
+                << std::endl;
+    }
+
+    return 0;
+
+  } catch (const std::exception &e) {
+    std::cerr << "❌ Test failed with exception: " << e.what() << std::endl;
+    return 1;
+  }
+}

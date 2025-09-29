@@ -1,6 +1,8 @@
 #include "request_handler.hpp"
 #include "auth_manager.hpp"
+#ifdef ETL_ENABLE_POSTGRESQL
 #include "database_manager.hpp"
+#endif
 #include "etl_exceptions.hpp"
 #include "etl_job_manager.hpp"
 #include "exception_handler.hpp"
@@ -22,6 +24,7 @@
 #include <thread>
 #include <unistd.h> // for getpid()
 
+#ifdef ETL_ENABLE_POSTGRESQL
 RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
                                std::shared_ptr<AuthManager> authManager,
                                std::shared_ptr<ETLJobManager> etlManager)
@@ -34,7 +37,9 @@ RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
 
   initCommon();
 }
+#endif
 
+#ifdef ETL_ENABLE_POSTGRESQL
 RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
                                std::shared_ptr<AuthManager> authManager,
                                std::shared_ptr<ETLJobManager> etlManager,
@@ -81,7 +86,9 @@ RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
   REQ_LOG_INFO(
       "Hana-based exception handlers registered for improved error handling");
 }
+#endif
 
+#ifdef ETL_ENABLE_POSTGRESQL
 RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
                                std::shared_ptr<AuthManager> authManager,
                                std::shared_ptr<ETLJobManager> etlManager,
@@ -97,6 +104,7 @@ RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
 
   initCommon();
 }
+#endif
 
 RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
                                std::shared_ptr<AuthManager> authManager,
@@ -174,6 +182,7 @@ void RequestHandler::initCommon() {
       "Hana-based exception handlers registered for improved error handling");
 }
 
+#ifdef ETL_ENABLE_POSTGRESQL
 RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
                                std::shared_ptr<AuthManager> authManager,
                                std::shared_ptr<ETLJobManager> etlManager,
@@ -198,6 +207,7 @@ RequestHandler::RequestHandler(std::shared_ptr<DatabaseManager> dbManager,
 
   initCommon();
 }
+#endif
 
 #if ETL_ENABLE_JWT
 std::optional<std::string> RequestHandler::validateJWTToken(
@@ -225,6 +235,80 @@ bool RequestHandler::isProtectedEndpoint(std::string_view target) const {
     }
   }
   return false;
+}
+#endif
+
+#ifndef ETL_ENABLE_POSTGRESQL
+RequestHandler::RequestHandler(std::shared_ptr<AuthManager> authManager,
+                               std::shared_ptr<ETLJobManager> etlManager)
+    : dbManager_(nullptr), authManager_(authManager), etlManager_(etlManager),
+      rateLimiter_(std::make_unique<RateLimiter>()), exceptionMapper_() {
+  REQ_LOG_INFO(
+      "RequestHandler created with components (PostgreSQL disabled) - Auth: " +
+      std::string(authManager ? "valid" : "null") +
+      ", ETL: " + std::string(etlManager ? "valid" : "null"));
+
+  initCommon();
+}
+
+RequestHandler::RequestHandler(std::shared_ptr<AuthManager> authManager,
+                               std::shared_ptr<ETLJobManager> etlManager,
+                               std::unique_ptr<RateLimiter> rateLimiter)
+    : dbManager_(nullptr), authManager_(authManager), etlManager_(etlManager),
+      rateLimiter_(std::move(rateLimiter)), exceptionMapper_() {
+  REQ_LOG_INFO("RequestHandler created with injected components (PostgreSQL "
+               "disabled) - Auth: " +
+               std::string(authManager ? "valid" : "null") +
+               ", ETL: " + std::string(etlManager ? "valid" : "null"));
+
+  initCommon();
+}
+
+RequestHandler::RequestHandler(std::shared_ptr<AuthManager> authManager,
+                               std::shared_ptr<ETLJobManager> etlManager,
+                               std::shared_ptr<WebSocketManager> wsManager)
+    : dbManager_(nullptr), authManager_(authManager), etlManager_(etlManager),
+      wsManager_(wsManager), rateLimiter_(std::make_unique<RateLimiter>()),
+      exceptionMapper_() {
+  REQ_LOG_INFO(
+      "RequestHandler created with WebSocket support (PostgreSQL disabled) - "
+      "Auth: " +
+      std::string(authManager ? "valid" : "null") +
+      ", ETL: " + std::string(etlManager ? "valid" : "null") +
+      ", WebSocket: " + std::string(wsManager ? "valid" : "null"));
+
+  initCommon();
+}
+
+RequestHandler::RequestHandler(std::shared_ptr<AuthManager> authManager,
+                               std::shared_ptr<ETLJobManager> etlManager,
+                               std::unique_ptr<RateLimiter> rateLimiter,
+                               std::shared_ptr<WebSocketManager> wsManager)
+    : dbManager_(nullptr), authManager_(authManager), etlManager_(etlManager),
+      wsManager_(wsManager), rateLimiter_(std::move(rateLimiter)),
+      exceptionMapper_() {
+  REQ_LOG_INFO("RequestHandler created with injected components and WebSocket "
+               "support (PostgreSQL disabled) - "
+               "Auth: " +
+               std::string(authManager ? "valid" : "null") +
+               ", ETL: " + std::string(etlManager ? "valid" : "null") +
+               ", WebSocket: " + std::string(wsManager ? "valid" : "null"));
+
+  initCommon();
+}
+
+RequestHandler::RequestHandler(std::shared_ptr<AuthManager> authManager,
+                               std::shared_ptr<ETLJobManager> etlManager,
+                               RequestHandlerOptions options)
+    : dbManager_(nullptr), authManager_(authManager), etlManager_(etlManager),
+      rateLimiter_(std::move(options.rateLimiter)),
+      wsManager_(options.wsManager), exceptionMapper_() {
+  REQ_LOG_INFO(
+      "RequestHandler created with options (PostgreSQL disabled) - Auth: " +
+      std::string(authManager ? "valid" : "null") +
+      ", ETL: " + std::string(etlManager ? "valid" : "null"));
+
+  initCommon();
 }
 #endif
 
