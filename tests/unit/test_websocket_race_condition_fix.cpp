@@ -162,6 +162,31 @@ protected:
 
   void TearDown() override {
     server_running_ = false;
+
+    // Wake up the server thread by creating a dummy connection
+    // This prevents hanging on acceptor.accept()
+    try {
+      net::io_context ioc;
+      tcp::socket dummy_socket(ioc);
+      tcp::endpoint endpoint(net::ip::address::from_string("127.0.0.1"), 18081);
+
+      // Set non-blocking to avoid hanging
+      dummy_socket.non_blocking(true);
+
+      // Attempt connection with short timeout
+      dummy_socket.async_connect(endpoint, [](beast::error_code ec) {
+        // Ignore connection result - we just want to wake up the server
+        (void)ec;
+      });
+
+      // Run a single I/O operation to initiate the connection attempt
+      ioc.run_one_for(std::chrono::milliseconds(100));
+
+    } catch (const std::exception &e) {
+      // Ignore connection errors - TearDown must not block
+      (void)e;
+    }
+
     if (server_thread_.joinable()) {
       server_thread_.join();
     }
@@ -220,16 +245,31 @@ TEST_F(WebSocketRaceConditionTest, ReceiveMessageTimeout) {
 
 // Test concurrent message reception to verify no race conditions
 TEST_F(WebSocketRaceConditionTest, ConcurrentReceiveOperations) {
-  net::io_context ioc;
-  SimpleWebSocketTestClient client(ioc);
-
-  ASSERT_TRUE(client.connect("127.0.0.1", "18081"));
-
-  // Test multiple concurrent receive operations
+  // Test multiple concurrent receive operations, each with its own client
   std::vector<std::future<std::string>> futures;
   for (int i = 0; i < 5; ++i) {
-    futures.push_back(std::async(std::launch::async, [&client, i]() {
-      return client.receiveMessage(std::chrono::milliseconds(500));
+    futures.push_back(std::async(std::launch::async, [i]() -> std::string {
+      try {
+        // Each task gets its own io_context and client
+        net::io_context ioc;
+        SimpleWebSocketTestClient client(ioc);
+
+        // Connect to test server
+        if (!client.connect("127.0.0.1", "18081")) {
+          return "ERROR: Failed to connect";
+        }
+
+        // Perform receive operation
+        std::string result =
+            client.receiveMessage(std::chrono::milliseconds(500));
+
+        // Close the connection
+        client.close();
+
+        return result;
+      } catch (const std::exception &e) {
+        return std::string("ERROR: ") + e.what();
+      }
     }));
   }
 
@@ -240,6 +280,4 @@ TEST_F(WebSocketRaceConditionTest, ConcurrentReceiveOperations) {
     EXPECT_TRUE(result == "Hello from test server" || result == "TIMEOUT" ||
                 result.substr(0, 6) == "ERROR:");
   }
-
-  client.close();
 }

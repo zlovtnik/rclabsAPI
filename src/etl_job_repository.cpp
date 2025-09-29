@@ -368,8 +368,12 @@ std::vector<ETLJob> ETLJobRepository::getActiveJobs() {
 }
 
 ETLJob ETLJobRepository::jobFromRow(const std::vector<std::string> &row) {
-  if (row.size() < 30) {
-    throw std::runtime_error("Invalid job row data");
+  constexpr size_t EXPECTED_COLUMN_COUNT =
+      32; // All fields including timestamps
+  if (row.size() < EXPECTED_COLUMN_COUNT) {
+    throw std::invalid_argument("Invalid job row data: expected " +
+                                std::to_string(EXPECTED_COLUMN_COUNT) +
+                                " columns, got " + std::to_string(row.size()));
   }
 
   ETLJob job;
@@ -388,28 +392,166 @@ ETLJob ETLJobRepository::jobFromRow(const std::vector<std::string> &row) {
   }
 
   job.errorMessage = row[8].empty() || row[8] == "NULL" ? "" : row[8];
-  job.recordsProcessed = std::stoi(row[9]);
-  job.recordsSuccessful = std::stoi(row[10]);
-  job.recordsFailed = std::stoi(row[11]);
 
-  // Parse metrics
-  job.metrics.processingRate = std::stod(row[12]);
-  job.metrics.memoryUsage = std::stoul(row[13]);
-  job.metrics.cpuUsage = std::stod(row[14]);
-  job.metrics.executionTime = std::chrono::milliseconds(std::stoll(row[15]));
-  job.metrics.peakMemoryUsage = std::stoul(row[16]);
-  job.metrics.peakCpuUsage = std::stod(row[17]);
-  job.metrics.averageProcessingRate = std::stod(row[18]);
-  job.metrics.totalBytesProcessed = std::stoul(row[19]);
-  job.metrics.totalBytesWritten = std::stoul(row[20]);
-  job.metrics.totalBatches = std::stoi(row[21]);
-  job.metrics.averageBatchSize = std::stod(row[22]);
-  job.metrics.errorRate = std::stod(row[23]);
-  job.metrics.consecutiveErrors = std::stoi(row[24]);
-  job.metrics.timeToFirstError = std::chrono::milliseconds(std::stoll(row[25]));
-  job.metrics.throughputMBps = std::stod(row[26]);
-  job.metrics.memoryEfficiency = std::stod(row[27]);
-  job.metrics.cpuEfficiency = std::stod(row[28]);
+  // Safe conversions with error handling
+  try {
+    job.recordsProcessed = std::stoi(row[9]);
+  } catch (const std::exception &e) {
+    ETL_LOG_WARN("Invalid recordsProcessed value: " + row[9] +
+                 ", defaulting to 0");
+    job.recordsProcessed = 0;
+  }
+
+  try {
+    job.recordsSuccessful = std::stoi(row[10]);
+  } catch (const std::exception &e) {
+    ETL_LOG_WARN("Invalid recordsSuccessful value: " + row[10] +
+                 ", defaulting to 0");
+    job.recordsSuccessful = 0;
+  }
+
+  try {
+    job.recordsFailed = std::stoi(row[11]);
+  } catch (const std::exception &e) {
+    ETL_LOG_WARN("Invalid recordsFailed value: " + row[11] +
+                 ", defaulting to 0");
+    job.recordsFailed = 0;
+  }
+
+  // Parse metrics with safe conversions
+  try {
+    job.metrics.processingRate = std::stod(row[12]);
+  } catch (const std::exception &e) {
+    ETL_LOG_WARN("Invalid processingRate value: " + row[12] +
+                 ", defaulting to 0.0");
+    job.metrics.processingRate = 0.0;
+  }
+
+  try {
+    job.metrics.memoryUsage = std::stoul(row[13]);
+  } catch (const std::exception &e) {
+    ETL_LOG_WARN("Invalid memoryUsage value: " + row[13] + ", defaulting to 0");
+    job.metrics.memoryUsage = 0;
+  }
+
+  try {
+    job.metrics.cpuUsage = std::stod(row[14]);
+  } catch (const std::exception &e) {
+    ETL_LOG_WARN("Invalid cpuUsage value: " + row[14] + ", defaulting to 0.0");
+    job.metrics.cpuUsage = 0.0;
+  }
+
+  try {
+    job.metrics.executionTime = std::chrono::milliseconds(std::stoll(row[15]));
+  } catch (const std::exception &e) {
+    ETL_LOG_WARN("Invalid executionTime value: " + row[15] +
+                 ", defaulting to 0ms");
+    job.metrics.executionTime = std::chrono::milliseconds(0);
+  }
+
+  try {
+    job.metrics.peakMemoryUsage = std::stoul(row[16]);
+  } catch (const std::exception &e) {
+    ETL_LOG_WARN("Invalid peakMemoryUsage value: " + row[16] +
+                 ", defaulting to 0");
+    job.metrics.peakMemoryUsage = 0;
+  }
+
+  try {
+    job.metrics.peakCpuUsage = std::stod(row[17]);
+  } catch (const std::exception &e) {
+    ETL_LOG_WARN("Invalid peakCpuUsage value: " + row[17] +
+                 ", defaulting to 0.0");
+    job.metrics.peakCpuUsage = 0.0;
+  }
+
+  try {
+    job.metrics.averageProcessingRate = std::stod(row[18]);
+  } catch (const std::exception &e) {
+    ETL_LOG_WARN("Invalid averageProcessingRate value: " + row[18] +
+                 ", defaulting to 0.0");
+    job.metrics.averageProcessingRate = 0.0;
+  }
+
+  try {
+    job.metrics.totalBytesProcessed = std::stoul(row[19]);
+  } catch (const std::exception &e) {
+    ETL_LOG_WARN("Invalid totalBytesProcessed value: " + row[19] +
+                 ", defaulting to 0");
+    job.metrics.totalBytesProcessed = 0;
+  }
+
+  try {
+    job.metrics.totalBytesWritten = std::stoul(row[20]);
+  } catch (const std::exception &e) {
+    ETL_LOG_WARN("Invalid totalBytesWritten value: " + row[20] +
+                 ", defaulting to 0");
+    job.metrics.totalBytesWritten = 0;
+  }
+
+  try {
+    job.metrics.totalBatches = std::stoi(row[21]);
+  } catch (const std::exception &e) {
+    ETL_LOG_WARN("Invalid totalBatches value: " + row[21] +
+                 ", defaulting to 0");
+    job.metrics.totalBatches = 0;
+  }
+
+  try {
+    job.metrics.averageBatchSize = std::stod(row[22]);
+  } catch (const std::exception &e) {
+    ETL_LOG_WARN("Invalid averageBatchSize value: " + row[22] +
+                 ", defaulting to 0.0");
+    job.metrics.averageBatchSize = 0.0;
+  }
+
+  try {
+    job.metrics.errorRate = std::stod(row[23]);
+  } catch (const std::exception &e) {
+    ETL_LOG_WARN("Invalid errorRate value: " + row[23] + ", defaulting to 0.0");
+    job.metrics.errorRate = 0.0;
+  }
+
+  try {
+    job.metrics.consecutiveErrors = std::stoi(row[24]);
+  } catch (const std::exception &e) {
+    ETL_LOG_WARN("Invalid consecutiveErrors value: " + row[24] +
+                 ", defaulting to 0");
+    job.metrics.consecutiveErrors = 0;
+  }
+
+  try {
+    job.metrics.timeToFirstError =
+        std::chrono::milliseconds(std::stoll(row[25]));
+  } catch (const std::exception &e) {
+    ETL_LOG_WARN("Invalid timeToFirstError value: " + row[25] +
+                 ", defaulting to 0ms");
+    job.metrics.timeToFirstError = std::chrono::milliseconds(0);
+  }
+
+  try {
+    job.metrics.throughputMBps = std::stod(row[26]);
+  } catch (const std::exception &e) {
+    ETL_LOG_WARN("Invalid throughputMBps value: " + row[26] +
+                 ", defaulting to 0.0");
+    job.metrics.throughputMBps = 0.0;
+  }
+
+  try {
+    job.metrics.memoryEfficiency = std::stod(row[27]);
+  } catch (const std::exception &e) {
+    ETL_LOG_WARN("Invalid memoryEfficiency value: " + row[27] +
+                 ", defaulting to 0.0");
+    job.metrics.memoryEfficiency = 0.0;
+  }
+
+  try {
+    job.metrics.cpuEfficiency = std::stod(row[28]);
+  } catch (const std::exception &e) {
+    ETL_LOG_WARN("Invalid cpuEfficiency value: " + row[28] +
+                 ", defaulting to 0.0");
+    job.metrics.cpuEfficiency = 0.0;
+  }
 
   if (!row[29].empty() && row[29] != "NULL") {
     job.metrics.startTime = stringToTimePoint(row[29]);

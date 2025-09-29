@@ -10,11 +10,12 @@
 #include <vector>
 
 // Benchmark for comparing different locking strategies
-class ConcurrencyBenchmarkTest : public ::testing::TestWithParam<std::tuple<size_t, size_t>> {
+class ConcurrencyBenchmarkTest
+    : public ::testing::TestWithParam<std::tuple<size_t, size_t>> {
 protected:
   void SetUp() override {
     std::tie(numThreads_, iterations_) = GetParam();
-    std::cout << "\n[   CONFIG  ] Threads: " << numThreads_ 
+    std::cout << "\n[   CONFIG  ] Threads: " << numThreads_
               << ", Iterations per thread: " << iterations_ << "\n";
   }
 
@@ -211,37 +212,27 @@ protected:
 };
 
 // Test cases for each benchmark type
-TEST_P(ConcurrencyBenchmarkTest, MutexBenchmark) {
-  benchmarkMutex();
-}
+TEST_P(ConcurrencyBenchmarkTest, MutexBenchmark) { benchmarkMutex(); }
 
 TEST_P(ConcurrencyBenchmarkTest, SharedMutexBenchmark) {
   benchmarkSharedMutex();
 }
 
-TEST_P(ConcurrencyBenchmarkTest, AtomicBenchmark) {
-  benchmarkAtomic();
-}
+TEST_P(ConcurrencyBenchmarkTest, AtomicBenchmark) { benchmarkAtomic(); }
 
-TEST_P(ConcurrencyBenchmarkTest, LockFreeBenchmark) {
-  benchmarkLockFree();
-}
+TEST_P(ConcurrencyBenchmarkTest, LockFreeBenchmark) { benchmarkLockFree(); }
 
 // Define test parameters: (num_threads, iterations_per_thread)
 INSTANTIATE_TEST_SUITE_P(
-    ConcurrencyBenchmarks,
-    ConcurrencyBenchmarkTest,
-    ::testing::Values(
-        std::make_tuple(1, 100000),
-        std::make_tuple(2, 50000),
-        std::make_tuple(4, 25000),
-        std::make_tuple(8, 12500)
-    ),
-    [](const ::testing::TestParamInfo<ConcurrencyBenchmarkTest::ParamType>& info) {
+    ConcurrencyBenchmarks, ConcurrencyBenchmarkTest,
+    ::testing::Values(std::make_tuple(1, 100000), std::make_tuple(2, 50000),
+                      std::make_tuple(4, 25000), std::make_tuple(8, 12500)),
+    [](const ::testing::TestParamInfo<ConcurrencyBenchmarkTest::ParamType>
+           &info) {
       auto [threads, iterations] = info.param;
-      return "Threads" + std::to_string(threads) + "_Iters" + std::to_string(iterations);
-    }
-);
+      return "Threads" + std::to_string(threads) + "_Iters" +
+             std::to_string(iterations);
+    });
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);

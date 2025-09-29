@@ -137,22 +137,13 @@ protected:
   void testQueueConfiguration() {
     std::cout << "Testing queue configuration..." << std::endl;
 
-    // Test queue configuration
-    if (poolManager_->getMaxConnections() != 5) {
-      throw std::runtime_error(
-          "Expected max connections to be 5, got " +
-          std::to_string(poolManager_->getMaxConnections()));
-    }
-    if (poolManager_->getMaxQueueSize() != 10) {
-      throw std::runtime_error("Expected max queue size to be 10, got " +
-                               std::to_string(poolManager_->getMaxQueueSize()));
-    }
+    EXPECT_EQ(5, poolManager_->getMaxConnections());
+    EXPECT_EQ(10, poolManager_->getMaxQueueSize());
 
-    // Test initial state
-    assert(poolManager_->getActiveConnections() == 0);
-    assert(poolManager_->getIdleConnections() == 0);
-    assert(poolManager_->getQueueSize() == 0);
-    assert(poolManager_->getRejectedRequestCount() == 0);
+    EXPECT_EQ(0, poolManager_->getActiveConnections());
+    EXPECT_EQ(0, poolManager_->getIdleConnections());
+    EXPECT_EQ(0, poolManager_->getQueueSize());
+    EXPECT_EQ(0, poolManager_->getRejectedRequestCount());
 
     std::cout << "✓ Queue configuration test passed" << std::endl;
   }

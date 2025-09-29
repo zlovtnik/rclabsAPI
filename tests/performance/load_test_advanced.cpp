@@ -141,13 +141,16 @@ public:
     initializeComponents();
     metrics_.startTime = std::chrono::steady_clock::now();
 
+    const auto deadline =
+        metrics_.startTime + std::chrono::seconds(config_.testDurationSeconds);
+
     // Start monitoring thread
     std::thread monitorThread(&LoadTester::monitorResources, this);
 
     // Start load generation
     std::vector<std::thread> workerThreads;
     for (int i = 0; i < config_.numThreads; ++i) {
-      workerThreads.emplace_back(&LoadTester::workerThread, this, i);
+      workerThreads.emplace_back(&LoadTester::workerThread, this, i, deadline);
     }
 
     // Wait for all threads to complete
@@ -264,8 +267,11 @@ private:
    * @param threadId Zero-based index of this worker thread; used to compute the
    *                 staggered ramp-up delay so threads reach full load over
    *                 config_.rampUpTimeSeconds.
+   * @param deadline Test completion deadline; workers stop when this time is
+   * reached
    */
-  void workerThread(int threadId) {
+  void workerThread(int threadId,
+                    std::chrono::steady_clock::time_point deadline) {
     // Ramp up delay
     if (config_.rampUpTimeSeconds > 0) {
       int delay =
@@ -274,7 +280,7 @@ private:
     }
 
     for (int i = 0; i < config_.requestsPerThread; ++i) {
-      if (!monitoring_.load())
+      if (!monitoring_.load() || std::chrono::steady_clock::now() >= deadline)
         break;
 
       makeRequest(threadId, i);
@@ -431,10 +437,7 @@ private:
       // Log the error and update failure metrics
       std::cerr << "Database query failed: " << e.what() << " (Query: SELECT 1)"
                 << std::endl;
-      {
-        std::lock_guard<std::mutex> lock(metricsMutex_);
-        metrics_.dbFailures++;
-      }
+      metrics_.dbFailures++;
     }
   }
 
@@ -607,6 +610,7 @@ private:
         static_cast<double>(metrics_.totalRequests) / duration.count();
 
     report["database"]["queries"] = metrics_.databaseQueries.load();
+    report["database"]["failures"] = metrics_.dbFailures.load();
     report["cache"]["hits"] = metrics_.cacheHits.load();
     report["cache"]["misses"] = metrics_.cacheMisses.load();
 
@@ -652,6 +656,7 @@ private:
 
     if (config_.enableDatabaseLoad) {
       std::cout << "Database Queries: " << metrics_.databaseQueries << "\n";
+      std::cout << "Database Failures: " << metrics_.dbFailures << "\n";
     }
 
     if (config_.enableCacheLoad) {

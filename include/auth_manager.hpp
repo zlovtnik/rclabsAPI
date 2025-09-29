@@ -22,7 +22,8 @@ public:
   AuthManager(std::shared_ptr<DatabaseManager> dbManager);
 #endif
 #ifndef ETL_ENABLE_POSTGRESQL
-  AuthManager();
+  AuthManager(std::shared_ptr<UserRepository> userRepo,
+              std::shared_ptr<SessionRepository> sessionRepo);
 #endif
   ~AuthManager();
 
@@ -59,6 +60,7 @@ public:
   AuthManager &operator=(AuthManager &&) = delete;
 
   // User management
+#ifdef ETL_ENABLE_POSTGRESQL
   bool createUser(const std::string &username, const std::string &email,
                   const std::string &password);
   bool userExists(std::string_view username) const;
@@ -68,25 +70,23 @@ public:
   bool deleteUser(const std::string &userId);
   std::shared_ptr<User> getUser(const std::string &userId) const;
   std::optional<User> getUserByUsername(const std::string &username) const;
-
-  // JWT Token management
-#ifdef ETL_ENABLE_JWT
-  std::string generateJWTToken(const std::string &userId);
-  std::optional<std::string> validateJWTToken(const std::string &token);
-  std::string refreshJWTToken(const std::string &token);
 #endif
 
-  // Session management (legacy - to be deprecated)
+  // Session management
+#ifdef ETL_ENABLE_POSTGRESQL
   std::string createSession(const std::string &userId);
   bool validateSession(const std::string &sessionId);
   void revokeSession(const std::string &sessionId);
   void cleanupExpiredSessions();
+#endif
 
   // Authorization
+#ifdef ETL_ENABLE_POSTGRESQL
   bool hasPermission(std::string_view userId, std::string_view resource,
                      std::string_view action) const;
   void assignRole(const std::string &userId, const std::string &role);
   void revokeRole(const std::string &userId, const std::string &role);
+#endif
 
   // JWT configuration
 #ifdef ETL_ENABLE_JWT
@@ -94,12 +94,14 @@ public:
 #endif
 
 private:
+#ifdef ETL_ENABLE_POSTGRESQL
+  std::shared_ptr<DatabaseManager> dbManager_;
+#endif
   std::shared_ptr<UserRepository> userRepo_;
   std::shared_ptr<SessionRepository> sessionRepo_;
 #ifdef ETL_ENABLE_JWT
-  std::vector<char> jwtSecretKey_;
+  void loadJWTSecret();
 #endif
-
   std::string hashPassword(std::string_view password,
                            std::string_view salt) const;
   std::string generateSalt() const;

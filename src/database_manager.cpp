@@ -169,7 +169,7 @@ bool DatabaseManager::executeQuery(const std::string &query,
 
     // Execute the query without handling the result
     executeParameterizedQuery(txn, query, params);
-    
+
     txn.commit();
     pImpl->connectionPool->releaseConnection(conn);
     DB_LOG_DEBUG("Parameterized query executed successfully");
@@ -244,10 +244,7 @@ DatabaseManager::selectQuery(const std::string &query,
 
     // Execute the query and get the result
     pqxx::result result = executeParameterizedQuery(txn, query, params);
-    if (result.affected_rows() == -1) {
-      // Error occurred in executeParameterizedQuery
-      return {};
-    }
+    // executeParameterizedQuery throws on error, no need for explicit check
 
     txn.commit();
     pImpl->connectionPool->releaseConnection(conn);
@@ -332,25 +329,26 @@ bool DatabaseManager::isPoolHealthy() const {
          pImpl->connectionPool->isHealthy();
 }
 
-pqxx::result DatabaseManager::executeParameterizedQuery(pqxx::transaction_base& txn, 
-                                                       const std::string& query,
-                                                       const std::vector<std::string>& params) {
-  // For Ubuntu 22.04 pqxx, use variadic exec_params with individual parameters
-  if (params.empty()) {
-    return txn.exec_params(query);
-  } else if (params.size() == 1) {
-    return txn.exec_params(query, params[0]);
-  } else if (params.size() == 2) {
-    return txn.exec_params(query, params[0], params[1]);
-  } else if (params.size() == 3) {
-    return txn.exec_params(query, params[0], params[1], params[2]);
-  } else if (params.size() == 4) {
-    return txn.exec_params(query, params[0], params[1], params[2], params[3]);
-  } else if (params.size() == 5) {
-    return txn.exec_params(query, params[0], params[1], params[2], params[3], params[4]);
-  } else {
-    DB_LOG_ERROR("Too many parameters for query (max 5 supported)");
-    return pqxx::result(); // Return empty result to indicate error
+pqxx::result DatabaseManager::executeParameterizedQuery(
+    pqxx::transaction_base &txn, const std::string &query,
+    const std::vector<std::string> &params) {
+  try {
+    // Create a params object to hold all parameters
+    pqxx::params p;
+
+    // Add all parameters to the params object
+    for (const auto &param : params) {
+      p.append(param);
+    }
+
+    // Execute the query with dynamic parameters
+    return txn.exec_params(query, p);
+  } catch (const std::exception &e) {
+    DB_LOG_ERROR("Error executing parameterized query: " << e.what());
+    throw; // Re-throw to allow caller to handle the exception
+  } catch (...) {
+    DB_LOG_ERROR("Unknown error executing parameterized query");
+    throw std::runtime_error("Unknown error executing parameterized query");
   }
 }
 

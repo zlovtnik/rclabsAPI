@@ -206,7 +206,7 @@ private:
     // Initialize HTTP components
     requestHandler_ =
         std::make_shared<RequestHandler>(dbManager_, authManager_, etlManager_);
-    httpServer_ = std::make_unique<HttpServer>("127.0.0.1", TEST_PORT, 4);
+    httpServer_ = std::make_shared<HttpServer>("127.0.0.1", TEST_PORT, 4);
 
     std::cout << "✓ HTTP components initialized" << std::endl;
 
@@ -367,15 +367,36 @@ private:
     if (!failingJobId.empty()) {
       auto failingJob = etlManager_->getJob(failingJobId);
       if (failingJob) {
+        // Capture notification count before simulating failure
+        int initialNotificationCount = notificationsSent_.load();
+
         // Simulate job failure
         jobMonitor_->onJobStatusChanged(failingJob->jobId, JobStatus::RUNNING,
                                         JobStatus::FAILED);
 
-        // Wait for notification
+        // Wait for notification processing
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-        std::cout << "✓ Job failure handling tested" << std::endl;
+        // Verify job status was updated to FAILED
+        auto updatedJob = etlManager_->getJob(failingJobId);
+        ASSERT_NE(updatedJob, nullptr)
+            << "Failed to retrieve updated job after status change";
+        ASSERT_EQ(updatedJob->status, JobStatus::FAILED)
+            << "Job status was not updated to FAILED after failure simulation";
+
+        // Verify notification was sent
+        int finalNotificationCount = notificationsSent_.load();
+        ASSERT_GT(finalNotificationCount, initialNotificationCount)
+            << "No notification was sent after job failure";
+
+        std::cout << "✓ Job failure handling tested - status updated and "
+                     "notification sent"
+                  << std::endl;
+      } else {
+        FAIL() << "Failed to retrieve scheduled failing job";
       }
+    } else {
+      FAIL() << "Failed to schedule failing job";
     }
 
     // Test WebSocket connection recovery
@@ -547,9 +568,10 @@ private:
     std::cout << "Validating final system state..." << std::endl;
 
     // Check that services are properly stopped
-    assert(!notificationService_->isRunning());
-    assert(!jobMonitor_->isRunning());
-
+    ASSERT_FALSE(notificationService_->isRunning())
+        << "Notification service still running after stop";
+    ASSERT_FALSE(jobMonitor_->isRunning())
+        << "Job monitor still running after stop";
     std::cout << "✓ All services stopped cleanly" << std::endl;
 
     // Validate test metrics

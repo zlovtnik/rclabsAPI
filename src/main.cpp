@@ -8,10 +8,14 @@
 #include <unistd.h>
 
 #include "auth_manager.hpp"
-#include "config_manager.hpp"
-#include "data_transformer.hpp"
 #ifdef ETL_ENABLE_POSTGRESQL
 #include "database_manager.hpp"
+#include "session_repository.hpp"
+#include "user_repository.hpp"
+#endif
+#ifndef ETL_ENABLE_POSTGRESQL
+#include "session_repository.hpp"
+#include "user_repository.hpp"
 #endif
 #include "etl_job_manager.hpp"
 #include "http_server.hpp"
@@ -176,7 +180,10 @@ int main() {
 #ifdef ETL_ENABLE_POSTGRESQL
     auto authManager = std::make_shared<AuthManager>(dbManager);
 #else
-    auto authManager = std::make_shared<AuthManager>();
+    // Create repositories for non-PostgreSQL mode
+    auto userRepo = std::make_shared<UserRepository>();
+    auto sessionRepo = std::make_shared<SessionRepository>();
+    auto authManager = std::make_shared<AuthManager>(userRepo, sessionRepo);
 #endif
 
     LOG_INFO("Main", "Initializing data transformer...");

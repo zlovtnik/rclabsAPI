@@ -1,3 +1,4 @@
+#include "auth_manager.hpp"
 #include "config_manager.hpp"
 #include "data_transformer.hpp"
 #include "etl_job_manager.hpp"
@@ -5,6 +6,10 @@
 #include "job_monitor_service.hpp"
 #include "logger.hpp"
 #include "notification_service.hpp"
+#include "rate_limiter.hpp"
+#include "request_handler.hpp"
+#include "session_repository.hpp"
+#include "user_repository.hpp"
 #include "websocket_manager.hpp"
 #include <atomic>
 #include <boost/asio/steady_timer.hpp>
@@ -162,22 +167,19 @@ public:
       // Buffer must be kept alive until async operation completes
       auto buffer = std::make_shared<beast::flat_buffer>();
 
-      // Timer for timeout handling (must be associated with the same
-      // io_context)
-      net::steady_timer timer(ioc_, timeout);
+      // Calculate end time for timeout handling
+      auto start_time = std::chrono::steady_clock::now();
+      auto end_time = start_time + timeout;
 
       // Use atomic flag to prevent race conditions
       std::atomic<bool> completed{false};
 
       // Lambda to handle read completion
-      auto read_handler = [buffer, &promise, &timer,
+      auto read_handler = [buffer, &promise,
                            &completed](beast::error_code ec,
                                        std::size_t bytes_transferred) {
         if (completed.exchange(true))
           return; // Already handled
-
-        // Cancel timer since read completed
-        timer.cancel();
 
         if (ec) {
           if (ec == net::error::operation_aborted) {
@@ -193,29 +195,26 @@ public:
         }
       };
 
-      // Lambda to handle timer expiry
-      auto timer_handler = [&promise, &ws = ws_,
-                            &completed](beast::error_code ec) {
-        if (!ec && !completed.exchange(true)) {
-          // Timer expired and we haven't completed yet, cancel the read
-          // operation
-          beast::error_code cancel_ec;
-          ws.next_layer().cancel(cancel_ec);
-          // Set timeout result
-          promise.set_value("TIMEOUT");
-        }
-      };
-
       // Start async read
       ws_.async_read(*buffer, read_handler);
 
-      // Start timer (already set expiry in constructor)
-      timer.async_wait(timer_handler);
-
-      // Run the io_context with polling to avoid blocking indefinitely
+      // Run the io_context for the entire timeout window
       ioc_.restart();
-      while (!completed && ioc_.run_one_for(std::chrono::milliseconds(10))) {
-        // Continue running until completed or we timeout
+      while (!completed && std::chrono::steady_clock::now() < end_time) {
+        // Use short time slices and continue even if no handlers are ready
+        if (!ioc_.run_one_for(std::chrono::milliseconds(10))) {
+          // No handlers ready, sleep briefly to avoid busy waiting
+          std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+      }
+
+      // If we exited the loop and still not completed, timeout occurred
+      if (!completed.exchange(true)) {
+        // Cancel the read operation
+        beast::error_code cancel_ec;
+        ws_.next_layer().cancel(cancel_ec);
+        // Set timeout result
+        promise.set_value("TIMEOUT");
       }
 
       // Get the result
@@ -249,6 +248,67 @@ private:
   std::string last_error_;
 };
 
+// Mock UserRepository for tests
+class MockUserRepository : public UserRepository {
+public:
+  explicit MockUserRepository(std::shared_ptr<DatabaseManager> dbManager)
+      : UserRepository(dbManager) {}
+
+  bool createUser(const User &user) override { return true; }
+  std::optional<User> getUserById(const std::string &userId) override {
+    return std::nullopt;
+  }
+  std::optional<User> getUserByUsername(const std::string &username) override {
+    return std::nullopt;
+  }
+  std::optional<User> getUserByEmail(const std::string &email) override {
+    return std::nullopt;
+  }
+  std::vector<User> getAllUsers() override { return {}; }
+  bool updateUser(const User &user) override { return true; }
+  bool deleteUser(const std::string &userId) override { return true; }
+  bool userExists(const std::string &username,
+                  const std::string &email = "") override {
+    return false;
+  }
+  std::vector<User> getUsersByRole(const std::string &role) override {
+    return {};
+  }
+};
+
+// Mock SessionRepository for tests
+class MockSessionRepository : public SessionRepository {
+public:
+  explicit MockSessionRepository(std::shared_ptr<DatabaseManager> dbManager)
+      : SessionRepository(dbManager) {}
+
+  bool createSession(const Session &session) override { return true; }
+  std::optional<Session> getSessionById(const std::string &sessionId) override {
+    return std::nullopt;
+  }
+  std::vector<Session> getSessionsByUserId(const std::string &userId) override {
+    return {};
+  }
+  std::vector<Session> getAllSessions() override { return {}; }
+  bool updateSession(const Session &session) override { return true; }
+  bool deleteSession(const std::string &sessionId) override { return true; }
+  bool deleteExpiredSessions() override { return true; }
+  std::vector<Session> getValidSessions() override { return {}; }
+};
+
+// Mock DatabaseManager for tests
+class MockDatabaseManager {
+public:
+  MockDatabaseManager() = default;
+  bool isConnected() const { return true; }
+  bool connect(const std::string &connStr) { return true; }
+  void disconnect() {}
+  bool executeQuery(const std::string &query) { return true; }
+  std::vector<std::vector<std::string>> selectQuery(const std::string &query) {
+    return {};
+  }
+};
+
 class RealTimeMonitoringWorkflowTest : public ::testing::Test {
 protected:
   void SetUp() override {
@@ -268,7 +328,8 @@ protected:
     logger->configure(LogConfig{});
 
     ws_manager = std::make_shared<WebSocketManager>();
-    notification_service = std::make_shared<MockNotificationService>();
+    notification_service =
+        std::shared_ptr<MockNotificationService>(new MockNotificationService());
     notification_service->start();
 
     etl_manager =
@@ -276,9 +337,27 @@ protected:
     monitor_service = std::make_shared<JobMonitorService>();
     etl_manager->setJobMonitorService(monitor_service);
 
+    // Create AuthManager with mock repositories for non-PostgreSQL builds
+    auto mock_db_manager = std::make_shared<MockDatabaseManager>();
+    auto mock_user_repo = std::make_shared<MockUserRepository>(mock_db_manager);
+    auto mock_session_repo =
+        std::make_shared<MockSessionRepository>(mock_db_manager);
+    auth_manager =
+        std::make_shared<AuthManager>(mock_user_repo, mock_session_repo);
+
+    // Create WebSocketManager and RequestHandler
+    ws_manager = std::make_shared<WebSocketManager>();
+    auto rate_limiter = std::make_unique<RateLimiter>();
+    request_handler = std::make_shared<RequestHandler>(
+        auth_manager, etl_manager, std::move(rate_limiter), ws_manager);
+
     // Start HTTP server in background thread with proper error handling
     server_port = findAvailablePort();
     http_server = std::make_shared<HttpServer>("127.0.0.1", server_port, 1);
+
+    // Wire the dependencies into the server
+    http_server->setRequestHandler(request_handler);
+    http_server->setWebSocketManager(ws_manager);
 
     server_thread = std::thread([this]() {
       try {
@@ -312,6 +391,9 @@ protected:
     if (server_thread.joinable()) {
       server_thread.join();
     }
+
+    // Cleanup test config file
+    std::remove("test_config.json");
   }
 
 private:
@@ -364,6 +446,8 @@ protected:
   std::shared_ptr<MockNotificationService> notification_service;
   std::shared_ptr<ETLJobManager> etl_manager;
   std::shared_ptr<JobMonitorService> monitor_service;
+  std::shared_ptr<AuthManager> auth_manager;
+  std::shared_ptr<RequestHandler> request_handler;
   std::shared_ptr<HttpServer> http_server;
   std::thread server_thread;
   int server_port = 18080;

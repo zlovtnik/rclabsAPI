@@ -1,7 +1,6 @@
 #include "../include/template_utils.hpp"
 #include "../include/type_definitions.hpp"
-#include <cassert>
-#include <iostream>
+#include <gtest/gtest.h>
 #include <string>
 
 using namespace etl;
@@ -34,83 +33,76 @@ public:
   std::string get_type() const override { return "DerivedB"; }
 };
 
-int main() {
-  std::cout << "Testing Template Utilities..." << std::endl;
+// Test fixture for template utilities
+class TemplateUtilsTest : public ::testing::Test {
+protected:
+  void SetUp() override {
+    // Setup common test data if needed
+  }
+};
 
-  // Test 1: Type traits
-  static_assert(has_component_trait_v<TestComponent>,
-                "TestComponent should have trait");
-  static_assert(is_strong_id_v<JobId>, "JobId should be strong ID");
-  static_assert(is_strong_id_v<ConnectionId>,
-                "ConnectionId should be strong ID");
-  static_assert(!is_strong_id_v<std::string>,
-                "std::string should not be strong ID");
-  std::cout << "✓ Type traits working correctly" << std::endl;
+TEST_F(TemplateUtilsTest, TypeTraits) {
+  EXPECT_TRUE(has_component_trait_v<TestComponent>);
+  EXPECT_TRUE(is_strong_id_v<JobId>);
+  EXPECT_TRUE(is_strong_id_v<ConnectionId>);
+  EXPECT_FALSE(is_strong_id_v<std::string>);
+}
 
-  // Test 2: Compile-time string hashing
+TEST_F(TemplateUtilsTest, CompileTimeStringHashing) {
   auto hash1 = fnv1a_hash("test");
   auto hash2 = fnv1a_hash("test");
   auto hash3 = fnv1a_hash("different");
-  assert(hash1 == hash2);
-  assert(hash1 != hash3);
-  std::cout << "✓ Compile-time string hashing working" << std::endl;
 
-  // Test 3: ConfigValue
+  EXPECT_EQ(hash1, hash2);
+  EXPECT_NE(hash1, hash3);
+}
+
+TEST_F(TemplateUtilsTest, ConfigValue) {
   ConfigValue<int> config_val;
-  assert(!config_val.has_value());
-  assert(config_val.get_or(42) == 42);
+
+  EXPECT_FALSE(config_val.has_value());
+  EXPECT_EQ(config_val.get_or(42), 42);
 
   config_val.set(100);
-  assert(config_val.has_value());
-  assert(config_val.get() == 100);
-  std::cout << "✓ ConfigValue working correctly" << std::endl;
+  EXPECT_TRUE(config_val.has_value());
+  EXPECT_EQ(config_val.get(), 100);
+}
 
-  // Test 4: Strong ID to_string conversion
+TEST_F(TemplateUtilsTest, StrongIdToString) {
   JobId job_id("test_job_123");
   ConnectionId conn_id("conn_456");
 
-  std::string job_str = to_string(job_id);
-  std::string conn_str = to_string(conn_id);
+  EXPECT_EQ(to_string(job_id), "test_job_123");
+  EXPECT_EQ(to_string(conn_id), "conn_456");
+}
 
-  assert(job_str == "test_job_123");
-  assert(conn_str == "conn_456");
-  std::cout << "✓ Strong ID to_string conversion working" << std::endl;
-
-  // Test 5: Factory with duplicate registration prevention
+class FactoryTest : public ::testing::Test {
+protected:
   Factory<BaseClass> factory;
 
-  // Register types successfully
-  factory.register_type<DerivedA>("type_a");
-  factory.register_type<DerivedB>("type_b");
+  void SetUp() override {
+    factory.register_type<DerivedA>("type_a");
+    factory.register_type<DerivedB>("type_b");
+  }
+};
 
-  // Verify registration worked
-  assert(factory.is_registered("type_a"));
-  assert(factory.is_registered("type_b"));
-  assert(!factory.is_registered("type_c"));
+TEST_F(FactoryTest, Registration) {
+  EXPECT_TRUE(factory.is_registered("type_a"));
+  EXPECT_TRUE(factory.is_registered("type_b"));
+  EXPECT_FALSE(factory.is_registered("type_c"));
+}
 
-  // Test creation
+TEST_F(FactoryTest, Creation) {
   auto obj_a = factory.create("type_a");
   auto obj_b = factory.create("type_b");
-  assert(obj_a != nullptr);
-  assert(obj_b != nullptr);
-  assert(obj_a->get_type() == "DerivedA");
-  assert(obj_b->get_type() == "DerivedB");
 
-  // Test duplicate registration throws exception
-  bool exception_thrown = false;
-  try {
-    factory.register_type<DerivedA>("type_a"); // Try to register same key again
-  } catch (const std::runtime_error &e) {
-    exception_thrown = true;
-    std::string error_msg = e.what();
-    assert(error_msg.find("key 'type_a' is already registered") !=
-           std::string::npos);
-  }
-  assert(exception_thrown);
+  ASSERT_NE(obj_a, nullptr);
+  ASSERT_NE(obj_b, nullptr);
+  EXPECT_EQ(obj_a->get_type(), "DerivedA");
+  EXPECT_EQ(obj_b->get_type(), "DerivedB");
+}
 
-  std::cout << "✓ Factory duplicate registration prevention working"
-            << std::endl;
-
-  std::cout << "All template utility tests passed!" << std::endl;
-  return 0;
+TEST_F(FactoryTest, DuplicateRegistrationThrows) {
+  EXPECT_THROW(
+      { factory.register_type<DerivedA>("type_a"); }, std::runtime_error);
 }

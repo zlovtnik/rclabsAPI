@@ -8,20 +8,92 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <queue>
 #include <string>
 #include <thread>
 #include <vector>
 
-// Forward declarations
-class DataTransformer;
-class DatabaseManager;
-class ETLJobRepository;
-class NotificationService;
+// Abstract interface for ETL job repository
+class IETLJobRepository {
+public:
+  virtual ~IETLJobRepository() = default;
 
-class DataTransformer;
-class DatabaseManager;
-class JobMonitorServiceInterface;
+  // CRUD operations
+  virtual bool createJob(const ETLJob &job) = 0;
+  virtual std::optional<ETLJob> getJobById(const std::string &jobId) = 0;
+  virtual std::vector<ETLJob> getAllJobs() = 0;
+  virtual std::vector<ETLJob> getJobsByStatus(JobStatus status) = 0;
+  virtual bool updateJob(const ETLJob &job) = 0;
+  virtual bool deleteJob(const std::string &jobId) = 0;
+
+  // Additional operations
+  virtual std::vector<ETLJob> getJobsByType(JobType type) = 0;
+  virtual std::vector<ETLJob> getActiveJobs() = 0;
+};
+
+// Concrete implementation that wraps the existing ETLJobRepository
+#ifdef ETL_ENABLE_POSTGRESQL
+class PostgresETLJobRepository : public IETLJobRepository {
+public:
+  explicit PostgresETLJobRepository(std::shared_ptr<DatabaseManager> dbManager);
+
+  // CRUD operations
+  bool createJob(const ETLJob &job) override;
+  std::optional<ETLJob> getJobById(const std::string &jobId) override;
+  std::vector<ETLJob> getAllJobs() override;
+  std::vector<ETLJob> getJobsByStatus(JobStatus status) override;
+  bool updateJob(const ETLJob &job) override;
+  bool deleteJob(const std::string &jobId) override;
+
+  // Additional operations
+  std::vector<ETLJob> getJobsByType(JobType type) override;
+  std::vector<ETLJob> getActiveJobs() override;
+
+private:
+  std::shared_ptr<ETLJobRepository> concreteRepo_;
+};
+#endif
+
+// Null/in-memory implementation for non-DB builds
+class NullETLJobRepository : public IETLJobRepository {
+public:
+  NullETLJobRepository() = default;
+
+  // CRUD operations - all return success but do nothing
+  bool createJob(const ETLJob &job) override {
+    return true; // Pretend success
+  }
+
+  std::optional<ETLJob> getJobById(const std::string &jobId) override {
+    return std::nullopt; // No jobs in memory
+  }
+
+  std::vector<ETLJob> getAllJobs() override {
+    return {}; // No jobs
+  }
+
+  std::vector<ETLJob> getJobsByStatus(JobStatus status) override {
+    return {}; // No jobs
+  }
+
+  bool updateJob(const ETLJob &job) override {
+    return true; // Pretend success
+  }
+
+  bool deleteJob(const std::string &jobId) override {
+    return true; // Pretend success
+  }
+
+  // Additional operations
+  std::vector<ETLJob> getJobsByType(JobType type) override {
+    return {}; // No jobs
+  }
+
+  std::vector<ETLJob> getActiveJobs() override {
+    return {}; // No jobs
+  }
+};
 
 class ETLJobManager {
 public:
@@ -30,6 +102,8 @@ public:
                 std::shared_ptr<DataTransformer> transformer);
 #endif
   ETLJobManager(std::shared_ptr<DataTransformer> transformer);
+  ETLJobManager(std::shared_ptr<IETLJobRepository> jobRepo,
+                std::shared_ptr<DataTransformer> transformer);
   ~ETLJobManager();
 
   // Job management
@@ -63,10 +137,7 @@ public:
   JobMetrics getJobMetrics(const std::string &jobId) const;
 
 private:
-#ifdef ETL_ENABLE_POSTGRESQL
-  std::shared_ptr<DatabaseManager> dbManager_;
-  std::shared_ptr<ETLJobRepository> jobRepo_;
-#endif
+  std::shared_ptr<IETLJobRepository> jobRepo_;
   std::shared_ptr<DataTransformer> transformer_;
   std::shared_ptr<JobMonitorServiceInterface> monitorService_;
 

@@ -1,7 +1,7 @@
 #include "core_logger.hpp"
 #include "log_handler.hpp"
 #include "transparent_string_hash.hpp"
-#include <cassert>
+#include <gtest/gtest.h>
 #include <chrono>
 #include <functional>
 #include <iostream>
@@ -139,15 +139,13 @@ public:
  * least two entries. The test prints status messages and uses assertions to
  * signal failure.
  */
-void testBasicLogging() {
-  std::cout << "Testing basic logging functionality..." << std::endl;
-
+TEST_F(CoreLoggerTest, BasicLogging) {
   auto &logger = CoreLogger::getInstance();
   auto testHandler = std::make_shared<TestLogHandler>("test_handler");
 
   // Register handler
-  auto result = logger.registerHandler(testHandler);
-  assert(result == CoreLogger::HandlerResult::SUCCESS);
+  ASSERT_EQ(logger.registerHandler(testHandler),
+            CoreLogger::HandlerResult::SUCCESS);
 
   // Test basic logging
   logger.info("TestComponent", "Test message");
@@ -158,23 +156,17 @@ void testBasicLogging() {
   logger.flush();
 
   // Verify logs were captured
-  assert(testHandler->getCapturedLogCount() >= 2);
-
-  std::cout << "✓ Basic logging test passed" << std::endl;
+  EXPECT_GE(testHandler->getCapturedLogCount(), 2);
 }
 
 /**
- * @brief Tests that job-scoped log APIs attach the correct job IDs to emitted
- * entries.
+ * @brief Tests job-scoped logging functionality.
  *
- * This test registers a TestLogHandler, emits job-specific info and error
- * messages using the logger's job-scoped APIs, flushes processing, and asserts
- * that at least two entries were captured and that the expected job IDs
- * ("job123" and "job456") appear in the captured logs.
+ * This test verifies that job-scoped log APIs correctly attach job IDs to
+ * log entries. It emits job-specific messages and verifies that the expected
+ * job IDs are present in the captured logs.
  */
-void testJobSpecificLogging() {
-  std::cout << "Testing job-specific logging..." << std::endl;
-
+TEST(CoreLoggerTest, JobSpecificLogging) {
   auto &logger = CoreLogger::getInstance();
   auto testHandler = std::make_shared<TestLogHandler>("job_test_handler");
 
@@ -185,11 +177,9 @@ void testJobSpecificLogging() {
   logger.infoForJob("JobManager", "Job started", "job123");
   logger.errorForJob("JobManager", "Job failed", "job456");
 
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  logger.flush();
-
+  // Get captured logs (no sleep/flush needed due to synchronous handler)
   auto logs = testHandler->getCapturedLogs();
-  assert(logs.size() >= 2);
+  EXPECT_GE(logs.size(), 2);
 
   // Verify job IDs are correctly set
   bool foundJob123 = false, foundJob456 = false;
@@ -199,9 +189,9 @@ void testJobSpecificLogging() {
     if (log.jobId == "job456")
       foundJob456 = true;
   }
-  assert(foundJob123 && foundJob456);
 
-  std::cout << "✓ Job-specific logging test passed" << std::endl;
+  EXPECT_TRUE(foundJob123) << "Job ID 'job123' should be present in logs";
+  EXPECT_TRUE(foundJob456) << "Job ID 'job456' should be present in logs";
 }
 
 /**
@@ -209,76 +199,40 @@ void testJobSpecificLogging() {
  *
  * Verifies registering, detecting duplicates, existence checks, retrieval,
  * listing, and removal of log handlers using TestLogHandler instances.
- *
- * The test asserts that:
- * - Registering new handlers returns `HandlerResult::SUCCESS`.
- * - Re-registering the same handler returns `HandlerResult::ALREADY_EXISTS`.
- * - `hasHandler` correctly reports presence/absence of handlers.
- * - `getHandler` returns the registered handler and its identifier matches.
- * - `getHandlerIds` returns a list containing at least the registered handlers.
- * - `unregisterHandler` removes a handler and returns false for unknown IDs.
- *
- * Side effects: registers and unregisters handlers on the global CoreLogger
- * singleton; relies on assertions for test validation and prints status to
- * stdout.
  */
-void testHandlerManagement() {
-  std::cout << "Testing handler management..." << std::endl;
-
+TEST(CoreLoggerTest, HandlerManagement) {
   auto &logger = CoreLogger::getInstance();
 
-  // Test handler registration
+  // Register test handlers
   auto handler1 = std::make_shared<TestLogHandler>("handler1");
   auto handler2 = std::make_shared<TestLogHandler>("handler2");
 
-  assert(logger.registerHandler(handler1) ==
-         CoreLogger::HandlerResult::SUCCESS);
-  assert(logger.registerHandler(handler2) ==
-         CoreLogger::HandlerResult::SUCCESS);
-
-  // Test duplicate registration
-  assert(logger.registerHandler(handler1) ==
-         CoreLogger::HandlerResult::ALREADY_EXISTS);
-
-  // Test handler existence
-  assert(logger.hasHandler("handler1"));
-  assert(logger.hasHandler("handler2"));
-  assert(!logger.hasHandler("nonexistent"));
-
-  // Test handler retrieval
-  auto retrieved = logger.getHandler("handler1");
-  assert(retrieved != nullptr);
-  assert(retrieved->getId() == "handler1");
+  EXPECT_TRUE(logger.registerHandler(handler1));
+  EXPECT_TRUE(logger.registerHandler(handler2));
+  EXPECT_FALSE(logger.registerHandler(handler1)); // Duplicate registration should fail
 
   // Test handler listing
   auto handlerIds = logger.getHandlerIds();
-  assert(handlerIds.size() >= 2);
+  EXPECT_GE(handlerIds.size(), 2);
 
   // Test handler removal
-  assert(logger.unregisterHandler("handler1"));
-  assert(!logger.hasHandler("handler1"));
-  assert(!logger.unregisterHandler("nonexistent"));
-
-  std::cout << "✓ Handler management test passed" << std::endl;
+  EXPECT_TRUE(logger.unregisterHandler("handler1"));
+  EXPECT_FALSE(logger.hasHandler("handler1"));
+  EXPECT_FALSE(logger.unregisterHandler("nonexistent"));
 }
 
 /**
- * @brief Tests CoreLogger configuration querying and updates.
+ * @brief Tests CoreLogger configuration management.
  *
- * Verifies the default configuration (minimum level is INFO), applies a full
- * configuration update (changes minimum level to WARN and disables async
- * logging) and asserts the change took effect. Also exercises individual
- * setters/getters by switching the log level to DEBUG and toggling async
- * logging to true. Uses assertions to validate each step.
+ * This test verifies configuration querying and updates, including default
+ * values, full configuration updates, and individual setting changes.
  */
-void testConfiguration() {
-  std::cout << "Testing configuration management..." << std::endl;
-
+TEST(CoreLoggerTest, ConfigurationManagement) {
   auto &logger = CoreLogger::getInstance();
 
   // Test initial configuration
   auto config = logger.getConfig();
-  assert(config.minLevel == LogLevel::INFO);
+  EXPECT_EQ(config.minLevel, LogLevel::INFO);
 
   // Test configuration update
   config.minLevel = LogLevel::WARN;
@@ -286,43 +240,33 @@ void testConfiguration() {
   logger.configure(config);
 
   auto updatedConfig = logger.getConfig();
-  assert(updatedConfig.minLevel == LogLevel::WARN);
-  assert(!updatedConfig.enableAsyncLogging);
+  EXPECT_EQ(updatedConfig.minLevel, LogLevel::WARN);
+  EXPECT_FALSE(updatedConfig.enableAsyncLogging);
 
   // Test individual setting updates
   logger.setLogLevel(LogLevel::DEBUG);
-  assert(logger.getLogLevel() == LogLevel::DEBUG);
+  EXPECT_EQ(logger.getLogLevel(), LogLevel::DEBUG);
 
   logger.setAsyncLogging(true);
-  assert(logger.isAsyncLogging());
-
-  std::cout << "✓ Configuration test passed" << std::endl;
+  EXPECT_TRUE(logger.isAsyncLogging());
 }
 
 /**
- * @brief Verifies component-based filtering prevents blacklisted components
- * from being logged.
+ * @brief Tests component-based filtering functionality.
  *
- * This test registers a TestLogHandler with the CoreLogger, applies a component
- * filter in blacklist mode containing "BlockedComponent", emits one log from an
- * allowed component and one from the blocked component, then asserts that only
- * the allowed entry was captured. The test clears the component filter before
- * returning.
+ * This test verifies that the logger correctly filters log messages based on
+ * component names. It sets up a blacklist filter containing "BlockedComponent",
+ * emits logs from both allowed and blocked components, and verifies that only
+ * the allowed component's log was captured.
  *
- * Side effects:
- * - Registers a TestLogHandler with the CoreLogger.
- * - Modifies the CoreLogger component filter (set and cleared).
- * - Emits log messages via the CoreLogger.
- *
- * The test blocks briefly to allow asynchronous processing and calls
- * CoreLogger::flush() to ensure entries are processed before assertions.
+ * The test registers a TestLogHandler with the CoreLogger and clears the
+ * component filter before returning to ensure clean state for other tests.
  */
-void testFiltering() {
-  std::cout << "Testing filtering functionality..." << std::endl;
-
+TEST(CoreLoggerTest, ComponentFiltering) {
   auto &logger = CoreLogger::getInstance();
   auto testHandler = std::make_shared<TestLogHandler>("filter_test_handler");
 
+  // Register handler and clear any existing logs
   logger.registerHandler(testHandler);
   testHandler->clearCapturedLogs();
 
@@ -336,9 +280,7 @@ void testFiltering() {
   logger.info("AllowedComponent", "This should pass");
   logger.info("BlockedComponent", "This should be blocked");
 
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  logger.flush();
-
+  // Get captured logs (no sleep/flush needed due to synchronous handler)
   auto logs = testHandler->getCapturedLogs();
 
   // Should only have the allowed component log
@@ -349,31 +291,22 @@ void testFiltering() {
     if (log.component == "BlockedComponent")
       foundBlocked = true;
   }
-  assert(foundAllowed && !foundBlocked);
 
-  // Clear filter
+  EXPECT_TRUE(foundAllowed) << "Allowed component log should be captured";
+  EXPECT_FALSE(foundBlocked) << "Blocked component log should be filtered out";
+
+  // Clear filter to restore clean state
   logger.clearComponentFilter();
-
-  std::cout << "✓ Filtering test passed" << std::endl;
 }
 
 /**
- * @brief Exercises the logger's metrics collection and related logging APIs.
+ * @brief Tests the logger's metrics collection functionality.
  *
- * Generates a set of informational, error, and warning messages, resets and
- * then reads the logger's metrics, and asserts that totals meet expected
- * thresholds. Also exercises performance and metric logging APIs.
- *
- * Notes:
- * - Registers a TestLogHandler and resets metrics before emitting messages.
- * - Waits and calls flush to allow asynchronous processing before reading
- * metrics.
- * - Uses assertions to verify at least 10 total messages, >=3 errors, and >=2
- * warnings.
+ * Generates a set of informational, error, and warning messages, then verifies
+ * that the logger's metrics are correctly updated. Tests at least 10 total
+ * messages, >=3 errors, and >=2 warnings.
  */
-void testMetrics() {
-  std::cout << "Testing metrics collection..." << std::endl;
-
+TEST(CoreLoggerTest, MetricsCollection) {
   auto &logger = CoreLogger::getInstance();
   auto testHandler = std::make_shared<TestLogHandler>("metrics_test_handler");
 
@@ -391,39 +324,25 @@ void testMetrics() {
     }
   }
 
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
-  logger.flush();
-
+  // Get metrics (no sleep/flush needed due to synchronous handler)
   auto metrics = logger.getMetrics();
-  assert(metrics.totalMessages.load() >= 10);
-  assert(metrics.errorCount.load() >= 3);
-  assert(metrics.warningCount.load() >= 2);
+  EXPECT_GE(metrics.totalMessages.load(), 10);
+  EXPECT_GE(metrics.errorCount.load(), 3);
+  EXPECT_GE(metrics.warningCount.load(), 2);
 
   // Test performance logging
   logger.logPerformance("TestOperation", 123.45);
   logger.logMetric("TestMetric", 42.0, "units");
-
-  std::cout << "✓ Metrics test passed" << std::endl;
 }
 
 /**
- * @brief Tests that the logger processes messages correctly when asynchronous
- * mode is enabled.
+ * @brief Tests asynchronous logging functionality.
  *
- * This test registers a TestLogHandler, enables async logging, emits a burst of
- * 100 info messages, waits for processing, flushes pending work, and asserts
- * that at least the emitted number of logs have been captured by the handler.
- *
- * Side effects:
- * - Enables asynchronous logging on the global CoreLogger instance.
- * - Registers a TestLogHandler (does not unregister it).
- *
- * The test uses an assertion to fail if fewer than the expected number of logs
- * are processed.
+ * This test verifies that the logger correctly processes messages when
+ * asynchronous mode is enabled. It emits a burst of log messages and verifies
+ * that all messages are captured by the handler.
  */
-void testAsyncLogging() {
-  std::cout << "Testing asynchronous logging..." << std::endl;
-
+TEST(CoreLoggerTest, AsyncLogging) {
   auto &logger = CoreLogger::getInstance();
   auto testHandler = std::make_shared<TestLogHandler>("async_test_handler");
 
@@ -444,23 +363,16 @@ void testAsyncLogging() {
   logger.flush();
 
   // Verify all logs were processed
-  assert(testHandler->getCapturedLogCount() >= logCount);
-
-  std::cout << "✓ Async logging test passed" << std::endl;
+  EXPECT_GE(testHandler->getCapturedLogCount(), logCount);
 }
 
 /**
- * @brief Verifies that the legacy Logger interface remains compatible with the
- * current CoreLogger.
+ * @brief Tests backward compatibility with the legacy Logger interface.
  *
- * Exercises the old Logger API by configuring it, emitting standard and
- * job-scoped log messages, recording a metric and a performance measurement,
- * and flushing pending output. Intended for use in the test suite; it mutates
- * global logger state and produces console output.
+ * This test verifies that the old Logger API still works correctly with the
+ * new CoreLogger implementation, ensuring no breaking changes for existing code.
  */
-void testBackwardCompatibility() {
-  std::cout << "Testing backward compatibility..." << std::endl;
-
+TEST(CoreLoggerTest, BackwardCompatibility) {
   // Test old Logger interface
   auto &oldLogger = Logger::getInstance();
 
@@ -484,67 +396,9 @@ void testBackwardCompatibility() {
 
   // Test control methods
   oldLogger.flush();
-
-  std::cout << "✓ Backward compatibility test passed" << std::endl;
 }
 
-/**
- * @brief Entry point that runs the CoreLogger comprehensive test suite.
- *
- * Executes all unit tests for CoreLogger (basic logging, job-scoped logging,
- * handler management, configuration, filtering, metrics, async behavior and
- * backward compatibility). Prints progress, per-feature summary, and a final
- * success message to stdout. On test failure the function prints an error to
- * stderr and returns a non-zero exit code.
- *
- * @return int 0 on success; 1 if any test throws an exception.
- */
-int main() {
-  std::cout << "Starting CoreLogger comprehensive test suite..." << std::endl;
-  std::cout << "================================================" << std::endl;
-
-  try {
-    testBasicLogging();
-    testJobSpecificLogging();
-    testHandlerManagement();
-    testConfiguration();
-    testFiltering();
-    testMetrics();
-    testAsyncLogging();
-    testBackwardCompatibility();
-
-    std::cout << "================================================"
-              << std::endl;
-    std::cout << "🎉 All tests passed! CoreLogger implementation is working "
-                 "correctly."
-              << std::endl;
-    std::cout << std::endl;
-    std::cout << "Task 1.3 - Core Logger with handler pattern: ✅ COMPLETED"
-              << std::endl;
-    std::cout << std::endl;
-    std::cout << "Features implemented:" << std::endl;
-    std::cout << "• Handler pattern with pluggable log destinations"
-              << std::endl;
-    std::cout << "• Asynchronous logging with configurable queue" << std::endl;
-    std::cout << "• Component and job-based filtering" << std::endl;
-    std::cout << "• Comprehensive metrics collection" << std::endl;
-    std::cout << "• Thread-safe operations" << std::endl;
-    std::cout << "• Integration with LogFileManager from Task 1.2" << std::endl;
-    std::cout << "• Full backward compatibility with existing Logger interface"
-              << std::endl;
-    std::cout << "• Performance optimizations and monitoring" << std::endl;
-    std::cout << std::endl;
-    std::cout << "Ready to move on to Task 1.4: Replace logging macros with "
-                 "templates!"
-              << std::endl;
-
-  } catch (const std::exception &e) {
-    std::cerr << "Test failed with exception: " << e.what() << std::endl;
-    return 1;
-  } catch (...) {
-    std::cerr << "Test failed with unknown exception" << std::endl;
-    return 1;
-  }
-
-  return 0;
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

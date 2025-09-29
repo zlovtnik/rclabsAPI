@@ -1,7 +1,7 @@
 #include <atomic>
-#include <gtest/gtest.h>
 #include <chrono>
 #include <future>
+#include <gtest/gtest.h>
 #include <iostream>
 #include <memory>
 #include <random>
@@ -101,8 +101,10 @@ public:
     // Test that pool manager is created with correct queue settings
     auto poolManager = server_->getConnectionPoolManager();
     if (poolManager) {
-      EXPECT_EQ(3, poolManager->getMaxConnections()) << "Max connections should match config";
-      EXPECT_EQ(20, poolManager->getMaxQueueSize()) << "Queue size should match config";
+      EXPECT_EQ(3, poolManager->getMaxConnections())
+          << "Max connections should match config";
+      EXPECT_EQ(20, poolManager->getMaxQueueSize())
+          << "Queue size should match config";
       std::cout << "✓ Queue configuration validation passed" << std::endl;
     }
 
@@ -141,11 +143,14 @@ public:
     // Verify error handling configuration
     auto poolManager = server_->getConnectionPoolManager();
     if (poolManager) {
-      EXPECT_EQ(1, poolManager->getMaxConnections()) << "Should have minimal connections for exhaustion test";
-      EXPECT_EQ(2, poolManager->getMaxQueueSize()) << "Should have minimal queue size for exhaustion test";
+      EXPECT_EQ(1, poolManager->getMaxConnections())
+          << "Should have minimal connections for exhaustion test";
+      EXPECT_EQ(2, poolManager->getMaxQueueSize())
+          << "Should have minimal queue size for exhaustion test";
 
       // Test statistics tracking
-      EXPECT_EQ(0, poolManager->getRejectedRequestCount()) << "Initial rejected count should be zero";
+      EXPECT_EQ(0, poolManager->getRejectedRequestCount())
+          << "Initial rejected count should be zero";
       std::cout << "✓ Error handling configuration validation passed"
                 << std::endl;
     }
@@ -193,25 +198,26 @@ public:
       std::atomic<int> completedTasks{0};
 
       for (int i = 0; i < 10; ++i) {
-        futures.push_back(
-            std::async(std::launch::async, [&poolManager, &completedTasks]() {
-              // Simulate concurrent access to pool statistics
-              for (int j = 0; j < 100; ++j) {
-                auto activeCount = poolManager->getActiveConnections();
-                auto idleCount = poolManager->getIdleConnections();
-                auto totalCount = poolManager->getTotalConnections();
-                auto reuseCount = poolManager->getConnectionReuseCount();
-                auto queueSize = poolManager->getQueueSize();
+        futures.push_back(std::async(std::launch::async, [&poolManager,
+                                                          &completedTasks]() {
+          // Simulate concurrent access to pool statistics
+          for (int j = 0; j < 100; ++j) {
+            auto activeCount = poolManager->getActiveConnections();
+            auto idleCount = poolManager->getIdleConnections();
+            auto totalCount = poolManager->getTotalConnections();
+            auto reuseCount = poolManager->getConnectionReuseCount();
+            auto queueSize = poolManager->getQueueSize();
 
-                // Verify consistency
-                EXPECT_EQ(activeCount + idleCount, totalCount) << "Total should equal active + idle connections";
-                EXPECT_GE(reuseCount, 0) << "Reuse count should be non-negative";
-                EXPECT_GE(queueSize, 0) << "Queue size should be non-negative";
-                // Small delay to increase chance of race conditions
-                std::this_thread::sleep_for(std::chrono::microseconds(10));
-              }
-              completedTasks++;
-            }));
+            // Verify consistency
+            EXPECT_EQ(activeCount + idleCount, totalCount)
+                << "Total should equal active + idle connections";
+            EXPECT_GE(reuseCount, 0) << "Reuse count should be non-negative";
+            EXPECT_GE(queueSize, 0) << "Queue size should be non-negative";
+            // Small delay to increase chance of race conditions
+            std::this_thread::sleep_for(std::chrono::microseconds(10));
+          }
+          completedTasks++;
+        }));
       }
 
       // Wait for all tasks to complete
@@ -255,14 +261,17 @@ public:
     auto validation = invalidConfig.validate();
     auto validation = invalidConfig.validate();
     EXPECT_FALSE(validation.isValid) << "Invalid config should fail validation";
-    EXPECT_GE(validation.errors.size(), 2) << "Should have errors for queue settings";
+    EXPECT_GE(validation.errors.size(), 2)
+        << "Should have errors for queue settings";
 
     std::cout << "✓ Invalid configuration detection passed" << std::endl;
 
     // Test configuration defaults
     invalidConfig.applyDefaults();
-    EXPECT_GT(invalidConfig.maxQueueSize, 0) << "Default queue size should be positive";
-    EXPECT_GT(invalidConfig.maxQueueWaitTime.count(), 0) << "Default wait time should be positive";
+    EXPECT_GT(invalidConfig.maxQueueSize, 0)
+        << "Default queue size should be positive";
+    EXPECT_GT(invalidConfig.maxQueueWaitTime.count(), 0)
+        << "Default wait time should be positive";
     std::cout << "✓ Configuration defaults application passed" << std::endl;
 
     // Test warning conditions
@@ -274,8 +283,10 @@ public:
 
     auto warningValidation = warningConfig.validate();
     auto warningValidation = warningConfig.validate();
-    EXPECT_TRUE(warningValidation.isValid) << "Config with warnings should still be valid";
-    EXPECT_FALSE(warningValidation.warnings.empty()) << "Should generate warnings for large values";
+    EXPECT_TRUE(warningValidation.isValid)
+        << "Config with warnings should still be valid";
+    EXPECT_FALSE(warningValidation.warnings.empty())
+        << "Should generate warnings for large values";
     std::cout << "✓ Configuration warning detection passed" << std::endl;
     std::cout << "✓ Enhanced configuration validation test passed" << std::endl;
   }
@@ -314,7 +325,8 @@ public:
 
     // Verify that small body size configuration is preserved
     auto retrievedConfig = server_->getServerConfig();
-    EXPECT_EQ(4 * 1024, retrievedConfig.maxRequestBodySize) << "Small body size config should be preserved";
+    EXPECT_EQ(4 * 1024, retrievedConfig.maxRequestBodySize)
+        << "Small body size config should be preserved";
 
     std::cout << "✓ Memory allocation optimization configuration passed"
               << std::endl;

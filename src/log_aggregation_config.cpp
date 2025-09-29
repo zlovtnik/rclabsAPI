@@ -86,8 +86,7 @@ LogDestinationConfig LogAggregationConfigLoader::loadDestinationConfig(
       if (value.is_string()) {
         config.headers[key] = value.get<std::string>();
       } else {
-        std::cerr << "Warning: Non-string header value for key '" << key
-                  << "', skipping" << std::endl;
+        LOG_WARN("Non-string header value for key '{}', skipping", key);
       }
     }
   }
@@ -144,9 +143,7 @@ LogDestinationConfig LogAggregationConfigLoader::loadDestinationConfig(
       if (component.is_string()) {
         config.allowed_components.insert(component.get<std::string>());
       } else {
-        std::cerr
-            << "Warning: Non-string component in allowed_components, skipping"
-            << std::endl;
+        LOG_WARN("Non-string component in allowed_components, skipping");
       }
     }
   }

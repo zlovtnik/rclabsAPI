@@ -238,6 +238,9 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
+        # Build args to handle optional build artifacts
+        build-args: |
+          HAS_BUILD_ARTIFACTS=false
 
   # 🚀 Deployment
   deploy:

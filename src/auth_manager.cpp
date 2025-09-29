@@ -24,11 +24,44 @@
 
 #ifdef ETL_ENABLE_POSTGRESQL
 AuthManager::AuthManager(std::shared_ptr<DatabaseManager> dbManager)
-    : userRepo_(std::make_shared<UserRepository>(dbManager)),
+    : dbManager_(dbManager),
+      userRepo_(std::make_shared<UserRepository>(dbManager)),
       sessionRepo_(std::make_shared<SessionRepository>(dbManager)) {
   AUTH_LOG_INFO("Initializing authentication manager");
 
 #if ETL_ENABLE_JWT
+  loadJWTSecret();
+#endif
+
+  // Note: Default admin user creation is now handled by database schema
+  // initialization
+  AUTH_LOG_DEBUG("Authentication manager initialization completed");
+}
+#endif
+
+#ifndef ETL_ENABLE_POSTGRESQL
+AuthManager::AuthManager(std::shared_ptr<UserRepository> userRepo,
+                         std::shared_ptr<SessionRepository> sessionRepo)
+    : userRepo_(userRepo), sessionRepo_(sessionRepo) {
+  AUTH_LOG_INFO("Initializing authentication manager (PostgreSQL disabled)");
+
+  if (!userRepo_) {
+    AUTH_LOG_ERROR("UserRepository cannot be null");
+    throw std::invalid_argument("UserRepository cannot be null");
+  }
+
+  if (!sessionRepo_) {
+    AUTH_LOG_ERROR("SessionRepository cannot be null");
+    throw std::invalid_argument("SessionRepository cannot be null");
+  }
+
+  loadJWTSecret();
+  AUTH_LOG_DEBUG("Authentication manager initialization completed");
+}
+#endif
+
+#if ETL_ENABLE_JWT
+void AuthManager::loadJWTSecret() {
   // Load JWT secret from environment variable or file
   std::string jwtSecretKey;
   const char *secret = std::getenv("JWT_SECRET_KEY");
@@ -68,72 +101,8 @@ AuthManager::AuthManager(std::shared_ptr<DatabaseManager> dbManager)
     AUTH_LOG_WARN("Failed to lock JWT secret in memory");
   }
 #endif
-#endif
-
-  // Note: Default admin user creation is now handled by database schema
-  // initialization
-  AUTH_LOG_DEBUG("Authentication manager initialization completed");
 }
 #endif
-
-#ifndef ETL_ENABLE_POSTGRESQL
-AuthManager::AuthManager() : userRepo_(nullptr), sessionRepo_(nullptr) {
-  AUTH_LOG_INFO("Initializing authentication manager (PostgreSQL disabled)");
-#if ETL_ENABLE_JWT
-  // Load JWT secret from environment variable or file
-  std::string jwtSecretKey;
-  const char *secret = std::getenv("JWT_SECRET_KEY");
-  if (secret) {
-    jwtSecretKey = secret;
-  } else {
-    // Try loading from file
-    const char *secretFile = std::getenv("JWT_SECRET_KEY_FILE");
-    if (secretFile) {
-      std::ifstream file(secretFile);
-      if (file.is_open()) {
-        std::getline(file, jwtSecretKey);
-        file.close();
-      }
-    }
-  }
-
-  if (jwtSecretKey.empty()) {
-    AUTH_LOG_ERROR("JWT_SECRET_KEY environment variable or JWT_SECRET_KEY_FILE must be set");
-    throw std::runtime_error("JWT_SECRET_KEY environment variable or JWT_SECRET_KEY_FILE must be set");
-  }
-
-  if (jwtSecretKey.length() < 32) {
-    throw std::runtime_error("JWT_SECRET_KEY must be at least 32 characters long for security");
-  }
-
-  jwtSecretKey_ = jwtSecretKey;
-  AUTH_LOG_DEBUG("JWT secret key loaded successfully.");
-
-  // Securely zero the temporary string
-  std::fill(jwtSecretKey.begin(), jwtSecretKey.end(), '\0');
-
-  // Lock the secret in memory if possible
-#if defined(__unix__) || defined(__APPLE__)
-  if (mlock(jwtSecretKey_.data(), jwtSecretKey_.size()) != 0) {
-    AUTH_LOG_WARN("Failed to lock JWT secret in memory");
-  }
-#endif
-#endif
-  AUTH_LOG_DEBUG("Authentication manager initialization completed");
-}
-#endif
-
-AuthManager::~AuthManager() {
-#if ETL_ENABLE_JWT
-  // Unlock and zero the JWT secret
-#if defined(__unix__) || defined(__APPLE__)
-  if (!jwtSecretKey_.empty()) {
-    munlock(jwtSecretKey_.data(), jwtSecretKey_.size());
-  }
-#endif
-  std::fill(jwtSecretKey_.begin(), jwtSecretKey_.end(), '\0');
-#endif
-}
 
 #if ETL_ENABLE_JWT
 std::chrono::hours AuthManager::getJWTExpiryHours() const {
@@ -147,6 +116,10 @@ bool AuthManager::createUser(const std::string &username,
                              const std::string &password) {
   AUTH_LOG_DEBUG("Creating user: " + username);
 
+#ifndef ETL_ENABLE_POSTGRESQL
+  AUTH_LOG_ERROR("User creation failed: PostgreSQL support not available");
+  return false;
+#else
   // Check if user already exists
   if (userRepo_->userExists(username, email)) {
     AUTH_LOG_ERROR(
@@ -170,9 +143,14 @@ bool AuthManager::createUser(const std::string &username,
     AUTH_LOG_ERROR("Failed to create user in database");
     return false;
   }
+#endif
 }
 
 bool AuthManager::userExists(std::string_view username) const {
+#ifndef ETL_ENABLE_POSTGRESQL
+  AUTH_LOG_ERROR("User lookup failed: PostgreSQL support not available");
+  return false;
+#else
   auto user = userRepo_->getUserByUsername(std::string(username));
   if (user && user->isActive) {
     // This function only checks for user existence and active status
@@ -182,6 +160,7 @@ bool AuthManager::userExists(std::string_view username) const {
 
   AUTH_LOG_ERROR("User lookup failed for user: " + std::string(username));
   return false;
+#endif
 }
 
 bool AuthManager::authenticateUser(std::string_view username,
@@ -192,6 +171,10 @@ bool AuthManager::authenticateUser(std::string_view username,
     return false;
   }
 
+#ifndef ETL_ENABLE_POSTGRESQL
+  AUTH_LOG_ERROR("Authentication failed: PostgreSQL support not available");
+  return false;
+#else
   auto user = userRepo_->getUserByUsername(std::string(username));
   if (!user || !user->isActive) {
     AUTH_LOG_ERROR("Authentication failed: invalid credentials");
@@ -206,10 +189,15 @@ bool AuthManager::authenticateUser(std::string_view username,
 
   AUTH_LOG_INFO("Authenticated user: " + std::string(username));
   return true;
+#endif
 }
 
 bool AuthManager::updateUser(const std::string &userId,
                              const User &updatedUser) {
+#ifndef ETL_ENABLE_POSTGRESQL
+  AUTH_LOG_ERROR("User update failed: PostgreSQL support not available");
+  return false;
+#else
   if (updatedUser.id != userId) {
     AUTH_LOG_ERROR("User ID mismatch: expected " + userId + ", got " +
                    updatedUser.id);
@@ -222,9 +210,14 @@ bool AuthManager::updateUser(const std::string &userId,
     AUTH_LOG_ERROR("Failed to update user: " + userId);
     return false;
   }
+#endif
 }
 
 bool AuthManager::deleteUser(const std::string &userId) {
+#ifndef ETL_ENABLE_POSTGRESQL
+  AUTH_LOG_ERROR("User deletion failed: PostgreSQL support not available");
+  return false;
+#else
   if (userRepo_->deleteUser(userId)) {
     AUTH_LOG_INFO("Deleted user: " + userId);
     return true;
@@ -232,22 +225,37 @@ bool AuthManager::deleteUser(const std::string &userId) {
     AUTH_LOG_ERROR("Failed to delete user: " + userId);
     return false;
   }
+#endif
 }
 
 std::shared_ptr<User> AuthManager::getUser(const std::string &userId) const {
+#ifndef ETL_ENABLE_POSTGRESQL
+  AUTH_LOG_ERROR("User lookup failed: PostgreSQL support not available");
+  return nullptr;
+#else
   auto user = userRepo_->getUserById(userId);
   if (user) {
     return std::make_shared<User>(*user);
   }
   return nullptr;
+#endif
 }
 
 std::optional<User>
 AuthManager::getUserByUsername(const std::string &username) const {
+#ifndef ETL_ENABLE_POSTGRESQL
+  AUTH_LOG_ERROR("User lookup failed: PostgreSQL support not available");
+  return std::nullopt;
+#else
   return userRepo_->getUserByUsername(username);
+#endif
 }
 
 std::string AuthManager::createSession(const std::string &userId) {
+#ifndef ETL_ENABLE_POSTGRESQL
+  AUTH_LOG_ERROR("Session creation failed: PostgreSQL support not available");
+  return "";
+#else
   auto user = userRepo_->getUserById(userId);
   if (!user || !user->isActive) {
     AUTH_LOG_ERROR("Cannot create session for invalid or inactive user: " +
@@ -271,9 +279,14 @@ std::string AuthManager::createSession(const std::string &userId) {
     AUTH_LOG_ERROR("Failed to create session in database");
     return "";
   }
+#endif
 }
 
 bool AuthManager::validateSession(const std::string &sessionId) {
+#ifndef ETL_ENABLE_POSTGRESQL
+  AUTH_LOG_ERROR("Session validation failed: PostgreSQL support not available");
+  return false;
+#else
   auto session = sessionRepo_->getSessionById(sessionId);
   if (session && session->isValid &&
       std::chrono::system_clock::now() < session->expiresAt) {
@@ -286,9 +299,14 @@ bool AuthManager::validateSession(const std::string &sessionId) {
     sessionRepo_->updateSession(updatedSession);
   }
   return false;
+#endif
 }
 
 void AuthManager::revokeSession(const std::string &sessionId) {
+#ifndef ETL_ENABLE_POSTGRESQL
+  AUTH_LOG_ERROR("Session revocation failed: PostgreSQL support not available");
+  return;
+#else
   auto session = sessionRepo_->getSessionById(sessionId);
   if (session) {
     Session updatedSession = *session;
@@ -299,19 +317,29 @@ void AuthManager::revokeSession(const std::string &sessionId) {
       AUTH_LOG_ERROR("Failed to revoke session: " + sessionId);
     }
   }
+#endif
 }
 
 void AuthManager::cleanupExpiredSessions() {
+#ifndef ETL_ENABLE_POSTGRESQL
+  AUTH_LOG_ERROR("Session cleanup failed: PostgreSQL support not available");
+  return;
+#else
   if (sessionRepo_->deleteExpiredSessions()) {
     AUTH_LOG_INFO("Cleaned up expired sessions");
   } else {
     AUTH_LOG_ERROR("Failed to cleanup expired sessions");
   }
+#endif
 }
 
 bool AuthManager::hasPermission(std::string_view userId,
                                 std::string_view resource,
                                 std::string_view action) const {
+#ifndef ETL_ENABLE_POSTGRESQL
+  AUTH_LOG_ERROR("Permission check failed: PostgreSQL support not available");
+  return false;
+#else
   auto user = getUser(std::string(userId));
   if (!user || !user->isActive) {
     return false;
@@ -328,10 +356,15 @@ bool AuthManager::hasPermission(std::string_view userId,
                        }
                        return false;
                      });
+#endif
 }
 
 void AuthManager::assignRole(const std::string &userId,
                              const std::string &role) {
+#ifndef ETL_ENABLE_POSTGRESQL
+  AUTH_LOG_ERROR("Role assignment failed: PostgreSQL support not available");
+  return;
+#else
   auto userOpt = userRepo_->getUserById(userId);
   if (!userOpt) {
     AUTH_LOG_ERROR("User not found: " + userId);
@@ -348,10 +381,15 @@ void AuthManager::assignRole(const std::string &userId,
       AUTH_LOG_ERROR("Failed to assign role to user: " + userId);
     }
   }
+#endif
 }
 
 void AuthManager::revokeRole(const std::string &userId,
                              const std::string &role) {
+#ifndef ETL_ENABLE_POSTGRESQL
+  AUTH_LOG_ERROR("Role revocation failed: PostgreSQL support not available");
+  return;
+#else
   auto userOpt = userRepo_->getUserById(userId);
   if (!userOpt) {
     AUTH_LOG_ERROR("User not found: " + userId);
@@ -368,6 +406,7 @@ void AuthManager::revokeRole(const std::string &userId,
       AUTH_LOG_ERROR("Failed to revoke role from user: " + userId);
     }
   }
+#endif
 }
 
 std::string AuthManager::hashPassword(std::string_view password,

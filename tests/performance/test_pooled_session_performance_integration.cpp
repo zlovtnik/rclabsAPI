@@ -1,4 +1,6 @@
 #include <boost/asio.hpp>
+#include <boost/asio/local/connect_pair.hpp>
+#include <boost/asio/local/stream_protocol.hpp>
 #include <cassert>
 #include <chrono>
 #include <iostream>
@@ -9,10 +11,10 @@
 #include <gtest/gtest.h>
 
 // Include necessary headers
-#include "../include/performance_monitor.hpp"
-#include "../include/pooled_session.hpp"
-#include "../include/request_handler.hpp"
-#include "../include/timeout_manager.hpp"
+#include "../../include/performance_monitor.hpp"
+#include "../../include/pooled_session.hpp"
+#include "../../include/request_handler.hpp"
+#include "../../include/timeout_manager.hpp"
 
 // Add tcp alias for portability
 using boost::asio::ip::tcp;
@@ -22,8 +24,8 @@ class MockRequestHandler : public RequestHandler {
 public:
   http::response<http::string_body>
   handleRequest(http::request<http::string_body> &&req) override {
-    // Simulate processing time
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    // Remove artificial delay for performance tests
+    // std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
     http::response<http::string_body> res{http::status::ok, req.version()};
     res.set(http::field::server, "Test Server");
@@ -36,7 +38,7 @@ public:
 
 class MockWebSocketManager : public WebSocketManager {
 public:
-  void handleUpgrade(tcp::socket &&socket) override {
+  void handleUpgrade(tcp::socket socket) override {
     // Mock implementation - just close the socket
     boost::system::error_code ec;
     socket.close(ec);
@@ -62,12 +64,6 @@ protected:
 // Test PooledSession with PerformanceMonitor
 TEST_F(PooledSessionPerformanceIntegrationTest, SessionWithPerformanceMonitor) {
 
-  // Create IO context and connected socket pair for testing
-  boost::asio::io_context ioc;
-  boost::asio::local::stream_protocol::socket local_socket1(ioc);
-  boost::asio::local::stream_protocol::socket local_socket2(ioc);
-  boost::asio::local::connect_pair(local_socket1, local_socket2);
-
   // Create dependencies
   auto performanceMonitor = std::make_shared<PerformanceMonitor>();
   auto handler = std::make_shared<MockRequestHandler>();
@@ -77,8 +73,8 @@ TEST_F(PooledSessionPerformanceIntegrationTest, SessionWithPerformanceMonitor) {
 
   // Verify initial metrics
   auto initialMetrics = performanceMonitor->getMetrics();
-  assert(initialMetrics.totalRequests.load() == 0);
-  assert(initialMetrics.activeRequests.load() == 0);
+  EXPECT_EQ(initialMetrics.totalRequests.load(), 0);
+  EXPECT_EQ(initialMetrics.activeRequests.load(), 0);
 
   // Create PooledSession with performance monitor
   // Note: This test is simplified since we can't easily create a real TCP

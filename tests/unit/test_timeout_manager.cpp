@@ -143,6 +143,7 @@ TEST_F(TimeoutManagerTest, RequestTimeoutBasic) {
 // Test timeout cancellation
 TEST_F(TimeoutManagerTest, TimeoutCancellation) {
   auto session = std::make_shared<PooledSession>(3);
+  activeSessions_.push_back(session); // Keep session alive
   std::atomic<bool> timeoutCalled{false};
 
   auto callback = [&timeoutCalled](std::shared_ptr<PooledSession> s,
@@ -295,35 +296,36 @@ TEST_F(TimeoutManagerTest, CustomDefaultCallback) {
 }
 
 // Test cancel all timers
-TEST_F(TimeoutManagerTest, CancelAllTimers) {
-  auto session1 = std::make_shared<PooledSession>(10);
-  auto session2 = std::make_shared<PooledSession>(11);
+auto session1 = std::make_shared<PooledSession>(10);
+auto session2 = std::make_shared<PooledSession>(11);
+activeSessions_.push_back(session1);
+activeSessions_.push_back(session2);
 
-  std::atomic<int> timeoutCount{0};
-  auto callback = [&timeoutCount](std::shared_ptr<PooledSession> s,
-                                  TimeoutType type) { timeoutCount++; };
+std::atomic<int> timeoutCount{0};
+auto callback = [&timeoutCount](std::shared_ptr<PooledSession> s,
+                                TimeoutType type) { timeoutCount++; };
 
-  timeoutManager_->startConnectionTimeout(session1, callback,
-                                          std::chrono::seconds(2));
-  timeoutManager_->startRequestTimeout(session1, callback,
-                                       std::chrono::seconds(2));
-  timeoutManager_->startConnectionTimeout(session2, callback,
-                                          std::chrono::seconds(2));
-  timeoutManager_->startRequestTimeout(session2, callback,
-                                       std::chrono::seconds(2));
+timeoutManager_->startConnectionTimeout(session1, callback,
+                                        std::chrono::seconds(2));
+timeoutManager_->startRequestTimeout(session1, callback,
+                                     std::chrono::seconds(2));
+timeoutManager_->startConnectionTimeout(session2, callback,
+                                        std::chrono::seconds(2));
+timeoutManager_->startRequestTimeout(session2, callback,
+                                     std::chrono::seconds(2));
 
-  EXPECT_EQ(timeoutManager_->getActiveConnectionTimers(), 2);
-  EXPECT_EQ(timeoutManager_->getActiveRequestTimers(), 2);
+EXPECT_EQ(timeoutManager_->getActiveConnectionTimers(), 2);
+EXPECT_EQ(timeoutManager_->getActiveRequestTimers(), 2);
 
-  // Cancel all timers
-  timeoutManager_->cancelAllTimers();
+// Cancel all timers
+timeoutManager_->cancelAllTimers();
 
-  EXPECT_EQ(timeoutManager_->getActiveConnectionTimers(), 0);
-  EXPECT_EQ(timeoutManager_->getActiveRequestTimers(), 0);
+EXPECT_EQ(timeoutManager_->getActiveConnectionTimers(), 0);
+EXPECT_EQ(timeoutManager_->getActiveRequestTimers(), 0);
 
-  // Wait to ensure no timeouts occur
-  std::this_thread::sleep_for(std::chrono::milliseconds(2200));
-  EXPECT_EQ(timeoutCount, 0);
+// Wait to ensure no timeouts occur
+std::this_thread::sleep_for(std::chrono::milliseconds(2200));
+EXPECT_EQ(timeoutCount, 0);
 }
 
 // Test null session handling

@@ -17,11 +17,19 @@ auto notificationService =
     std::make_shared<NotificationServiceImpl>(&logger);
 
 // Load notification configuration
-auto notificationConfig = NotificationConfig::fromConfig(config);
-notificationService->configure(notificationConfig);
+try {
+    auto notificationConfig = NotificationConfig::fromConfig(config);
+    notificationService->configure(notificationConfig);
+} catch (const std::exception& e) {
+    LOG_ERROR("Main", "Failed to configure notification service: " +
+std::string(e.what())); return -1;  // or appropriate error handling
+}
 
 // Start notification service
-notificationService->start();
+if (!notificationService->start()) {
+    LOG_ERROR("Main", "Failed to start notification service");
+    return -1;  // or appropriate error handling
+}
 LOG_INFO("Main", "Notification service started successfully");
 
 // Initialize Job Monitor Service
@@ -59,13 +67,14 @@ LOG_INFO("Main", "Job monitor service started successfully");
  *   "email": {
  *     "smtp_server": "smtp.gmail.com",
  *     "smtp_port": 587,
- *     "username": "your-email@gmail.com",
- *     "password": "your-app-password",
- *     "recipients": ["admin@company.com", "ops@company.com"]
+ *     "username": "REPLACE_WITH_YOUR_EMAIL",
+ *     "password": "REPLACE_WITH_APP_PASSWORD",
+ *     "recipients": ["REPLACE_WITH_ADMIN_EMAIL", "REPLACE_WITH_OPS_EMAIL"]
+ *   },
  *   },
  *   "webhook": {
- *     "url": "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK",
- *     "secret": "your-webhook-secret",
+ *     "url": "https://hooks.slack.com/services/REPLACE/WITH/YOUR_WEBHOOK_PATH",
+ *     "secret": "REPLACE_WITH_YOUR_WEBHOOK_SECRET",
  *     "timeout": 30000
  *   }
  * }

@@ -159,7 +159,9 @@ if(NOT LIBPQXX_FOUND)
         # Use the full path for reliable linking
         set(LIBPQXX_LIBRARIES ${LIBPQXX_LIBRARIES})
     else()
-        message(FATAL_ERROR "libpqxx not found. PostgreSQL support is required for this application. Please install libpqxx-dev.")
+        message(STATUS "libpqxx not found, PostgreSQL support will be disabled")
+        message(STATUS "Build will continue without database functionality")
+        set(LIBPQXX_FOUND FALSE)
         set(LIBPQXX_LIBRARIES "")
         set(LIBPQXX_INCLUDE_DIRS "")
     endif()
@@ -317,7 +319,6 @@ set(COMMON_SOURCES
     src/pooled_session.cpp
     src/connection_pool_manager.cpp
     src/request_handler.cpp
-    src/http_server.cpp
     src/rate_limiter.cpp
     src/lock_utils.cpp
     src/type_definitions.cpp

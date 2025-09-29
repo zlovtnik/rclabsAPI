@@ -3,6 +3,8 @@
 #include "../include/etl_job_manager.hpp"
 #include "../include/input_validator.hpp"
 #include "../include/request_handler.hpp"
+#include "../include/session_repository.hpp"
+#include "../include/user_repository.hpp"
 #include <boost/beast/http.hpp>
 #include <cassert>
 #include <chrono>
@@ -32,6 +34,16 @@ public:
   bool isConnected() const { return true; }
 };
 
+class MockUserRepository : public UserRepository {
+public:
+  MockUserRepository() : UserRepository(nullptr) {}
+};
+
+class MockSessionRepository : public SessionRepository {
+public:
+  MockSessionRepository() : SessionRepository(nullptr) {}
+};
+
 class MockAuthManager : public AuthManager {
 public:
   /**
@@ -40,7 +52,16 @@ public:
    * Creates a no-op mock authentication manager used in tests; it does not
    * perform any real authentication setup.
    */
-  MockAuthManager() {}
+  MockAuthManager()
+#ifndef ETL_ENABLE_POSTGRESQL
+      : AuthManager(std::make_shared<MockUserRepository>(),
+                    std::make_shared<MockSessionRepository>())
+#endif
+#ifdef ETL_ENABLE_POSTGRESQL
+      : AuthManager(nullptr)
+#endif
+  {
+  }
 };
 
 class MockETLJobManager : public ETLJobManager {

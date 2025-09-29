@@ -1,92 +1,44 @@
 #include "logger.hpp"
 #include "websocket_connection.hpp"
 #include "websocket_manager.hpp"
-#include <iostream>
+#include <gtest/gtest.h>
 
-class WebSocketBasicTest {
-public:
-  void runTests() {
-    std::cout << "Starting Basic WebSocket Tests...\n";
-
-    testWebSocketManagerCreation();
-    testWebSocketManagerLifecycle();
-    testConnectionManagement();
-
-    std::cout << "All basic WebSocket tests completed!\n";
-  }
-
-private:
-  void testWebSocketManagerCreation() {
-    std::cout << "Test 1: WebSocket Manager Creation\n";
-
-    auto wsManager = std::make_shared<WebSocketManager>();
-
-    if (wsManager) {
-      std::cout << "✓ WebSocket manager created successfully\n";
-    } else {
-      std::cout << "✗ Failed to create WebSocket manager\n";
-    }
-
-    // Test initial state
-    if (wsManager->getConnectionCount() == 0) {
-      std::cout << "✓ Initial connection count is 0\n";
-    } else {
-      std::cout << "✗ Initial connection count is not 0\n";
-    }
-  }
-
-  void testWebSocketManagerLifecycle() {
-    std::cout << "\nTest 2: WebSocket Manager Lifecycle\n";
-
-    auto wsManager = std::make_shared<WebSocketManager>();
-
-    // Test start
-    wsManager->start();
-    std::cout << "✓ WebSocket manager started\n";
-
-    // Test stop
-    wsManager->stop();
-    std::cout << "✓ WebSocket manager stopped\n";
-  }
-
-  void testConnectionManagement() {
-    std::cout << "\nTest 3: Connection Management\n";
-
-    auto wsManager = std::make_shared<WebSocketManager>();
-    wsManager->start();
-
-    // Test broadcast to empty connections
-    wsManager->broadcastMessage("test message");
-    std::cout << "✓ Broadcast to empty connections handled\n";
-
-    // Test send to non-existent connection
-    wsManager->sendToConnection("non-existent", "test message");
-    std::cout << "✓ Send to non-existent connection handled\n";
-
-    // Test getting connection IDs
-    auto ids = wsManager->getConnectionIds();
-    if (ids.empty()) {
-      std::cout << "✓ Empty connection IDs list returned\n";
-    } else {
-      std::cout << "✗ Connection IDs list should be empty\n";
-    }
-
-    wsManager->stop();
-  }
-};
-
-int main() {
-  try {
+class WebSocketBasicTest : public ::testing::Test {
+protected:
+  void SetUp() override {
     // Initialize logger for testing
     Logger &logger = Logger::getInstance();
     logger.configure(LogConfig{});
-
-    WebSocketBasicTest test;
-    test.runTests();
-
-    return 0;
-  } catch (const std::exception &e) {
-    std::cerr << "Test failed with exception: " << e.what() << std::endl;
-    return 1;
   }
+};
+
+TEST_F(WebSocketBasicTest, ManagerCreation) {
+  auto wsManager = std::make_shared<WebSocketManager>();
+
+  ASSERT_NE(wsManager, nullptr);
+  EXPECT_EQ(wsManager->getConnectionCount(), 0);
+}
+
+TEST_F(WebSocketBasicTest, ManagerLifecycle) {
+  auto wsManager = std::make_shared<WebSocketManager>();
+
+  EXPECT_NO_THROW(wsManager->start());
+  EXPECT_NO_THROW(wsManager->stop());
+}
+
+TEST_F(WebSocketBasicTest, ConnectionManagement) {
+  auto wsManager = std::make_shared<WebSocketManager>();
+  wsManager->start();
+
+  // Test broadcast to empty connections
+  EXPECT_NO_THROW(wsManager->broadcastMessage("test message"));
+
+  // Test send to non-existent connection
+  EXPECT_NO_THROW(wsManager->sendToConnection("non-existent", "test message"));
+
+  // Test getting connection IDs
+  auto ids = wsManager->getConnectionIds();
+  EXPECT_TRUE(ids.empty());
+
+  wsManager->stop();
 }

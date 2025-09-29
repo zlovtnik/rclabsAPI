@@ -2,9 +2,9 @@
 #include "data_transformer.hpp"
 #ifdef ETL_ENABLE_POSTGRESQL
 #include "database_manager.hpp"
+#include "etl_job_repository.hpp"
 #endif
 #include "etl_exceptions.hpp"
-#include "etl_job_repository.hpp"
 #include "exception_handler.hpp"
 #include "lock_utils.hpp"
 #include "logger.hpp"
@@ -33,17 +33,18 @@ constexpr auto kLockTO_Read = std::chrono::milliseconds(500);
 #ifdef ETL_ENABLE_POSTGRESQL
 ETLJobManager::ETLJobManager(std::shared_ptr<DatabaseManager> dbManager,
                              std::shared_ptr<DataTransformer> transformer)
-    : dbManager_(dbManager), transformer_(transformer),
-      jobRepo_(std::make_shared<ETLJobRepository>(dbManager)), running_(false) {
-}
+    : transformer_(transformer),
+      jobRepo_(std::make_shared<PostgresETLJobRepository>(dbManager)),
+      running_(false) {}
 #endif
 
 ETLJobManager::ETLJobManager(std::shared_ptr<DataTransformer> transformer)
-    : dbManager_(nullptr),
-      transformer_(transformer),
-      jobRepo_(nullptr),
-      running_(false) {
-}
+    : transformer_(transformer),
+      jobRepo_(std::make_shared<NullETLJobRepository>()), running_(false) {}
+
+ETLJobManager::ETLJobManager(std::shared_ptr<IETLJobRepository> jobRepo,
+                             std::shared_ptr<DataTransformer> transformer)
+    : transformer_(transformer), jobRepo_(jobRepo), running_(false) {}
 
 ETLJobManager::~ETLJobManager() { stop(); }
 
@@ -836,3 +837,44 @@ void ETLJobManager::setupMetricsCallback(std::shared_ptr<ETLJob> job) {
 
   job->metricsCollector->setMetricsUpdateCallback(metricsCallback);
 }
+
+#ifdef ETL_ENABLE_POSTGRESQL
+// Implementation of PostgresETLJobRepository
+PostgresETLJobRepository::PostgresETLJobRepository(
+    std::shared_ptr<DatabaseManager> dbManager)
+    : concreteRepo_(std::make_shared<ETLJobRepository>(dbManager)) {}
+
+bool PostgresETLJobRepository::createJob(const ETLJob &job) {
+  return concreteRepo_->createJob(job);
+}
+
+std::optional<ETLJob>
+PostgresETLJobRepository::getJobById(const std::string &jobId) {
+  return concreteRepo_->getJobById(jobId);
+}
+
+std::vector<ETLJob> PostgresETLJobRepository::getAllJobs() {
+  return concreteRepo_->getAllJobs();
+}
+
+std::vector<ETLJob>
+PostgresETLJobRepository::getJobsByStatus(JobStatus status) {
+  return concreteRepo_->getJobsByStatus(status);
+}
+
+bool PostgresETLJobRepository::updateJob(const ETLJob &job) {
+  return concreteRepo_->updateJob(job);
+}
+
+bool PostgresETLJobRepository::deleteJob(const std::string &jobId) {
+  return concreteRepo_->deleteJob(jobId);
+}
+
+std::vector<ETLJob> PostgresETLJobRepository::getJobsByType(JobType type) {
+  return concreteRepo_->getJobsByType(type);
+}
+
+std::vector<ETLJob> PostgresETLJobRepository::getActiveJobs() {
+  return concreteRepo_->getActiveJobs();
+}
+#endif

@@ -618,19 +618,19 @@ private:
    */
   std::string getCurrentTimestamp() const {
     auto now = std::chrono::system_clock::now();
-  std::string getCurrentTimestamp() const {
-    auto now = std::chrono::system_clock::now();
-    auto time_t = std::chrono::system_clock::to_time_t(now);
+    std::string getCurrentTimestamp() const {
+      auto now = std::chrono::system_clock::now();
+      auto time_t = std::chrono::system_clock::to_time_t(now);
 
-    auto* tm_ptr = std::gmtime(&time_t);
-    if (!tm_ptr) {
-      return "1970-01-01T00:00:00Z"; // Fallback timestamp
+      auto *tm_ptr = std::gmtime(&time_t);
+      if (!tm_ptr) {
+        return "1970-01-01T00:00:00Z"; // Fallback timestamp
+      }
+
+      std::ostringstream oss;
+      oss << std::put_time(tm_ptr, "%Y-%m-%dT%H:%M:%SZ");
+      return oss.str();
     }
-
-    std::ostringstream oss;
-    oss << std::put_time(tm_ptr, "%Y-%m-%dT%H:%M:%SZ");
-    return oss.str();
-  }
    * @brief Reset the builder's mutable state to its defaults.
    *
    * Restores the current status to OK, sets the current content type to the
@@ -639,199 +639,200 @@ private:
    * built from a clean state.
    */
   void resetState() {
-    currentStatus_ = Status::OK;
-    currentContentType_ = config_.defaultContentType;
-    currentHeaders_.clear();
-    currentRequestId_.clear();
-  }
-};
+     currentStatus_ = Status::OK;
+     currentContentType_ = config_.defaultContentType;
+     currentHeaders_.clear();
+     currentRequestId_.clear();
+   }
+  };
 
-/**
- * @brief Print a human-readable representation of a Response to stdout.
- *
- * Prints a formatted block containing the test name, a separator line, the
- * numeric HTTP-like status code, all response headers, and the response body
- * (or
- * "(empty)" when the body is empty). Intended for demo and debugging output.
- *
- * @param testName Short label identifying the test or scenario.
- * @param response Response object whose status, headers, and body will be
- * printed.
- *
- * Side effects: writes to std::cout.
- */
-void printResponse(const std::string &testName,
-                   const SimpleResponseBuilder::Response &response) {
-  std::cout << "\n" << std::string(60, '=') << "\n";
-  std::cout << "Test: " << testName << "\n";
-  std::cout << std::string(60, '=') << "\n";
+  /**
+   * @brief Print a human-readable representation of a Response to stdout.
+   *
+   * Prints a formatted block containing the test name, a separator line, the
+   * numeric HTTP-like status code, all response headers, and the response body
+   * (or
+   * "(empty)" when the body is empty). Intended for demo and debugging output.
+   *
+   * @param testName Short label identifying the test or scenario.
+   * @param response Response object whose status, headers, and body will be
+   * printed.
+   *
+   * Side effects: writes to std::cout.
+   */
+  void printResponse(const std::string &testName,
+                     const SimpleResponseBuilder::Response &response) {
+    std::cout << "\n" << std::string(60, '=') << "\n";
+    std::cout << "Test: " << testName << "\n";
+    std::cout << std::string(60, '=') << "\n";
 
-  std::cout << "Status: " << static_cast<int>(response.status) << "\n";
+    std::cout << "Status: " << static_cast<int>(response.status) << "\n";
 
-  std::cout << "Headers:\n";
-  for (const auto &[name, value] : response.headers) {
-    std::cout << "  " << name << ": " << value << "\n";
-  }
+    std::cout << "Headers:\n";
+    for (const auto &[name, value] : response.headers) {
+      std::cout << "  " << name << ": " << value << "\n";
+    }
 
-  std::cout << "Body:\n";
-  if (response.body.empty()) {
-    std::cout << "  (empty)\n";
-  } else {
-    std::cout << "  " << response.body << "\n";
-  }
-}
-
-/**
- * @brief Demo program that exercises the SimpleResponseBuilder API.
- *
- * This demonstration runs 15 scenarios covering common response construction
- * patterns (success, errors, validation failures, health checks, redirects,
- * content-type handling, CORS/security headers, timestamps, and request IDs)
- * and prints the resulting Response objects to stdout. Intended to validate and
- * showcase the builder's default headers, JSON escaping, fluent interface, and
- * stateless reset between responses.
- *
- * @return int Exit status code (returns 0 on successful completion).
- */
-int main() {
-  std::cout << "🚀 ResponseBuilder Demo (Simplified)\n";
-  std::cout << "====================================\n";
-  std::cout << "Demonstrating HTTP response building for server stability "
-               "improvements\n";
-
-  SimpleResponseBuilder::Config config;
-  config.serverName = "ETL Plus Demo Server";
-  config.includeTimestamp = true;
-  config.includeRequestId = true;
-
-  SimpleResponseBuilder builder(config);
-
-  // Test 1: Success response
-  {
-    auto response = builder.success(R"({"message":"Hello World"})");
-    printResponse("Basic Success Response", response);
+    std::cout << "Body:\n";
+    if (response.body.empty()) {
+      std::cout << "  (empty)\n";
+    } else {
+      std::cout << "  " << response.body << "\n";
+    }
   }
 
-  // Test 2: Success with message
-  {
-    auto response = builder.successWithMessage("User created successfully",
-                                               R"({"id":123,"name":"John"})");
-    printResponse("Success with Message", response);
+  /**
+   * @brief Demo program that exercises the SimpleResponseBuilder API.
+   *
+   * This demonstration runs 15 scenarios covering common response construction
+   * patterns (success, errors, validation failures, health checks, redirects,
+   * content-type handling, CORS/security headers, timestamps, and request IDs)
+   * and prints the resulting Response objects to stdout. Intended to validate
+   * and showcase the builder's default headers, JSON escaping, fluent
+   * interface, and stateless reset between responses.
+   *
+   * @return int Exit status code (returns 0 on successful completion).
+   */
+  int main() {
+    std::cout << "🚀 ResponseBuilder Demo (Simplified)\n";
+    std::cout << "====================================\n";
+    std::cout << "Demonstrating HTTP response building for server stability "
+                 "improvements\n";
+
+    SimpleResponseBuilder::Config config;
+    config.serverName = "ETL Plus Demo Server";
+    config.includeTimestamp = true;
+    config.includeRequestId = true;
+
+    SimpleResponseBuilder builder(config);
+
+    // Test 1: Success response
+    {
+      auto response = builder.success(R"({"message":"Hello World"})");
+      printResponse("Basic Success Response", response);
+    }
+
+    // Test 2: Success with message
+    {
+      auto response = builder.successWithMessage("User created successfully",
+                                                 R"({"id":123,"name":"John"})");
+      printResponse("Success with Message", response);
+    }
+
+    // Test 3: JSON success response
+    {
+      auto response = builder.successJson(
+          R"({"users":[{"id":1,"name":"Alice"},{"id":2,"name":"Bob"}]})");
+      printResponse("JSON Success Response", response);
+    }
+
+    // Test 4: Bad request error
+    {
+      auto response = builder.badRequest("Missing required field: username");
+      printResponse("Bad Request Error", response);
+    }
+
+    // Test 5: Unauthorized error
+    {
+      auto response = builder.unauthorized("Invalid authentication token");
+      printResponse("Unauthorized Error", response);
+    }
+
+    // Test 6: Not found error
+    {
+      auto response = builder.notFound("User");
+      printResponse("Not Found Error", response);
+    }
+
+    // Test 7: Method not allowed
+    {
+      auto response = builder.methodNotAllowed("DELETE", "/api/users");
+      printResponse("Method Not Allowed", response);
+    }
+
+    // Test 8: Rate limit exceeded
+    {
+      auto response = builder.tooManyRequests("Too many requests from this IP");
+      printResponse("Rate Limit Exceeded", response);
+    }
+
+    // Test 9: Validation error
+    {
+      std::vector<std::string> errors = {
+          "Username must be at least 3 characters", "Email format is invalid",
+          "Password must contain at least one number"};
+      auto response = builder.validationError(errors);
+      printResponse("Validation Error", response);
+    }
+
+    // Test 10: Health check (healthy)
+    {
+      auto response = builder.healthCheck(true, "All systems operational");
+      printResponse("Health Check - Healthy", response);
+    }
+
+    // Test 11: Health check (unhealthy)
+    {
+      auto response = builder.healthCheck(false, "Database connection failed");
+      printResponse("Health Check - Unhealthy", response);
+    }
+
+    // Test 12: Redirect response
+    {
+      auto response = builder.redirect("https://api.example.com/v2/users");
+      printResponse("Redirect Response", response);
+    }
+
+    // Test 13: Fluent interface usage
+    {
+      auto response =
+          builder.setStatus(SimpleResponseBuilder::Status::CREATED)
+              .setContentType(SimpleResponseBuilder::ContentType::JSON)
+              .setHeader("X-Custom-Header", "custom-value")
+              .setRequestId("req-12345")
+              .success(R"({"id":456,"status":"created"})");
+      printResponse("Fluent Interface Usage", response);
+    }
+
+    // Test 14: Custom content type
+    {
+      auto response =
+          builder.setContentType(SimpleResponseBuilder::ContentType::XML)
+              .success("<users><user id=\"1\">Alice</user></users>");
+      printResponse("XML Content Type", response);
+    }
+
+    // Test 15: Internal server error
+    {
+      auto response =
+          builder.internalServerError("Database connection timeout");
+      printResponse("Internal Server Error", response);
+    }
+
+    std::cout << "\n🎉 ResponseBuilder Demo Complete!\n";
+    std::cout << "\nKey Features Demonstrated:\n";
+    std::cout << "  ✅ Fluent interface for response building\n";
+    std::cout << "  ✅ Standardized success and error responses\n";
+    std::cout << "  ✅ Automatic header management (CORS, security)\n";
+    std::cout << "  ✅ Content type negotiation\n";
+    std::cout << "  ✅ JSON formatting and escaping\n";
+    std::cout << "  ✅ Timestamp and request ID inclusion\n";
+    std::cout << "  ✅ HTTP status code mapping\n";
+    std::cout << "  ✅ Validation error formatting\n";
+    std::cout << "  ✅ Health check responses\n";
+    std::cout << "  ✅ Redirect responses\n";
+
+    std::cout << "\nThis response building logic will improve HTTP server "
+                 "stability by:\n";
+    std::cout
+        << "  • Ensuring consistent response formats across all endpoints\n";
+    std::cout << "  • Automatically applying security and CORS headers\n";
+    std::cout
+        << "  • Providing proper HTTP status codes for different scenarios\n";
+    std::cout << "  • Standardizing error response structures\n";
+    std::cout
+        << "  • Including debugging information (timestamps, request IDs)\n";
+    std::cout << "  • Preventing JSON injection through proper escaping\n";
+
+    return 0;
   }
-
-  // Test 3: JSON success response
-  {
-    auto response = builder.successJson(
-        R"({"users":[{"id":1,"name":"Alice"},{"id":2,"name":"Bob"}]})");
-    printResponse("JSON Success Response", response);
-  }
-
-  // Test 4: Bad request error
-  {
-    auto response = builder.badRequest("Missing required field: username");
-    printResponse("Bad Request Error", response);
-  }
-
-  // Test 5: Unauthorized error
-  {
-    auto response = builder.unauthorized("Invalid authentication token");
-    printResponse("Unauthorized Error", response);
-  }
-
-  // Test 6: Not found error
-  {
-    auto response = builder.notFound("User");
-    printResponse("Not Found Error", response);
-  }
-
-  // Test 7: Method not allowed
-  {
-    auto response = builder.methodNotAllowed("DELETE", "/api/users");
-    printResponse("Method Not Allowed", response);
-  }
-
-  // Test 8: Rate limit exceeded
-  {
-    auto response = builder.tooManyRequests("Too many requests from this IP");
-    printResponse("Rate Limit Exceeded", response);
-  }
-
-  // Test 9: Validation error
-  {
-    std::vector<std::string> errors = {
-        "Username must be at least 3 characters", "Email format is invalid",
-        "Password must contain at least one number"};
-    auto response = builder.validationError(errors);
-    printResponse("Validation Error", response);
-  }
-
-  // Test 10: Health check (healthy)
-  {
-    auto response = builder.healthCheck(true, "All systems operational");
-    printResponse("Health Check - Healthy", response);
-  }
-
-  // Test 11: Health check (unhealthy)
-  {
-    auto response = builder.healthCheck(false, "Database connection failed");
-    printResponse("Health Check - Unhealthy", response);
-  }
-
-  // Test 12: Redirect response
-  {
-    auto response = builder.redirect("https://api.example.com/v2/users");
-    printResponse("Redirect Response", response);
-  }
-
-  // Test 13: Fluent interface usage
-  {
-    auto response =
-        builder.setStatus(SimpleResponseBuilder::Status::CREATED)
-            .setContentType(SimpleResponseBuilder::ContentType::JSON)
-            .setHeader("X-Custom-Header", "custom-value")
-            .setRequestId("req-12345")
-            .success(R"({"id":456,"status":"created"})");
-    printResponse("Fluent Interface Usage", response);
-  }
-
-  // Test 14: Custom content type
-  {
-    auto response =
-        builder.setContentType(SimpleResponseBuilder::ContentType::XML)
-            .success("<users><user id=\"1\">Alice</user></users>");
-    printResponse("XML Content Type", response);
-  }
-
-  // Test 15: Internal server error
-  {
-    auto response = builder.internalServerError("Database connection timeout");
-    printResponse("Internal Server Error", response);
-  }
-
-  std::cout << "\n🎉 ResponseBuilder Demo Complete!\n";
-  std::cout << "\nKey Features Demonstrated:\n";
-  std::cout << "  ✅ Fluent interface for response building\n";
-  std::cout << "  ✅ Standardized success and error responses\n";
-  std::cout << "  ✅ Automatic header management (CORS, security)\n";
-  std::cout << "  ✅ Content type negotiation\n";
-  std::cout << "  ✅ JSON formatting and escaping\n";
-  std::cout << "  ✅ Timestamp and request ID inclusion\n";
-  std::cout << "  ✅ HTTP status code mapping\n";
-  std::cout << "  ✅ Validation error formatting\n";
-  std::cout << "  ✅ Health check responses\n";
-  std::cout << "  ✅ Redirect responses\n";
-
-  std::cout << "\nThis response building logic will improve HTTP server "
-               "stability by:\n";
-  std::cout
-      << "  • Ensuring consistent response formats across all endpoints\n";
-  std::cout << "  • Automatically applying security and CORS headers\n";
-  std::cout
-      << "  • Providing proper HTTP status codes for different scenarios\n";
-  std::cout << "  • Standardizing error response structures\n";
-  std::cout
-      << "  • Including debugging information (timestamps, request IDs)\n";
-  std::cout << "  • Preventing JSON injection through proper escaping\n";
-
-  return 0;
-}
